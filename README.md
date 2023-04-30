@@ -1,6 +1,8 @@
 # np-widget
 
-WIP Now Playing Widget using Tauri.
+WIP Now Playing desktop widget using Tauri.
+
+Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 |                                                       |                                                       |
 | ----------------------------------------------------- | ----------------------------------------------------- |
@@ -9,7 +11,13 @@ WIP Now Playing Widget using Tauri.
 ## Features/support/limitations
 
 - CSS/HTML/JS web widgets
-- (Only) Windows RT media API
+- (Only) Windows RT media API (Global System Media Transport Controls (GSMTC))
+- Draggable and resizable. Saves location and size.
+
+## Feature ideas
+
+- More widgets (CPU, memory, network, lyrics, spectrogram)
+- Widget bundles (JS/HTML/CSS)
 
 ## Links
 
