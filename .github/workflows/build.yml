@@ -1,5 +1,6 @@
 name: "Build release"
 on:
+  workflow_dispatch:
   release:
     types: [released]
 
@@ -31,5 +32,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ github.event.release.release_id }}
-          projectPath: np
+          releaseId: ${{ github.event.release.id  }}
