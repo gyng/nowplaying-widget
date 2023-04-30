@@ -1,5 +1,7 @@
 name: 'test-on-pr'
-on: [pull_request]
+on:
+  release:
+    types: [released]
 
 jobs:
   test-tauri:
