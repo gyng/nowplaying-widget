@@ -11,7 +11,7 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 ## Features/support/limitations
 
 - CSS/HTML/JS web widgets
-- (Only) Windows RT media API (Global System Media Transport Controls (GSMTC))
+- (Only) Windows RT media API (Global System Media Transport Controls (GSMTC), [support](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
 - Draggable and resizable. Saves location and size.
 
 ## Feature ideas
