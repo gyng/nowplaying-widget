@@ -32,8 +32,8 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.tauri.dev",
-      "longDescription": "",
+      "identifier": "io.github.gyng",
+      "longDescription": "Now Playing desktop widget",
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
