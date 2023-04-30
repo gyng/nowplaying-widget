@@ -6,6 +6,8 @@ on:
 
 jobs:
   build-tauri:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -32,4 +34,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ github.event.release.id  }}
+          releaseId: ${{ github.event.release.id }}
