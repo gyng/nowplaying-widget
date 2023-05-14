@@ -14,6 +14,7 @@
 	} from '../../../stores/stores';
 	import { mediaStore } from '../../../stores/stores';
 	import DefaultNowPlaying from './themes/DefaultNowPlaying.svelte';
+	import { sortMediaByPriority } from './priority';
 
 	type InitialEvent = {
 		last_media_update: { Media: SessionUpdateEventMedia } | undefined;
@@ -54,14 +55,7 @@
 	let sourcePriority: string;
 
 	mediaStore.subscribe((store) => {
-		const orderedMedia = Object.values(store.currentMedia)
-			.sort((a, b) => b.timestamp - a.timestamp)
-			.sort(
-				(a, b) =>
-					store.sourcePriority.indexOf(a.session?.source.toLowerCase() ?? '') -
-					store.sourcePriority.indexOf(b.session?.source.toLowerCase() ?? '')
-			)
-			.sort((_, b) => (b.session?.playback?.status === 'Playing' ? 1 : -1));
+		const orderedMedia = sortMediaByPriority(store.currentMedia, store.sourcePriority);
 		currentMedia = orderedMedia.at(0);
 		sourcePriority = store.sourcePriority;
 		allMedia = orderedMedia;
