@@ -13,6 +13,7 @@
 		type SessionUpdateEventModel
 	} from '../../../stores/stores';
 	import { mediaStore } from '../../../stores/stores';
+	import DefaultNowPlaying from './themes/DefaultNowPlaying.svelte';
 
 	type InitialEvent = {
 		last_media_update: { Media: SessionUpdateEventMedia } | undefined;
@@ -69,16 +70,6 @@
 	// https://github.com/tauri-apps/tao/issues/72
 	let decorations = false;
 	tauriWindow.getCurrent().setDecorations(decorations);
-
-	let widgetSource = './themes/DefaultNowPlaying.svelte';
-
-	let importWidget = (source: string) => {
-		console.log('import', source);
-		return import(
-			/* @vite-ignore */
-			source
-		);
-	};
 </script>
 
 <section
@@ -87,9 +78,7 @@
 		tauriWindow.getCurrent().startDragging();
 	}}
 >
-	{#await importWidget(widgetSource) then module}
-		<svelte:component this={module.default} {currentMedia} />
-	{/await}
+	<DefaultNowPlaying {currentMedia} />
 
 	<div id="debug">
 		<button
