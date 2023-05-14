@@ -23,6 +23,7 @@ jobs:
       - run: cargo test --verbose
 
   clippy_check:
+    name: Linting for Rust backend
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v1
@@ -37,7 +38,7 @@ jobs:
           args: --all-features
 
   client_test:
-    name: Tests for Svelte client
+    name: Tests and linting for Svelte client
     runs-on: ubuntu-latest
     defaults:
       run:
