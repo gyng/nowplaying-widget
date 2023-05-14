@@ -36,6 +36,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
+    permissions:
+      checks: write
 
   client_test:
     name: Tests and linting for Svelte client
