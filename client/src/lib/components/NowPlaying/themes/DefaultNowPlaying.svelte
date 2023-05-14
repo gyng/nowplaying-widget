@@ -49,4 +49,8 @@
 	#root:not(.playing) {
 		opacity: 0.2;
 	}
+
+	#root:not(.playing):hover {
+		opacity: 1;
+	}
 </style>
