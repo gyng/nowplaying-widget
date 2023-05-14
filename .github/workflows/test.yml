@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: "20.x"
       - run: npm ci
-      - run: npm check
+      - run: npm run check
       - run: npm run build
       - run: npm test:unit
       - run: npm run lint
