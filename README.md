@@ -10,14 +10,16 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 ## Features/support/limitations
 
-- CSS/HTML/JS web widgets
+- Svelte client
 - (Only) Windows RT media API (Global System Media Transport Controls (GSMTC), [support](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
 - Draggable and resizable. Saves location and size.
+- Priority list
 
 ## Feature ideas
 
 - More widgets (CPU, memory, network, lyrics, spectrogram)
 - Widget bundles (JS/HTML/CSS)
+- Dynamic Svelte component loading
 
 ## Links
 
@@ -28,4 +30,8 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 ```sh
 $ cargo tauri dev
+$ cargo test
+$ cargo clippy
+
+$ (cd client; npm i; npm test; npm check)
 ```
