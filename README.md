@@ -23,3 +23,9 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 - https://rfdonnelly.github.io/posts/tauri-async-rust-process/#the-async-process
 - https://github.com/Nerixyz/current-song2
+
+## Development
+
+```sh
+$ cargo tauri dev
+```

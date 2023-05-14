@@ -1,10 +1,9 @@
 {
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
-    "devPath": "dist",
-    "distDir": "dist",
-    "withGlobalTauri": true
+    "beforeBuildCommand": "cd ./client && npm run build",
+    "beforeDevCommand": "cd ./client && npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../client/build"
   },
   "package": {
     "productName": "np",
@@ -15,6 +14,25 @@
       "all": false,
       "window": {
         "all": true
+      },
+      "dialog": {
+        "all": true,
+        "ask": true,
+        "confirm": true,
+        "message": true,
+        "open": true,
+        "save": true
+      },
+      "path": {
+        "all": true
+      },
+      "fs": {
+        "all": true,
+        "scope": ["**"]
+      },
+      "protocol": {
+        "asset": true,
+        "assetScope": ["**"]
       }
     },
     "bundle": {

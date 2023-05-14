@@ -14,11 +14,15 @@ use crate::command::get_last_update;
 
 pub mod command;
 
-fn emit_media_update<R: tauri::Runtime>(
-    message: SessionUpdateEventWrapper,
-    manager: &impl Manager<R>,
-) {
-    manager.emit_all("media_update", message).unwrap();
+fn emit_update<R: tauri::Runtime>(message: SessionUpdateEventWrapper, manager: &impl Manager<R>) {
+    match message {
+        SessionUpdateEventWrapper::Model(_) => {
+            manager.emit_all("model_update", message).unwrap();
+        }
+        SessionUpdateEventWrapper::Media(_, _) => {
+            manager.emit_all("media_update", message).unwrap();
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -96,7 +100,8 @@ async fn session_listener(
 }
 
 pub struct AppState {
-    pub last_update: Mutex<Option<SessionUpdateEventWrapper>>,
+    pub last_media_update: Mutex<Option<SessionUpdateEventWrapper>>,
+    pub last_model_update: Mutex<Option<SessionUpdateEventWrapper>>,
 }
 
 #[tokio::main]
@@ -107,7 +112,8 @@ async fn main() -> Result<(), ()> {
 
     tauri::Builder::default()
         .manage(AppState {
-            last_update: Default::default(),
+            last_media_update: Default::default(),
+            last_model_update: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![get_last_update])
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -121,11 +127,22 @@ async fn main() -> Result<(), ()> {
                 loop {
                     if let Some(output) = rx_gsmtc.recv().await {
                         let wrapper: SessionUpdateEventWrapper = output.into();
-                        emit_media_update(wrapper.clone(), &app_handle);
+                        emit_update(wrapper.clone(), &app_handle);
                         let state: State<AppState> = app_handle.state();
                         // TODO: see if this can be refactored
-                        let mut state = state.last_update.lock().await;
-                        *state = Some(wrapper);
+
+                        match wrapper {
+                            SessionUpdateEventWrapper::Media(_, _) => {
+                                let mut state = state.last_media_update.lock().await;
+                                *state = Some(wrapper);
+                            }
+                            SessionUpdateEventWrapper::Model(_) => {
+                                let mut state: tokio::sync::MutexGuard<
+                                    Option<SessionUpdateEventWrapper>,
+                                > = state.last_model_update.lock().await;
+                                *state = Some(wrapper);
+                            }
+                        }
                     }
                 }
             });
