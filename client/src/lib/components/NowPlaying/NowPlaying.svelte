@@ -50,20 +50,21 @@
 	});
 
 	let currentMedia: MediaRecord | undefined;
+	let allMedia: MediaRecord[];
 	let sourcePriority: string;
 
 	mediaStore.subscribe((store) => {
-		const latest = Object.values(store.currentMedia)
+		const orderedMedia = Object.values(store.currentMedia)
 			.sort((a, b) => b.timestamp - a.timestamp)
 			.sort(
 				(a, b) =>
 					store.sourcePriority.indexOf(a.session?.source.toLowerCase() ?? '') -
 					store.sourcePriority.indexOf(b.session?.source.toLowerCase() ?? '')
 			)
-			.sort((_, b) => (b.session?.playback?.status === 'Playing' ? 1 : -1))
-			.at(0);
-		currentMedia = latest;
+			.sort((_, b) => (b.session?.playback?.status === 'Playing' ? 1 : -1));
+		currentMedia = orderedMedia.at(0);
 		sourcePriority = store.sourcePriority;
+		allMedia = orderedMedia;
 	});
 
 	// Workaround to enable transparent backgrounds on initial launch
@@ -88,22 +89,34 @@
 			}}>{decorations ? 'Disable decorations' : 'Enable decorations'}</button
 		>
 
-		<label>
-			<span>Source priority list<br />higher = top; not in list = lowest</span>
-			<div>Current source: {currentMedia?.session?.source}</div>
-			<textarea
-				style="width: calc(100% - 6px)"
-				rows="5"
-				value={sourcePriority}
-				on:change={(ev) => {
-					ev.preventDefault();
-					mediaStore.update((store) => ({
-						...store,
-						sourcePriority: ev.currentTarget.value.toLowerCase()
-					}));
-				}}
-			/>
-		</label>
+		<details>
+			<summary>Priority list</summary>
+			<label>
+				<span>Source priority list<br />higher = top; not in list = lowest</span>
+				<div>Current source: {currentMedia?.session?.source}</div>
+				<textarea
+					style="width: calc(100% - 6px)"
+					rows="5"
+					value={sourcePriority}
+					on:change={(ev) => {
+						ev.preventDefault();
+						mediaStore.update((store) => ({
+							...store,
+							sourcePriority: ev.currentTarget.value.toLowerCase()
+						}));
+					}}
+				/>
+			</label>
+		</details>
+
+		<details>
+			<summary>All media</summary>
+			<ol>
+				{#each allMedia as m}
+					<li>{m.session?.source}: {m.session?.media?.title}</li>
+				{/each}
+			</ol>
+		</details>
 	</div>
 </section>
 
@@ -121,5 +134,10 @@
 
 	#debug:hover {
 		opacity: 1;
+	}
+
+	details {
+		cursor: pointer;
+		user-select: none;
 	}
 </style>
