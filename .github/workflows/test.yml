@@ -9,8 +9,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_and_test:
-    name: Rust project - latest
+  rust_test:
+    name: Tests for Rust backend
     runs-on: windows-latest
     strategy:
       matrix:
@@ -22,8 +22,12 @@ jobs:
       - run: cargo build --verbose
       - run: cargo test --verbose
 
-  build:
-    runs-on: windows-latest
+  client_test:
+    name: Tests for Svelte client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./client
     steps:
       - uses: actions/checkout@v3
       - name: Use Node.js
