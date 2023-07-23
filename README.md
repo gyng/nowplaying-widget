@@ -1,6 +1,6 @@
 # np-widget
 
-WIP Now Playing desktop widget using Tauri.
+Now Playing desktop widget for Windows.
 
 Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
@@ -10,15 +10,17 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 ## Features/support/limitations
 
-- Svelte client
-- (Only) Windows RT media API (Global System Media Transport Controls (GSMTC), [support](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
+- Windows RT media API (Global System Media Transport Controls (GSMTC), [support table](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
+  - Anything that shows up in the Windows audio flyout works: Spotify/Foobar2000/Chrome/Firefox
+- User CSS theming
+- Priority list for audio sources
 - Draggable and resizable. Saves location and size.
-- Priority list
-- Primitive user CSS theming
+- Works with OBS
+- Tauri + Svelte
 
 ## Theming
 
-Insert your style sheet into the "Style override" textarea.
+Insert your CSS styles into the "Style override" textarea.
 
 Eg, to turn images grayscale
 
@@ -27,6 +29,10 @@ img {
   filter: grayscale(1);
 }
 ```
+
+## Autostart
+
+Add it to Startup apps in Task Manager.
 
 ## Feature ideas
 
@@ -41,7 +47,7 @@ img {
 
 ## Development
 
-> **Note**
+> **Note**  
 > np-widget has to be built on Windows.
 
 ```sh
