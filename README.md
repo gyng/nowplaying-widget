@@ -1,6 +1,6 @@
 # np-widget
 
-Now Playing desktop widget for Windows.
+Shows the currently playing track in a themable widget on Windows.
 
 Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
