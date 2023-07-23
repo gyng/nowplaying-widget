@@ -14,6 +14,19 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 - (Only) Windows RT media API (Global System Media Transport Controls (GSMTC), [support](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
 - Draggable and resizable. Saves location and size.
 - Priority list
+- Primitive user CSS theming
+
+## Theming
+
+Insert your style sheet into the "Style override" textarea.
+
+Eg, to turn images grayscale
+
+```css
+img {
+  filter: grayscale(1);
+}
+```
 
 ## Feature ideas
 
@@ -40,5 +53,7 @@ $ cargo clippy
 $ cargo tauri build
 
 # Run JS/client tests
-$ (cd client; npm i; npm test; npm check)
+$ (cd client; npm i; npm run test; npm run check)
+$ npm run test:unit
+$ npm run check:watch
 ```

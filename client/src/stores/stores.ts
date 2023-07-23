@@ -3,7 +3,10 @@ import { writable } from 'svelte/store';
 export type State = {
 	currentMedia: Record<string, MediaRecord>;
 	sourcePriority: string;
+	styleOverride: string;
 };
+
+export type SerializedState = Pick<State, 'sourcePriority' | 'styleOverride'>;
 
 export type MediaRecord = {
 	session: SessionModel | null;
@@ -59,11 +62,44 @@ export type SessionUpdateEventMedia = [SessionModel, ThumbnailInfo | null];
 export type SessionUpdateEventModel = SessionModel;
 export type SessionUpdateEvent = SessionUpdateEventModel | SessionUpdateEventMedia;
 
-export const mediaStore = writable<State>({
+export const defaultState: State = {
 	currentMedia: {},
 	sourcePriority: ['SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify', 'foobar2000.exe']
 		.join('\n')
-		.toLowerCase()
+		.toLowerCase(),
+	styleOverride: ''
+};
+
+// Local storage
+const MEDIA_STORE_KEY = '_mediaStore';
+const localMediaStoreSerializedState = localStorage.getItem(MEDIA_STORE_KEY) ?? '';
+let localMediaStoreDeserializedState: SerializedState | Record<string, never>;
+
+try {
+	// TODO: Validate deserialised values and do migrations if needed
+	const raw = JSON.parse(localMediaStoreSerializedState);
+	localMediaStoreDeserializedState = {
+		sourcePriority: raw.sourcePriority,
+		styleOverride: raw.styleOverride
+	};
+} catch (err) {
+	localMediaStoreDeserializedState = {};
+	console.warn(err);
+}
+
+const initialState: State = {
+	...defaultState,
+	...localMediaStoreDeserializedState
+};
+
+export const mediaStore = writable<State>(initialState);
+
+mediaStore.subscribe((value) => {
+	const toSerialize: SerializedState = {
+		sourcePriority: value.sourcePriority,
+		styleOverride: value.styleOverride
+	};
+	localStorage.setItem(MEDIA_STORE_KEY, JSON.stringify(toSerialize));
 });
 
 type UpdateMediaOptions = { session: SessionModel; thumbnail: ThumbnailInfo | null };
@@ -96,7 +132,8 @@ export function handleMediaEvent(ev: UpdateMediaOptions) {
 					timestamp: Date.now()
 				}
 			},
-			sourcePriority: cur.sourcePriority
+			sourcePriority: cur.sourcePriority,
+			styleOverride: cur.styleOverride
 		};
 	});
 }
@@ -123,7 +160,8 @@ export function handleModelEvent(ev: UpdateModelInfo | null) {
 					timestamp: Date.now()
 				}
 			},
-			sourcePriority: cur.sourcePriority
+			sourcePriority: cur.sourcePriority,
+			styleOverride: cur.styleOverride
 		};
 	});
 }

@@ -10,11 +10,13 @@
 		type SessionModel,
 		type SessionUpdateEvent,
 		type SessionUpdateEventMedia,
-		type SessionUpdateEventModel
+		type SessionUpdateEventModel,
+		defaultState
 	} from '../../../stores/stores';
 	import { mediaStore } from '../../../stores/stores';
 	import DefaultNowPlaying from './themes/DefaultNowPlaying.svelte';
 	import { sortMediaByPriority } from './priority';
+	import ThemeInjector from './themes/ThemeInjector.svelte';
 
 	type InitialEvent = {
 		last_media_update: { Media: SessionUpdateEventMedia } | undefined;
@@ -53,11 +55,13 @@
 	let currentMedia: MediaRecord | undefined;
 	let allMedia: MediaRecord[];
 	let sourcePriority: string;
+	let styleOverride: string;
 
 	mediaStore.subscribe((store) => {
 		const orderedMedia = sortMediaByPriority(store.currentMedia, store.sourcePriority);
 		currentMedia = orderedMedia.at(0);
 		sourcePriority = store.sourcePriority;
+		styleOverride = store.styleOverride;
 		allMedia = orderedMedia;
 	});
 
@@ -73,6 +77,8 @@
 		tauriWindow.getCurrent().startDragging();
 	}}
 >
+	<ThemeInjector css={styleOverride} html="" />
+
 	<DefaultNowPlaying {currentMedia} />
 
 	<div id="debug">
@@ -84,6 +90,26 @@
 		>
 
 		<details>
+			<summary>Style override</summary>
+			<label>
+				<span>Hint: Right-click > Inspect to see class names</span>
+				<textarea
+					style="width: calc(100% - 6px)"
+					rows="5"
+					value={styleOverride}
+					spellcheck={false}
+					on:change={(ev) => {
+						ev.preventDefault();
+						mediaStore.update((store) => ({
+							...store,
+							styleOverride: ev.currentTarget.value
+						}));
+					}}
+				/>
+			</label>
+		</details>
+
+		<details>
 			<summary>Priority list</summary>
 			<label>
 				<span>Source priority list<br />higher = top; not in list = lowest</span>
@@ -92,6 +118,7 @@
 					style="width: calc(100% - 6px)"
 					rows="5"
 					value={sourcePriority}
+					spellcheck={false}
 					on:change={(ev) => {
 						ev.preventDefault();
 						mediaStore.update((store) => ({
@@ -118,6 +145,16 @@
 				on:click={() => {
 					tauriWindow.getCurrent().close();
 				}}>Close</button
+			>
+			<button
+				on:click={() => {
+					mediaStore.update(() => defaultState);
+				}}>Reset settings to default</button
+			>
+			<button
+				on:click={() => {
+					window.location.reload();
+				}}>Reload page</button
 			>
 		</details>
 	</div>
