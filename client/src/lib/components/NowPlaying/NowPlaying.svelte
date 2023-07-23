@@ -111,6 +111,15 @@
 				{/each}
 			</ol>
 		</details>
+
+		<details>
+			<summary>Debug</summary>
+			<button
+				on:click={() => {
+					tauriWindow.getCurrent().close();
+				}}>Close</button
+			>
+		</details>
 	</div>
 </section>
 

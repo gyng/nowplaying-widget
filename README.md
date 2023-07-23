@@ -28,10 +28,17 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 
 ## Development
 
+> **Note**
+> np-widget has to be built on Windows.
+
 ```sh
 $ cargo tauri dev
 $ cargo test
 $ cargo clippy
 
+# If needed; output is target/release/np.exe
+$ cargo tauri build
+
+# Run JS/client tests
 $ (cd client; npm i; npm test; npm check)
 ```

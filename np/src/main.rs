@@ -7,7 +7,7 @@ use gsmtc::{Image, ManagerEvent, SessionModel, SessionUpdateEvent};
 use gsmtc::{ManagerEvent::*, SessionUpdateEvent::*};
 use serde::Serialize;
 use tauri::async_runtime::Mutex;
-use tauri::{Manager, State};
+use tauri::{Manager, State, WindowEvent};
 use tokio::sync::mpsc;
 
 use crate::command::get_last_update;
@@ -118,6 +118,10 @@ async fn main() -> Result<(), ()> {
         .invoke_handler(tauri::generate_handler![get_last_update])
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
+            // See comment in .on_window_event as to why this is required on setup
+            // (restore size of undecorated windows correctly)
+            // Decorations are closed by the client to work around another bug regarding window transparency
+
             tauri::async_runtime::spawn(async move {
                 session_listener(rx_session_manager, tx_gsmtc).await
             });
@@ -148,6 +152,18 @@ async fn main() -> Result<(), ()> {
             });
 
             Ok(())
+        })
+        .on_window_event(|event| match event.event() {
+            // A bug in tauri-plugin-window-state means that window sizes for undecorated windows
+            // are not restored with decoration sizes considered.
+            // This is causing restored windows to grow in size on each app restart.
+            // To get around this, restore decorations when the app is closed and hide decorations again
+            // manually when the app is launched.
+            WindowEvent::CloseRequested { .. } => {
+                let _ = event.window().set_decorations(true);
+                ()
+            }
+            _ => (),
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
