@@ -68,7 +68,7 @@ async fn session_listener(
                 source,
             } => {
                 println!("Created session: {{id={session_id}, source={source}}}");
-                let tx_child = tx.clone();
+                let tx_child: mpsc::Sender<SessionUpdateEvent> = tx.clone();
                 tokio::spawn(async move {
                     println!("session spawned {{x={session_id}}}");
                     while let Some(evt) = rx.recv().await {
@@ -153,17 +153,15 @@ async fn main() -> Result<(), ()> {
 
             Ok(())
         })
-        .on_window_event(|event| match event.event() {
+        .on_window_event(|event| {
             // A bug in tauri-plugin-window-state means that window sizes for undecorated windows
             // are not restored with decoration sizes considered.
             // This is causing restored windows to grow in size on each app restart.
             // To get around this, restore decorations when the app is closed and hide decorations again
             // manually when the app is launched.
-            WindowEvent::CloseRequested { .. } => {
+            if let WindowEvent::CloseRequested { .. } = event.event() {
                 let _ = event.window().set_decorations(true);
-                ()
             }
-            _ => (),
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
