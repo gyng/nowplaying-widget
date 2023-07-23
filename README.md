@@ -47,8 +47,15 @@ Add it to Startup apps in Task Manager.
 
 ## Development
 
+Contributions welcome.
+
+### Getting started
+
 > **Note**  
 > np-widget has to be built on Windows.
+
+Install [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites) first.
+
 
 ```sh
 $ cargo tauri dev
@@ -63,3 +70,8 @@ $ (cd client; npm i; npm run test; npm run check)
 $ npm run test:unit
 $ npm run check:watch
 ```
+
+### Release
+
+1. Bump the version in [tauri.conf.json](np/tauri.conf.json)
+2. Create a new release on the [releases](https://github.com/gyng/np-widget/releases) page.
