@@ -118,10 +118,6 @@ async fn main() -> Result<(), ()> {
         .invoke_handler(tauri::generate_handler![get_last_update])
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
-            // See comment in .on_window_event as to why this is required on setup
-            // (restore size of undecorated windows correctly)
-            // Decorations are closed by the client to work around another bug regarding window transparency
-
             tauri::async_runtime::spawn(async move {
                 session_listener(rx_session_manager, tx_gsmtc).await
             });
@@ -159,6 +155,8 @@ async fn main() -> Result<(), ()> {
             // This is causing restored windows to grow in size on each app restart.
             // To get around this, restore decorations when the app is closed and hide decorations again
             // manually when the app is launched.
+            // Decorations are disabled by the client on startup to work around another bug regarding window transparency
+            // so there is no need to explicitly disable them in Rust code.
             if let WindowEvent::CloseRequested { .. } = event.event() {
                 let _ = event.window().set_decorations(true);
             }

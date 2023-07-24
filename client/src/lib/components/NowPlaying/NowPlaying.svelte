@@ -67,8 +67,7 @@
 
 	// Workaround to enable transparent backgrounds on initial launch
 	// https://github.com/tauri-apps/tao/issues/72
-	let decorations = false;
-	tauriWindow.getCurrent().setDecorations(decorations);
+	tauriWindow.getCurrent().setDecorations(false);
 </script>
 
 <section
