@@ -2,7 +2,7 @@
 
 Shows the currently playing track in a themable widget on Windows.
 
-Download: check the [releases page](https://github.com/gyng/np-widget/releases).
+[Download for the latest release](https://github.com/gyng/np-widget/releases/latest)
 
 |                                                       |                                                       |
 | ----------------------------------------------------- | ----------------------------------------------------- |
@@ -18,7 +18,11 @@ Download: check the [releases page](https://github.com/gyng/np-widget/releases).
 - Works with OBS
 - Tauri + Svelte
 
-## Theming
+## Usage
+
+Download the installer msi from the [latest release](https://github.com/gyng/np-widget/releases/latest).
+
+### Theming
 
 Insert your CSS styles into the "Style override" textarea.
 
@@ -30,9 +34,13 @@ img {
 }
 ```
 
-## Autostart
+### Autostart
 
-Add it to Startup apps in Task Manager.
+Add np.exe to Startup apps in Task Manager.
+
+### Priority list
+
+If multiple audio sources exist np-widget uses this list of executable names to decide which to show. The current list of all audio sources is in "All media".
 
 ## Feature ideas
 
@@ -55,7 +63,6 @@ Contributions welcome.
 > np-widget has to be built on Windows.
 
 Install [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites) first.
-
 
 ```sh
 $ cargo tauri dev
