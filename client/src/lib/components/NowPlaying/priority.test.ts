@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { MediaRecord, PlaybackModel, SessionModel } from '../../../stores/stores';
-import { sortMediaByPriority } from './priority';
+import type { PlaybackModel, SessionModel, SessionRecord } from '../../../stores/stores';
+import { sortSessionsByPriority } from './priority';
 
 const playback: PlaybackModel = {
 	auto_repeat: 'None',
@@ -17,85 +17,125 @@ const session: SessionModel = {
 	source: 'set_me'
 };
 
-const record: MediaRecord = {
-	session,
-	thumbnail: undefined,
-	timestamp: 1
+const sessionRecord: SessionRecord = {
+	session_id: 0,
+	source: '',
+	timestamp_created: null,
+	timestamp_updated: null,
+	last_media_update: {
+		Media: [
+			{
+				playback: null,
+				timeline: null,
+				media: {
+					album: null,
+					artist: 'fooartist',
+					genres: [],
+					playback_type: 'Music',
+					subtitle: '',
+					title: 'bartitle',
+					track_number: null
+				},
+				source: 'test.exe'
+			},
+			null
+		]
+	},
+	last_model_update: {
+		Model: {
+			playback: null,
+			timeline: null,
+			media: null,
+			source: ''
+		}
+	}
 };
 
 describe('priority', () => {
 	it('sorts media by priority in list', () => {
-		const allMedia: Record<string, MediaRecord> = {
-			foobar: {
-				...record,
-				session: { ...session, source: 'foobar' }
+		const sessions: Record<number, SessionRecord> = {
+			0: {
+				...sessionRecord,
+				session_id: 0,
+				source: 'foobar'
 			},
-			barbaz: {
-				...record,
-				session: { ...session, source: 'barbaz' }
+			2: {
+				...sessionRecord,
+				session_id: 2,
+				source: 'barbaz'
 			},
-			notinlist: {
-				...record,
-				session: { ...session, source: 'notinlist' }
+			4: {
+				...sessionRecord,
+				session_id: 4,
+				source: 'notinlist'
 			}
 		};
 		const priority = 'barbaz\nfoobar';
 
-		const sorted = sortMediaByPriority(allMedia, priority);
+		const sorted = sortSessionsByPriority(sessions, priority);
 
-		expect(sorted[0].session?.source).toBe('barbaz');
-		expect(sorted[1].session?.source).toBe('foobar');
-		expect(sorted[2].session?.source).toBe('notinlist');
+		expect(sorted.at(2)!.source).toBe('barbaz');
+		expect(sorted.at(1)!.source).toBe('foobar');
+		expect(sorted.at(0)!.source).toBe('notinlist');
 	});
 
 	it('sorts media by playing status after sorting by priority list', () => {
-		const allMedia: Record<string, MediaRecord> = {
-			foobar: {
-				...record,
-				session: { ...session, playback: { ...playback, status: 'Playing' }, source: 'foobar' }
+		const sessions: Record<number, SessionRecord> = {
+			0: {
+				...sessionRecord,
+				session_id: 0,
+				source: 'foobar',
+				last_model_update: { Model: { ...session, playback: { ...playback, status: 'Playing' } } }
 			},
-			barbaz: {
-				...record,
-				session: { ...session, playback: { ...playback, status: 'Stopped' }, source: 'barbaz' }
+			2: {
+				...sessionRecord,
+				session_id: 2,
+				source: 'barbaz',
+				last_model_update: { Model: { ...session, playback: { ...playback, status: 'Stopped' } } }
 			},
-			notinlist: {
-				...record,
-				session: { ...session, playback: { ...playback, status: 'Playing' }, source: 'notinlist' }
+			4: {
+				...sessionRecord,
+				session_id: 4,
+				source: 'notinlist',
+				last_model_update: { Model: { ...session, playback: { ...playback, status: 'Playing' } } }
 			}
 		};
 		const priority = 'barbaz\nfoobar';
 
-		const sorted = sortMediaByPriority(allMedia, priority);
+		const sorted = sortSessionsByPriority(sessions, priority);
 
-		expect(sorted[0].session?.source).toBe('foobar');
-		expect(sorted[1].session?.source).toBe('notinlist');
-		expect(sorted[2].session?.source).toBe('barbaz');
+		expect(sorted.at(0)!.source).toBe('foobar');
+		expect(sorted.at(1)!.source).toBe('notinlist');
+		expect(sorted.at(2)!.source).toBe('barbaz');
 	});
 
-	it('sorts media by timestamp otherwise', () => {
-		const allMedia: Record<string, MediaRecord> = {
-			foobar: {
-				...record,
-				session: { ...session, source: 'foobar' },
-				timestamp: 1
+	it('sorts media by last updated timestamp otherwise', () => {
+		const sessions: Record<number, SessionRecord> = {
+			0: {
+				...sessionRecord,
+				session_id: 0,
+				source: 'foobar',
+				timestamp_updated: { secs_since_epoch: 10, nanos_since_epoch: 0 }
 			},
-			barbaz: {
-				...record,
-				session: { ...session, source: 'barbaz' },
-				timestamp: 5
+			2: {
+				...sessionRecord,
+				session_id: 2,
+				source: 'barbaz',
+				timestamp_updated: { secs_since_epoch: 100, nanos_since_epoch: 0 }
 			},
-			notinlist: {
-				...record,
-				session: { ...session, source: 'notinlist' },
-				timestamp: 10
+			4: {
+				...sessionRecord,
+				session_id: 4,
+				source: 'notinlist',
+				timestamp_updated: { secs_since_epoch: 1000, nanos_since_epoch: 0 }
 			}
 		};
 		const priority = '';
 
-		const sorted = sortMediaByPriority(allMedia, priority);
+		const sorted = sortSessionsByPriority(sessions, priority);
 
-		expect(sorted[0].session?.source).toBe('notinlist');
-		expect(sorted[1].session?.source).toBe('barbaz');
-		expect(sorted[2].session?.source).toBe('foobar');
+		expect(sorted.at(2)!.source).toBe('notinlist');
+		expect(sorted.at(1)!.source).toBe('barbaz');
+		expect(sorted.at(0)!.source).toBe('foobar');
 	});
 });
