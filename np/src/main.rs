@@ -18,29 +18,6 @@ use crate::command::get_initial_sessions;
 
 pub mod command;
 
-// fn emit_update<R: tauri::Runtime>(message: SessionUpdateEventWrapper, manager: &impl Manager<R>) {
-//     match message {
-//         SessionUpdateEventWrapper::Model(_) => {
-//             manager.emit_all("model_update", message).unwrap();
-//         }
-//         SessionUpdateEventWrapper::Media(_, _) => {
-//             manager.emit_all("media_update", message).unwrap();
-//         }
-//     }
-// }
-
-// fn emit_message<R: tauri::Runtime>(
-//     message: NpSessionEvent,
-//     manager: &impl Manager<R>,
-// ) -> Result<(), tauri::Error> {
-//     match message {
-//         NpSessionEvent::Create(_, _) => manager.emit_all("session_create", message),
-//         NpSessionEvent::Update(_, _) => manager.emit_all("session_update", message),
-//         NpSessionEvent::Delete(_, _) => manager.emit_all("session_delete", message),
-//         NpSessionEvent::Unsupported(_, _) => manager.emit_all("session_create", message),
-//     }
-// }
-
 fn emit_message<R: tauri::Runtime>(
     event_type: &str,
     message: SessionRecord,
