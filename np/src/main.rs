@@ -3,6 +3,10 @@
     windows_subsystem = "windows"
 )]
 
+use std::collections::HashMap;
+use std::fmt;
+use std::time::SystemTime;
+
 use gsmtc::{Image, ManagerEvent, SessionModel, SessionUpdateEvent};
 use gsmtc::{ManagerEvent::*, SessionUpdateEvent::*};
 use serde::Serialize;
@@ -10,22 +14,19 @@ use tauri::async_runtime::Mutex;
 use tauri::{Manager, State, WindowEvent};
 use tokio::sync::mpsc;
 
-use crate::command::get_last_update;
+use crate::command::get_initial_sessions;
 
 pub mod command;
 
-fn emit_update<R: tauri::Runtime>(message: SessionUpdateEventWrapper, manager: &impl Manager<R>) {
-    match message {
-        SessionUpdateEventWrapper::Model(_) => {
-            manager.emit_all("model_update", message).unwrap();
-        }
-        SessionUpdateEventWrapper::Media(_, _) => {
-            manager.emit_all("media_update", message).unwrap();
-        }
-    }
+fn emit_message<R: tauri::Runtime>(
+    event_type: &str,
+    message: SessionRecord,
+    manager: &impl Manager<R>,
+) -> Result<(), tauri::Error> {
+    manager.emit_all(event_type, message)
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ImageWrapper {
     pub content_type: String,
     pub data: Vec<u8>,
@@ -37,6 +38,17 @@ impl From<Image> for ImageWrapper {
             content_type: value.content_type,
             data: value.data,
         }
+    }
+}
+
+impl fmt::Debug for ImageWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ImageWrapper {{ content_type: {}, data: u8[{}] }}",
+            self.content_type,
+            self.data.len()
+        )
     }
 }
 
@@ -56,9 +68,63 @@ impl From<SessionUpdateEvent> for SessionUpdateEventWrapper {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub enum NpSessionEvent {
+    /// session ID, source, event
+    /// ManagerEvent actually already contains this information but we still keep session ID to be consistent
+    Create(usize, ManagerEventWrapper),
+    Update(usize, SessionUpdateEventWrapper),
+    Delete(usize, ManagerEventWrapper),
+    Unsupported(Option<usize>, String),
+}
+
+impl From<ManagerEventWrapper> for NpSessionEvent {
+    fn from(event: ManagerEventWrapper) -> Self {
+        match &event {
+            ManagerEventWrapper::SessionCreated {
+                session_id,
+                source: _,
+            } => NpSessionEvent::Create(*session_id, event),
+            ManagerEventWrapper::SessionRemoved { session_id } => {
+                NpSessionEvent::Delete(*session_id, event)
+            }
+            ManagerEventWrapper::CurrentSessionChanged { session_id } => {
+                NpSessionEvent::Unsupported(*session_id, "CurrentSessionChanged".to_owned())
+            }
+        }
+    }
+}
+
+impl NpSessionEvent {
+    fn from_session_update_event(event: SessionUpdateEventWrapper, session_id: usize) -> Self {
+        NpSessionEvent::Update(session_id, event)
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum ManagerEventWrapper {
+    SessionCreated { session_id: usize, source: String },
+    SessionRemoved { session_id: usize },
+    CurrentSessionChanged { session_id: Option<usize> },
+}
+
+impl From<ManagerEvent> for ManagerEventWrapper {
+    fn from(value: ManagerEvent) -> Self {
+        match value {
+            SessionCreated {
+                session_id,
+                rx: _,
+                source,
+            } => Self::SessionCreated { session_id, source },
+            SessionRemoved { session_id } => Self::SessionRemoved { session_id },
+            CurrentSessionChanged { session_id } => Self::CurrentSessionChanged { session_id },
+        }
+    }
+}
+
 async fn session_listener(
     mut manager_rx: mpsc::UnboundedReceiver<ManagerEvent>,
-    tx: mpsc::Sender<SessionUpdateEvent>,
+    tx: mpsc::Sender<NpSessionEvent>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     while let Some(evt) = manager_rx.recv().await {
         match evt {
@@ -67,21 +133,52 @@ async fn session_listener(
                 mut rx,
                 source,
             } => {
-                println!("Created session: {{id={session_id}, source={source}}}");
-                let tx_child: mpsc::Sender<SessionUpdateEvent> = tx.clone();
+                // `rx` is killing our .into() when destructured so manually create the struct here
+                let evt_wrapper: ManagerEventWrapper = ManagerEventWrapper::SessionCreated {
+                    session_id,
+                    source: source.clone(),
+                };
+
+                println!("Created session: {{id={session_id}, {:?}}}", evt_wrapper);
+
+                let res_create = tx.send(evt_wrapper.into()).await;
+                println!(
+                    "send create session event x={session_id} res={:?}",
+                    res_create.is_ok()
+                );
+
+                let tx_child = tx.clone();
                 tokio::spawn(async move {
                     println!("session spawned {{x={session_id}}}");
-                    while let Some(evt) = rx.recv().await {
-                        let res = tx_child.send(evt).await;
-                        let is_ok = res.is_ok();
-                        println!("session event x={session_id} res={is_ok}");
+                    while let Some(evt_update) = rx.recv().await {
+                        println!("rx received!");
+                        let evt_update_wrapper: SessionUpdateEventWrapper = evt_update.into();
+
+                        let res_session_update = tx_child
+                            .send(NpSessionEvent::from_session_update_event(
+                                evt_update_wrapper,
+                                session_id,
+                            ))
+                            .await;
+
+                        println!(
+                            "session event x={session_id} res={}",
+                            res_session_update.is_ok()
+                        );
                     }
-                    println!("[{session_id}/{source}] exited event-loop");
+                    // println!("[{session_id}/{:?}] exited event-loop", evt_wrapper);
                 });
             }
             SessionRemoved { session_id } => {
-                // TODO: reset frontend
-                println!("Session {{id={session_id}}} was removed")
+                let evt_wrapper: ManagerEventWrapper =
+                    ManagerEventWrapper::SessionRemoved { session_id };
+
+                let res_session_update = tx.send(evt_wrapper.into()).await;
+
+                println!(
+                    "removed session event x={session_id} res={}",
+                    res_session_update.is_ok()
+                );
             }
             CurrentSessionChanged {
                 session_id: Some(id),
@@ -99,23 +196,30 @@ async fn session_listener(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionRecord {
+    pub session_id: usize,
+    pub source: Option<String>,
+    pub timestamp_created: Option<SystemTime>,
+    pub timestamp_updated: Option<SystemTime>,
+    pub last_media_update: Option<SessionUpdateEventWrapper>,
+    pub last_model_update: Option<SessionUpdateEventWrapper>,
+}
+
 pub struct AppState {
-    pub last_media_update: Mutex<Option<SessionUpdateEventWrapper>>,
-    pub last_model_update: Mutex<Option<SessionUpdateEventWrapper>>,
+    pub sessions: Mutex<HashMap<usize, SessionRecord>>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
-    let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(1);
     let rx_session_manager = gsmtc::SessionManager::create().await.unwrap();
-    // let (async_proc_input_tx, async_proc_input_rx) = mpsc::channel(1);
+    let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(1);
 
     tauri::Builder::default()
         .manage(AppState {
-            last_media_update: Default::default(),
-            last_model_update: Default::default(),
+            sessions: Default::default(),
         })
-        .invoke_handler(tauri::generate_handler![get_last_update])
+        .invoke_handler(tauri::generate_handler![get_initial_sessions])
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             tauri::async_runtime::spawn(async move {
@@ -125,24 +229,104 @@ async fn main() -> Result<(), ()> {
             let app_handle = app.handle();
             tauri::async_runtime::spawn(async move {
                 loop {
+                    println!("looping");
                     if let Some(output) = rx_gsmtc.recv().await {
-                        let wrapper: SessionUpdateEventWrapper = output.into();
-                        emit_update(wrapper.clone(), &app_handle);
-                        let state: State<AppState> = app_handle.state();
-                        // TODO: see if this can be refactored
+                        println!("received rx_gsmtc");
+                        // let emit_result = emit_message(output.clone(), &app_handle);
+                        // println!("message sent {:?} ok={}", &output, emit_result.is_ok());
 
-                        match wrapper {
-                            SessionUpdateEventWrapper::Media(_, _) => {
-                                let mut state = state.last_media_update.lock().await;
-                                *state = Some(wrapper);
+                        let state: State<AppState> = app_handle.state();
+                        let mut sessions = state.sessions.lock().await;
+
+                        match output {
+                            NpSessionEvent::Create(
+                                _session_id_dupe,
+                                ManagerEventWrapper::SessionCreated {
+                                    session_id,
+                                    source,
+                                },
+                            ) => {
+                                let new_record = SessionRecord {
+                                    session_id,
+                                    source: Some(source),
+                                    timestamp_created: Some(SystemTime::now()),
+                                    timestamp_updated: None,
+                                    last_media_update: None,
+                                    last_model_update: None,
+                                };
+                                let _ = (*sessions).insert(session_id, new_record.clone());
+                                let _ = emit_message("session_create", new_record, &app_handle);
                             }
-                            SessionUpdateEventWrapper::Model(_) => {
-                                let mut state: tokio::sync::MutexGuard<
-                                    Option<SessionUpdateEventWrapper>,
-                                > = state.last_model_update.lock().await;
-                                *state = Some(wrapper);
+                            NpSessionEvent::Create(
+                                _session_id_dupe,
+                                ev,
+                            ) => {
+                                eprintln!(
+                                    "Got a ManagerEvent::SessionRemoved or CurrentSessionChanged for MpSessionEvent::Create {:?}", ev
+                                );
+                            }
+                            NpSessionEvent::Update(session_id, ev) => {
+                                let maybe_existing = (*sessions).get(&session_id);
+                                // WIP refactor; update state by storing sessions
+                                // TODO: create np-widget-specific models for sessions and map gsmtc to it
+
+                                let updated_record = if let Some(existing) = maybe_existing {
+                                    let mut record_mut = SessionRecord {
+                                        session_id: existing.session_id,
+                                        source: existing.source.clone(),
+                                        timestamp_created: existing.timestamp_created,
+                                        timestamp_updated: Some(SystemTime::now()),
+                                        // Check if this can be CoW?
+                                        last_media_update: existing.last_media_update.clone(),
+                                        last_model_update: existing.last_model_update.clone(),
+                                    };
+
+                                    match ev {
+                                        SessionUpdateEventWrapper::Model(_) => {
+                                            record_mut.last_model_update = Some(ev.into());
+                                        }
+                                        SessionUpdateEventWrapper::Media(_, _) => {
+                                            record_mut.last_media_update = Some(ev.into());
+                                        }
+                                    }
+
+                                    record_mut
+                                } else {
+                                    let updated_ev: SessionUpdateEventWrapper = ev.into();
+                                    SessionRecord {
+                                        session_id,
+                                        source: None,
+                                        timestamp_created: Some(SystemTime::now()),
+                                        timestamp_updated: Some(SystemTime::now()),
+                                        last_media_update: match updated_ev {
+                                            SessionUpdateEventWrapper::Model(_) => None,
+                                            // FIXME: awful clone here
+                                            SessionUpdateEventWrapper::Media(_, _) => {
+                                                Some(updated_ev.clone())
+                                            }
+                                        },
+                                        last_model_update: match updated_ev {
+                                            SessionUpdateEventWrapper::Model(_) => Some(updated_ev),
+                                            SessionUpdateEventWrapper::Media(_, _) => None,
+                                        },
+                                    }
+                                };
+
+                                let _ = (*sessions).insert(session_id, updated_record.clone());
+                                let _ = emit_message("session_update", updated_record, &app_handle);
+                            }
+                            NpSessionEvent::Delete(session_id, _ev) => {
+                                let maybe_deleted_record = (*sessions).remove(&session_id);
+
+                                if let Some(deleted_record) = maybe_deleted_record {
+                                    let _ = emit_message("session_delete", deleted_record, &app_handle);
+                                }
+                            }
+                            NpSessionEvent::Unsupported(session_id, label) => {
+                                println!("Unsupported event {label}, session_id={:?}", session_id)
                             }
                         }
+
                     }
                 }
             });

@@ -1,68 +1,65 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/tauri';
+	import { getVersion } from '@tauri-apps/api/app';
 	import * as tauriWindow from '@tauri-apps/api/window';
 	import * as tauriEvent from '@tauri-apps/api/event';
 	import {
-		handleMediaEvent,
-		handleModelEvent,
-		type MediaRecord,
-		type ThumbnailInfo,
-		type SessionModel,
-		type SessionUpdateEvent,
-		type SessionUpdateEventMedia,
-		type SessionUpdateEventModel,
-		defaultState
+		defaultState,
+		type SessionRecord,
+		handleInitialize,
+		handleUpdate,
+		handleDelete
 	} from '../../../stores/stores';
 	import { mediaStore } from '../../../stores/stores';
 	import DefaultNowPlaying from './themes/DefaultNowPlaying.svelte';
-	import { sortMediaByPriority } from './priority';
+	import { sortSessionsByPriority } from './priority';
 	import ThemeInjector from './themes/ThemeInjector.svelte';
 
 	type InitialEvent = {
-		last_media_update: { Media: SessionUpdateEventMedia } | undefined;
-		last_model_update: { Model: SessionUpdateEvent } | undefined;
+		sessions: Record<number, SessionRecord>;
 	};
-	invoke<InitialEvent>('get_last_update', { message: '' }).then((ev) => {
+	invoke<InitialEvent>('get_initial_sessions', { message: '' }).then((ev) => {
 		// TODO: Store timestamps in backend so we know which order to apply model/media updates
 		// Model updates can be after media updates
-		if (ev.last_model_update) {
-			handleModelEvent({
-				session: ev.last_model_update.Model as unknown as SessionUpdateEventModel
-			});
-		}
-
-		if (ev.last_media_update) {
-			const [session, thumbnail] = ev.last_media_update.Media as unknown as SessionUpdateEventMedia;
-			handleMediaEvent({ session, thumbnail });
-		}
+		let sessions: Record<number, SessionRecord> = ev.sessions;
+		handleInitialize({ sessions });
 	});
 
-	type MediaPayload = { Media: [SessionModel, ThumbnailInfo] };
-	tauriEvent.listen<MediaPayload>('media_update', (ev) => {
+	tauriEvent.listen<SessionRecord>('session_update', (ev) => {
 		console.log('recv', ev.event, ev);
-		const payload = ev.payload as MediaPayload;
-		const [session, thumbnail] = payload.Media;
-		handleMediaEvent({ session, thumbnail });
+		handleUpdate({ sessionRecord: ev.payload });
 	});
 
-	type ModelPayload = { Model: SessionModel };
-	tauriEvent.listen<ModelPayload>('model_update', (ev) => {
+	tauriEvent.listen<SessionRecord>('session_delete', (ev) => {
 		console.log('recv', ev.event, ev);
-		const payload = ev.payload as ModelPayload;
-		handleModelEvent({ session: payload.Model });
+		handleDelete({ sessionRecord: ev.payload });
 	});
 
-	let currentMedia: MediaRecord | undefined;
-	let allMedia: MediaRecord[];
+	tauriEvent.listen<SessionRecord>('test', (ev) => {
+		console.log('recv', ev.event, ev);
+	});
+
+	let currentSession: SessionRecord | undefined;
+	let allMedia: Array<{ source: string; title?: string }>;
 	let sourcePriority: string;
 	let styleOverride: string;
+	let appVersion: string;
 
 	mediaStore.subscribe((store) => {
-		const orderedMedia = sortMediaByPriority(store.currentMedia, store.sourcePriority);
-		currentMedia = orderedMedia.at(0);
+		const orderedSession = sortSessionsByPriority(store.sessions, store.sourcePriority);
+		currentSession = orderedSession.at(0);
+		console.log('currentSession', currentSession);
 		sourcePriority = store.sourcePriority;
 		styleOverride = store.styleOverride;
-		allMedia = orderedMedia;
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		allMedia = Object.entries(store.sessions).map(([_k, v]) => ({
+			source: v.source,
+			title: v.last_model_update?.Model?.media?.title
+		}));
+	});
+
+	getVersion().then((v) => {
+		appVersion = v;
 	});
 
 	// Workaround to enable transparent backgrounds on initial launch
@@ -79,7 +76,7 @@
 >
 	<ThemeInjector css={styleOverride} html="" />
 
-	<DefaultNowPlaying {currentMedia} />
+	<DefaultNowPlaying session={currentSession} />
 
 	<div id="debug">
 		<button
@@ -113,7 +110,7 @@
 			<summary>Priority list</summary>
 			<label>
 				<span>Source priority list<br />higher = top; not in list = lowest</span>
-				<div>Current source: {currentMedia?.session?.source}</div>
+				<div>Current source: {currentSession?.source}</div>
 				<textarea
 					style="width: calc(100% - 6px)"
 					rows="5"
@@ -134,7 +131,7 @@
 			<summary>All media</summary>
 			<ol>
 				{#each allMedia as m}
-					<li>{m.session?.source}: {m.session?.media?.title}</li>
+					<li>{m.source}: {m.title}</li>
 				{/each}
 			</ol>
 		</details>
@@ -156,6 +153,8 @@
 					window.location.reload();
 				}}>Reload page</button
 			>
+
+			<span>Version {appVersion}</span>
 		</details>
 	</div>
 </section>

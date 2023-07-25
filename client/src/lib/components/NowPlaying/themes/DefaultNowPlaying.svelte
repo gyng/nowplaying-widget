@@ -1,16 +1,27 @@
 <script lang="ts">
-	import type { MediaRecord } from '../../../../stores/stores';
+	import type { SessionRecord } from '../../../../stores/stores';
+	import { convertByteArrayToObjectURL } from '../image';
 
-	export let currentMedia: MediaRecord | undefined;
+	export let session: SessionRecord | undefined;
+
+	// Check if this needs memoization; alternatively send asset urls over from Rust
+	$: thumbnailImageUrl = session?.last_media_update?.Media[1]?.data
+		? convertByteArrayToObjectURL(
+				session?.last_media_update.Media[1]?.data ?? [],
+				session?.last_media_update.Media[1]?.content_type ?? ''
+		  )
+		: null;
 </script>
 
-<div id="root" class={`${currentMedia?.session?.playback?.status?.toLowerCase() ?? ''}`}>
+<div
+	id="root"
+	class={`${session?.last_model_update?.Model?.playback?.status?.toLowerCase() ?? ''}`}
+>
 	<!-- svelte-ignore a11y-missing-attribute -->
-
-	<img id="thumbnail" src={currentMedia?.thumbnail?.url} />
+	<img id="thumbnail" src={thumbnailImageUrl} />
 	<div id="np">
-		<div id="np-1">{currentMedia?.session?.media?.title ?? ''}</div>
-		<div id="np-2">{currentMedia?.session?.media?.artist ?? ''}</div>
+		<div id="np-1">{session?.last_media_update?.Media?.[0]?.media?.title ?? ''}</div>
+		<div id="np-2">{session?.last_media_update?.Media?.[0]?.media?.artist ?? ''}</div>
 	</div>
 </div>
 
