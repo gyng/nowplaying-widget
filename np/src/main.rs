@@ -135,7 +135,7 @@ async fn session_listener(
             } => {
                 // `rx` is killing our .into() when destructured so manually create the struct here
                 let evt_wrapper: ManagerEventWrapper = ManagerEventWrapper::SessionCreated {
-                    session_id: session_id,
+                    session_id,
                     source: source.clone(),
                 };
 
@@ -247,7 +247,7 @@ async fn main() -> Result<(), ()> {
                                 },
                             ) => {
                                 let new_record = SessionRecord {
-                                    session_id: session_id,
+                                    session_id,
                                     source: Some(source),
                                     timestamp_created: Some(SystemTime::now()),
                                     timestamp_updated: None,
@@ -294,7 +294,7 @@ async fn main() -> Result<(), ()> {
                                 } else {
                                     let updated_ev: SessionUpdateEventWrapper = ev.into();
                                     SessionRecord {
-                                        session_id: session_id,
+                                        session_id,
                                         source: None,
                                         timestamp_created: Some(SystemTime::now()),
                                         timestamp_updated: Some(SystemTime::now()),
