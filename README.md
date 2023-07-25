@@ -1,8 +1,8 @@
-# np-widget
+# nowplaying-widget
 
 Shows the currently playing track in a themable widget on Windows.
 
-[Download for the latest release](https://github.com/gyng/np-widget/releases/latest)
+[.msi download for the latest release](https://github.com/gyng/nowplaying-widget/releases/latest)
 
 |                                                       |                                                       |
 | ----------------------------------------------------- | ----------------------------------------------------- |
@@ -20,7 +20,7 @@ Shows the currently playing track in a themable widget on Windows.
 
 ## Usage
 
-Download the installer msi from the [latest release](https://github.com/gyng/np-widget/releases/latest).
+Download the installer msi from the [latest release](https://github.com/gyng/nowplaying-widget/releases/latest).
 
 ### Theming
 
@@ -40,7 +40,7 @@ Add np.exe to Startup apps in Task Manager.
 
 ### Priority list
 
-If multiple audio sources exist np-widget uses this list of executable names to decide which to show. The current list of all audio sources is in "All media".
+If multiple audio sources exist nowplaying-widget uses this list of executable names to decide which to show. The current list of all audio sources is in "All media".
 
 ## Feature ideas
 
@@ -60,7 +60,7 @@ Contributions welcome.
 ### Getting started
 
 > **Note**  
-> np-widget has to be built on Windows.
+> nowplaying-widget has to be built on Windows.
 
 Install [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites) first.
 
@@ -81,4 +81,4 @@ $ npm run check:watch
 ### Release
 
 1. Bump the version in [tauri.conf.json](np/tauri.conf.json)
-2. Create a new release on the [releases](https://github.com/gyng/np-widget/releases) page.
+2. Create a new release on the [releases](https://github.com/gyng/nowplaying-widget/releases) page.

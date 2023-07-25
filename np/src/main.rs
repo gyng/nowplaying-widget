@@ -267,7 +267,6 @@ async fn main() -> Result<(), ()> {
                             }
                             NpSessionEvent::Update(session_id, ev) => {
                                 let maybe_existing = (*sessions).get(&session_id);
-                                // WIP refactor; update state by storing sessions
                                 // TODO: create np-widget-specific models for sessions and map gsmtc to it
 
                                 let updated_record = if let Some(existing) = maybe_existing {
