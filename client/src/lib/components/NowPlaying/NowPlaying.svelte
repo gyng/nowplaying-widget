@@ -51,7 +51,8 @@
 		console.log('currentSession', currentSession);
 		sourcePriority = store.sourcePriority;
 		styleOverride = store.styleOverride;
-		allMedia = Object.entries(store.sessions).map(([k, v]) => ({
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		allMedia = Object.entries(store.sessions).map(([_k, v]) => ({
 			source: v.source,
 			title: v.last_model_update?.Model?.media?.title
 		}));
