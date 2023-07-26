@@ -15,6 +15,12 @@
 	import { sortSessionsByPriority } from './priority';
 	import ThemeInjector from './themes/ThemeInjector.svelte';
 
+	const debug = (...args: any[]) => {
+		if (debugMode) {
+			console.log(...args);
+		}
+	};
+
 	type InitialEvent = {
 		sessions: Record<number, SessionRecord>;
 	};
@@ -26,17 +32,13 @@
 	});
 
 	tauriEvent.listen<SessionRecord>('session_update', (ev) => {
-		console.log('recv', ev.event, ev);
+		debug('recv', ev.event, ev);
 		handleUpdate({ sessionRecord: ev.payload });
 	});
 
 	tauriEvent.listen<SessionRecord>('session_delete', (ev) => {
-		console.log('recv', ev.event, ev);
+		debug('recv', ev.event, ev);
 		handleDelete({ sessionRecord: ev.payload });
-	});
-
-	tauriEvent.listen<SessionRecord>('test', (ev) => {
-		console.log('recv', ev.event, ev);
 	});
 
 	let currentSession: SessionRecord | undefined;
@@ -44,11 +46,13 @@
 	let sourcePriority: string;
 	let styleOverride: string;
 	let appVersion: string;
+	let debugMode: boolean = false;
 
 	mediaStore.subscribe((store) => {
 		const orderedSession = sortSessionsByPriority(store.sessions, store.sourcePriority);
 		currentSession = orderedSession.at(0);
-		console.log('currentSession', currentSession);
+
+		debug('currentSession', currentSession);
 		sourcePriority = store.sourcePriority;
 		styleOverride = store.styleOverride;
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -152,6 +156,12 @@
 				on:click={() => {
 					window.location.reload();
 				}}>Reload page</button
+			>
+
+			<button
+				on:click={() => {
+					debugMode = debugMode;
+				}}>Debug: now {debugMode ? 'on' : 'off'}</button
 			>
 
 			<span>Version {appVersion}</span>

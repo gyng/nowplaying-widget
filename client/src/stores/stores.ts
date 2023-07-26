@@ -116,9 +116,9 @@ mediaStore.subscribe((value) => {
 
 export type HandleInitializeOpts = { sessions: Record<number, SessionRecord> };
 export function handleInitialize(opts: HandleInitializeOpts) {
-	console.log('store handling session initialization', opts);
+	console.log('store handling session initialization');
 	if (!opts) {
-		console.log('skipping initialization', opts);
+		console.log('skipping initialization');
 		return;
 	}
 
@@ -134,7 +134,7 @@ export type HandleUpdateOpts = {
 	sessionRecord: SessionRecord;
 };
 export function handleUpdate(opts: HandleUpdateOpts) {
-	console.log('store handling update', opts);
+	console.log('store handling update');
 	mediaStore.update((cur) => {
 		return {
 			...cur,
@@ -150,7 +150,7 @@ export type HandleDeleteOpts = {
 	sessionRecord: SessionRecord;
 };
 export function handleDelete(opts: HandleDeleteOpts) {
-	console.log('store handling delete', opts);
+	console.log('store handling delete');
 	mediaStore.update((cur) => {
 		const copy = { ...cur };
 		const copySessions = copy.sessions;
