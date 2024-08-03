@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/tauri';
+	import { invoke } from '@tauri-apps/api/core';
 	import { getVersion } from '@tauri-apps/api/app';
 	import * as tauriWindow from '@tauri-apps/api/window';
 	import * as tauriEvent from '@tauri-apps/api/event';
@@ -15,6 +15,7 @@
 	import { sortSessionsByPriority } from './priority';
 	import ThemeInjector from './themes/ThemeInjector.svelte';
 
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const debug = (...args: any[]) => {
 		if (debugMode) {
 			console.log(...args);
@@ -46,7 +47,7 @@
 	let sourcePriority: string;
 	let styleOverride: string;
 	let appVersion: string;
-	let debugMode: boolean = false;
+	let debugMode = false;
 
 	mediaStore.subscribe((store) => {
 		const orderedSession = sortSessionsByPriority(store.sessions, store.sourcePriority);
@@ -66,16 +67,18 @@
 		appVersion = v;
 	});
 
-	// Workaround to enable transparent backgrounds on initial launch
-	// https://github.com/tauri-apps/tao/issues/72
+	// window-state plugin doesn't seem to save decoration state
 	let decorations = false;
-	tauriWindow.getCurrent().setDecorations(decorations);
+	tauriWindow.getCurrentWindow().setDecorations(false);
+
+	// setShadow(false) doesn't seem to be working in v2 rc0 for undecorated windows?
+	tauriWindow.getCurrentWindow().setShadow(false);
 </script>
 
 <section
 	on:dragstart={(e) => {
 		e.preventDefault();
-		tauriWindow.getCurrent().startDragging();
+		tauriWindow.getCurrentWindow().startDragging();
 	}}
 >
 	<ThemeInjector css={styleOverride} html="" />
@@ -84,10 +87,10 @@
 
 	<div id="debug">
 		<button
-			on:click={() => {
-				decorations = !decorations;
-				tauriWindow.getCurrent().setDecorations(decorations);
-			}}>{decorations ? 'Disable decorations' : 'Enable decorations'}</button
+			on:click={async () => {
+				decorations = await tauriWindow.getCurrentWindow().isDecorated();
+				tauriWindow.getCurrentWindow().setDecorations(!decorations);
+			}}>{decorations ? 'Enable decorations' : 'Disable decorations'}</button
 		>
 
 		<details>
@@ -144,7 +147,7 @@
 			<summary>Debug</summary>
 			<button
 				on:click={() => {
-					tauriWindow.getCurrent().close();
+					tauriWindow.getCurrentWindow().close();
 				}}>Close</button
 			>
 			<button
