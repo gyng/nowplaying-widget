@@ -19,5 +19,5 @@ pub async fn get_initial_sessions(
     let mut cloned: HashMap<usize, SessionRecord> = HashMap::new();
     cloned.clone_from(&sessions);
 
-    return Ok(UpdateResponse { sessions: cloned });
+    Ok(UpdateResponse { sessions: cloned })
 }
