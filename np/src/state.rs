@@ -57,16 +57,16 @@ pub fn updater(
 
                 match ev {
                     SessionUpdateEventWrapper::Model(_) => {
-                        record_mut.last_model_update = Some(ev.into());
+                        record_mut.last_model_update = Some(ev);
                     }
                     SessionUpdateEventWrapper::Media(_, _) => {
-                        record_mut.last_media_update = Some(ev.into());
+                        record_mut.last_media_update = Some(ev);
                     }
                 }
 
                 record_mut
             } else {
-                let updated_ev: SessionUpdateEventWrapper = ev.into();
+                let updated_ev: SessionUpdateEventWrapper = ev;
                 SessionRecord {
                     session_id,
                     source: None,

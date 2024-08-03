@@ -11,29 +11,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # platform: [macos-latest, ubuntu-20.04, windows-latest]
+        # platform: [macos-latest, ubuntu-22.04, windows-latest]
         platform: [windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 20
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-20.04'
+        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        # webkitgtk 4.0 is for Tauri v1 - webkitgtk 4.1 is for Tauri v2.
+        # You can remove the one that doesn't apply to your app to speed up the workflow a bit.
       - uses: Swatinem/rust-cache@v2
       - name: install frontend dependencies
-        run: npm i
+        run: npm ci
         working-directory: ./client
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ github.event.release.id }}
+          # tauri-action@v0 installs @tauri-apps/cli, which installs tauri v1's CLI
+          # this causes problems as tauri.conf.json schema is incompatible with v1's
+          tauriScript: npx @tauri-apps/cli@2.0.0-rc.0
