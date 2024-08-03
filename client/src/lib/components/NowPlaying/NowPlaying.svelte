@@ -67,11 +67,13 @@
 		appVersion = v;
 	});
 
-	// window-state plugin doesn't seem to save decoration state
+	// window-state plugin doesn't seem to save decoration state, so default to false
 	let decorations = false;
 	tauriWindow.getCurrentWindow().setDecorations(false);
 
-	// setShadow(false) doesn't seem to be working in v2 rc0 for undecorated windows?
+	// setShadow(false) doesn't work on Windows!
+	// Set to false in tauri.conf.json app.windows.shadow
+	// https://v2.tauri.app/reference/javascript/api/namespacewindow/#setshadow
 	tauriWindow.getCurrentWindow().setShadow(false);
 </script>
 
@@ -90,7 +92,7 @@
 			on:click={async () => {
 				decorations = await tauriWindow.getCurrentWindow().isDecorated();
 				tauriWindow.getCurrentWindow().setDecorations(!decorations);
-			}}>{decorations ? 'Enable decorations' : 'Disable decorations'}</button
+			}}>Toggle decorations</button
 		>
 
 		<details>

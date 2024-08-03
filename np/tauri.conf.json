@@ -41,7 +41,7 @@
     "createUpdaterArtifacts": false
   },
   "productName": "np",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "identifier": "io.github.gyng",
   "plugins": {},
   "app": {
@@ -54,6 +54,7 @@
         "title": "NowPlaying",
         "width": 300,
         "transparent": true,
+        "shadow": false,
         "decorations": false
       }
     ],
