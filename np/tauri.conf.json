@@ -2,78 +2,50 @@
   "build": {
     "beforeBuildCommand": "cd ./client && npm run build",
     "beforeDevCommand": "cd ./client && npm run dev",
-    "devPath": "http://localhost:5173",
-    "distDir": "../client/build"
+    "frontendDist": "../client/build",
+    "devUrl": "http://localhost:5173"
   },
-  "package": {
-    "productName": "np",
-    "version": "0.0.16"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "window": {
-        "all": true
-      },
-      "dialog": {
-        "all": true,
-        "ask": true,
-        "confirm": true,
-        "message": true,
-        "open": true,
-        "save": true
-      },
-      "path": {
-        "all": true
-      },
-      "fs": {
-        "all": true,
-        "scope": ["**"]
-      },
-      "protocol": {
-        "asset": true,
-        "assetScope": ["**"]
-      }
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "copyright": "",
+    "targets": "all",
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
     },
-    "bundle": {
-      "active": true,
-      "category": "DeveloperTool",
-      "copyright": "",
+    "longDescription": "Now Playing desktop widget",
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "resources": [],
+    "shortDescription": "",
+    "linux": {
       "deb": {
         "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "io.github.gyng",
-      "longDescription": "Now Playing desktop widget",
-      "macOS": {
-        "entitlements": null,
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": [],
-      "shortDescription": "",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
       }
     },
-    "security": {
-      "csp": null
-    },
-    "updater": {
-      "active": false
-    },
+    "createUpdaterArtifacts": "v1Compatible"
+  },
+  "productName": "np",
+  "version": "0.0.17",
+  "identifier": "io.github.gyng",
+  "plugins": {},
+  "app": {
+    "macOSPrivateApi": false,
     "windows": [
       {
         "fullscreen": false,
@@ -85,6 +57,14 @@
         "decorations": false
       }
     ],
-    "macOSPrivateApi": false
+    "security": {
+      "assetProtocol": {
+        "scope": [
+          "**"
+        ],
+        "enable": true
+      },
+      "csp": null
+    }
   }
 }

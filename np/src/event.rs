@@ -1,5 +1,7 @@
+#![allow(clippy::large_enum_variant)]
+
 use serde::Serialize;
-use tauri::Manager;
+use tauri::Emitter;
 
 use crate::{
     listener::{ManagerEventWrapper, SessionUpdateEventWrapper},
@@ -7,12 +9,12 @@ use crate::{
 };
 
 pub fn emit_to_bridge<R: tauri::Runtime>(
-    manager: &impl Manager<R>,
+    emitter: &impl Emitter<R>,
     delta: (&str, Option<SessionRecord>),
 ) {
     match delta {
         (event_type, Some(record)) => {
-            let _ = manager.emit_all(event_type, record);
+            let _ = emitter.emit(event_type, record);
         }
         (event_type, None) => {
             // FIXME: Might not be true in all cases
