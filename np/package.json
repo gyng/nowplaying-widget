@@ -1,0 +1,15 @@
+{
+  "name": "dummy",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0-rc.0",
+    "@tauri-apps/cli": "^2.0.0-rc.0"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "dummy package for tauri-action build GHA to install right CLI version"
+}
