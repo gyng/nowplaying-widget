@@ -38,7 +38,7 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@tauri-apps/api": "^2.0.0-rc.0"
+		"@tauri-apps/api": "^2.8.0"
 	},
 	"prepare": "svelte-kit sync"
 }

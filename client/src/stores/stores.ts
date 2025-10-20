@@ -20,13 +20,33 @@ export type SessionRecord = {
 	last_model_update: SessionUpdateEventModel;
 };
 
+export type MonitorInfo = {
+	name: string | null;
+	position: { x: number; y: number };
+	size: { width: number; height: number };
+};
+
+export type SavedPosition = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	timestamp: number;
+};
+
 export type State = {
 	sessions: Record<string, SessionRecord>;
 	sourcePriority: string;
 	styleOverride: string;
+	preferredMonitor: MonitorInfo | null;
+	savedPosition: SavedPosition | null;
+	restoreToSavedPosition: boolean;
 };
 
-export type SerializedState = Pick<State, 'sourcePriority' | 'styleOverride'>;
+export type SerializedState = Pick<
+	State,
+	'sourcePriority' | 'styleOverride' | 'preferredMonitor' | 'savedPosition' | 'restoreToSavedPosition'
+>;
 
 export type PlaybackType = 'Unknown' | 'Music' | 'Video' | 'Image';
 export type PlaybackStatus = 'Closed' | 'Opened' | 'Changing' | 'Stopped' | 'Playing' | 'Paused';
@@ -79,7 +99,10 @@ export const defaultState: State = {
 	sourcePriority: ['SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify', 'foobar2000.exe']
 		.join('\n')
 		.toLowerCase(),
-	styleOverride: ''
+	styleOverride: '',
+	preferredMonitor: null,
+	savedPosition: null,
+	restoreToSavedPosition: false
 };
 
 // Local storage
@@ -92,7 +115,10 @@ try {
 	const raw = JSON.parse(localMediaStoreSerializedState);
 	localMediaStoreDeserializedState = {
 		sourcePriority: raw.sourcePriority,
-		styleOverride: raw.styleOverride
+		styleOverride: raw.styleOverride,
+		preferredMonitor: raw.preferredMonitor ?? null,
+		savedPosition: raw.savedPosition ?? null,
+		restoreToSavedPosition: raw.restoreToSavedPosition ?? false
 	};
 } catch (err) {
 	localMediaStoreDeserializedState = {};
@@ -109,7 +135,10 @@ export const mediaStore = writable<State>(initialState);
 mediaStore.subscribe((value) => {
 	const toSerialize: SerializedState = {
 		sourcePriority: value.sourcePriority,
-		styleOverride: value.styleOverride
+		styleOverride: value.styleOverride,
+		preferredMonitor: value.preferredMonitor,
+		savedPosition: value.savedPosition,
+		restoreToSavedPosition: value.restoreToSavedPosition
 	};
 	localStorage.setItem(MEDIA_STORE_KEY, JSON.stringify(toSerialize));
 });
