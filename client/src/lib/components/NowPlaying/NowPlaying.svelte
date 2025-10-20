@@ -296,9 +296,7 @@
 			<div class="button-group">
 				<button on:click={handleMoveToMonitor}>Move to Different Monitor</button>
 				<button on:click={handleSavePosition}>Save Position</button>
-				<button on:click={handleRestorePosition} disabled={!savedPosition}
-					>Restore Position</button
-				>
+				<button on:click={handleRestorePosition} disabled={!savedPosition}>Restore Position</button>
 			</div>
 			<label class="checkbox-label">
 				<input

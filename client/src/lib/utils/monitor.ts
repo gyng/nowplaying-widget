@@ -88,10 +88,7 @@ export function isPositionOnMonitor(
 	const windowBottom = y + windowHeight;
 
 	return (
-		x < monitorRight &&
-		windowRight > logicalMonX &&
-		y < monitorBottom &&
-		windowBottom > logicalMonY
+		x < monitorRight && windowRight > logicalMonX && y < monitorBottom && windowBottom > logicalMonY
 	);
 }
 

@@ -45,7 +45,11 @@ export type State = {
 
 export type SerializedState = Pick<
 	State,
-	'sourcePriority' | 'styleOverride' | 'preferredMonitor' | 'savedPosition' | 'restoreToSavedPosition'
+	| 'sourcePriority'
+	| 'styleOverride'
+	| 'preferredMonitor'
+	| 'savedPosition'
+	| 'restoreToSavedPosition'
 >;
 
 export type PlaybackType = 'Unknown' | 'Music' | 'Video' | 'Image';
