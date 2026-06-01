@@ -17,6 +17,7 @@
 	} from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 	import Inspector from './Inspector.svelte';
+	import { fillCurrentMonitor, setClickThrough } from '../overlay';
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
 	// configurable grid arrives with the Phase 3 editor; this proves the per-core pipe.
@@ -103,6 +104,7 @@
 	const hub = createTelemetryHub();
 	let unlisten: UnlistenFn | undefined;
 	let unlistenLayout: UnlistenFn | undefined;
+	let unlistenEdit: UnlistenFn | undefined;
 
 	async function reloadLayout() {
 		try {
@@ -124,24 +126,39 @@
 		unlistenLayout = await listen('layout_changed', () => {
 			if (!editMode) reloadLayout();
 		});
+		// Become a monitor-filling, click-through overlay; the tray toggles edit mode.
+		await fillCurrentMonitor();
+		await setClickThrough(true);
+		unlistenEdit = await listen('toggle_edit', () => setEdit(!editMode));
 	});
 
 	onDestroy(() => {
 		unlisten?.();
 		unlistenLayout?.();
+		unlistenEdit?.();
 	});
 
-	// Edit mode: Ctrl+E toggles; drag/resize widgets and edit them via the inspector.
+	// Edit mode: tray "Edit layout" toggles it (or Ctrl+E while the window is focused).
+	// Entering edit mode disables click-through so you can drag/resize/use the inspector.
 	let editMode = false;
 	let selectedId: string | null = null;
 	const GRID = 8;
 
 	$: selectedWidget = widgets.find((w) => w.id === selectedId) ?? null;
 
+	async function setEdit(value: boolean) {
+		editMode = value;
+		try {
+			await setClickThrough(!value);
+		} catch (err) {
+			console.warn('setIgnoreCursorEvents failed', err);
+		}
+	}
+
 	function onKeydown(event: KeyboardEvent) {
 		if (event.ctrlKey && event.key.toLowerCase() === 'e') {
 			event.preventDefault();
-			editMode = !editMode;
+			setEdit(!editMode);
 		}
 	}
 

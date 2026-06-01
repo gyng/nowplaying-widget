@@ -283,13 +283,16 @@ saved window state/settings are not orphaned):
 ### Phase 3 — layout + config (the stated priority)
 - [x] `widgets.json` in app config dir; `load_layout`/`save_layout` commands + pure `parseLayout` validation (Phase 3a, tested). Canvas loads it on mount, falling back to the demo default.
 - [x] `notify` file-watch on widgets.json → `layout_changed`; Canvas live-reloads external edits (ignored while actively editing) — Phase 3b.
-- [ ] **3c-1 (single overlay):** main window → transparent, borderless, always-on-top,
-      skip-taskbar overlay sized to its monitor; `setIgnoreCursorEvents(true)` normally,
-      `false` in edit mode (whole-window click-through). Edit toggled by **global hotkey
-      (Ctrl+Alt+E) + tray menu** — a click-through window can't receive in-app keys. Add
-      `layer` field (default `top`); relocate the NowPlaying hover settings/debug panel into
-      edit mode / a settings window. Capabilities for set-ignore-cursor / always-on-top.
-      Note: supersedes the saved-position window behavior (positions live in widgets.json).
+- [x] **3c-1 (single overlay):** transparent, always-on-top, skip-taskbar window filled to
+      its monitor; `setIgnoreCursorEvents(true)` normally, `false` in edit mode (whole-window
+      click-through). Edit toggled by a **tray menu** ("Edit layout" / "Quit"). `layer` field
+      added (default `top`); NowPlaying legacy positioning disabled (overlay owns the window;
+      settings stay reachable in edit mode). New capability file `overlay.json`. **Needs a
+      visual `cargo tauri dev` check** (overlay/click-through/tray are not gate-testable).
+- [ ] **3c-1 follow-up — global hotkey** (Ctrl+Alt+E). Deferred: `tauri-plugin-global-shortcut`
+      pulled an incompatible `tauri-runtime-wry 2.10` against the pinned `tauri 2.8.5`
+      (Sync/`eval_script_with_callback` trait errors). Needs a deliberate tauri-stack bump —
+      bundle it with the rename / a deps refresh.
 - [ ] **3c-2 (multi-monitor):** one overlay window per monitor, created from the layout's
       monitor map (configurable which monitors are active); each renders `?monitor=<id>`.
       Runtime window creation + capability updates; widgets bound to one monitor.

@@ -221,8 +221,11 @@
 		}
 	}
 
-	// On component mount, restore position based on user preference
+	// Overlay mode (Phase 3c) owns window position/size; skip the legacy
+	// saved-position / monitor restore so it doesn't fight the monitor fill.
+	const OVERLAY_MODE = true as boolean;
 	onMount(async () => {
+		if (OVERLAY_MODE) return;
 		try {
 			if (restoreToSavedPosition && savedPosition) {
 				// User wants to restore to saved position: use our manual restore

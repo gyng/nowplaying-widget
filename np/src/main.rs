@@ -7,7 +7,9 @@ use listener::{session_listener_windows_gsmtc, ManagerEventWrapper, SessionUpdat
 use state::SessionRecord;
 use std::collections::HashMap;
 use tauri::async_runtime::Mutex;
-use tauri::{Manager, State};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::TrayIconBuilder;
+use tauri::{Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::command::get_initial_sessions;
@@ -67,6 +69,24 @@ async fn main() -> Result<(), ()> {
             if let Err(err) = command::watch_layout(app.handle().clone()) {
                 eprintln!("failed to start layout watcher: {err}");
             }
+
+            // Tray menu: the only reliable way to toggle edit mode while the overlay
+            // is click-through (a passive window receives no in-app keys).
+            let edit_item = MenuItemBuilder::with_id("edit", "Edit layout").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let tray_menu = MenuBuilder::new(app).item(&edit_item).item(&quit_item).build()?;
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Widget overlay — right-click for menu")
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "edit" => {
+                        let _ = app.emit("toggle_edit", ());
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
 
             Ok(())
         })

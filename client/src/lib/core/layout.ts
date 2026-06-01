@@ -9,6 +9,7 @@ export type WidgetInstance = {
 	type: string; // 'gauge' | 'bar' | 'sparkline' | 'clock' | 'text' | 'nowplaying'
 	sensor?: string; // omitted for self-sourcing meters (e.g. clock)
 	rect: Rect;
+	layer?: 'top' | 'desktop'; // z-layer (3c); default 'top'. desktop layer lands in Phase 4
 	config: Record<string, unknown>;
 	css?: string;
 };

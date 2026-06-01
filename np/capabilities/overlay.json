@@ -1,0 +1,10 @@
+{
+  "identifier": "overlay",
+  "description": "Overlay window: click-through toggle and always-on-top",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-always-on-top"
+  ]
+}
