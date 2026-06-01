@@ -10,6 +10,7 @@ export type WidgetInstance = {
 	sensor?: string; // omitted for self-sourcing meters (e.g. clock)
 	rect: Rect;
 	layer?: 'top' | 'desktop'; // z-layer (3c); default 'top'. desktop layer lands in Phase 4
+	interactive?: boolean; // catches clicks in passive mode (per-widget click-through)
 	config: Record<string, unknown>;
 	css?: string;
 };

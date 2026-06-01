@@ -17,6 +17,7 @@ use crate::command::get_initial_sessions;
 use crate::event::emit_to_bridge;
 use crate::state::updater;
 
+pub mod clickthrough;
 pub mod command;
 pub mod event;
 pub mod listener;
@@ -40,10 +41,12 @@ async fn main() -> Result<(), ()> {
         .manage(AppState {
             sessions: Default::default(),
         })
+        .manage(clickthrough::InteractiveRects::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
-            command::save_layout
+            command::save_layout,
+            clickthrough::set_interactive_rects
         ])
         .setup(|app| {
             tauri::async_runtime::spawn(async move {
@@ -71,6 +74,8 @@ async fn main() -> Result<(), ()> {
             if let Err(err) = command::watch_layout(app.handle().clone()) {
                 eprintln!("failed to start layout watcher: {err}");
             }
+
+            clickthrough::run_clickthrough_watcher(app.handle().clone());
 
             // Tray menu: the only reliable way to toggle edit mode while the overlay
             // is click-through (a passive window receives no in-app keys).

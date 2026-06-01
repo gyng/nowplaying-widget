@@ -69,6 +69,7 @@
 	class:editable={editMode}
 	class:selected
 	class:active={action !== null}
+	class:catch={!editMode && instance.interactive}
 	style="left: {instance.rect.x}px; top: {instance.rect.y}px; width: {instance.rect
 		.w}px; height: {instance.rect.h}px"
 >
@@ -107,6 +108,12 @@
 <style>
 	.widget {
 		position: absolute;
+	}
+
+	/* Interactive widgets catch clicks in passive mode (the canvas is otherwise
+	   pointer-events:none). The cursor watcher gates this at the OS level. */
+	.widget.catch {
+		pointer-events: auto;
 	}
 
 	.widget.editable {

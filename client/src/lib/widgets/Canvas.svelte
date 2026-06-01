@@ -24,7 +24,8 @@
 		fillCurrentMonitor,
 		monitorParam,
 		setClickThrough,
-		spawnSecondaryOverlays
+		spawnSecondaryOverlays,
+		syncInteractiveRects
 	} from '../overlay';
 
 	// This window's monitor key: ?monitor=<i> on secondary overlays, else the primary
@@ -111,6 +112,13 @@
 			rect: { x: 16, y: 228, w: 140, h: 30 },
 			config: { color: 'rgb(218, 237, 226)' }
 		},
+		{
+			id: 'btn-1',
+			type: 'button',
+			rect: { x: 170, y: 372, w: 90, h: 44 },
+			config: { label: 'tap' },
+			interactive: true
+		},
 		...cores
 	];
 
@@ -140,7 +148,7 @@
 		await reloadLayout();
 		// Live-reload external edits to widgets.json (ignored while actively editing).
 		unlistenLayout = await listen('layout_changed', () => {
-			if (!editMode) reloadLayout();
+			if (!editMode) reloadLayout().then(syncRects);
 		});
 		// The primary window fills its monitor and opens overlays on the others.
 		if (!monitorParam()) {
@@ -148,6 +156,7 @@
 			await spawnSecondaryOverlays();
 		}
 		await setClickThrough(true);
+		syncRects();
 		unlistenEdit = await listen('toggle_edit', () => setEdit(!editMode));
 	});
 
@@ -176,6 +185,14 @@
 		} catch (err) {
 			console.warn('setIgnoreCursorEvents failed', err);
 		}
+		syncRects();
+	}
+
+	// Tell the backend which widgets catch clicks in passive mode (per-widget click-through).
+	function syncRects() {
+		syncInteractiveRects(widgets, editMode).catch((err) =>
+			console.warn('set_interactive_rects failed', err)
+		);
 	}
 
 	function onKeydown(event: KeyboardEvent) {

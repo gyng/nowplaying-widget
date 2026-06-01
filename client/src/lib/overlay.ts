@@ -9,6 +9,8 @@ import {
 	PhysicalSize
 } from '@tauri-apps/api/window';
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { invoke } from '@tauri-apps/api/core';
+import type { WidgetInstance } from './core/layout';
 
 /** This window's monitor key: the `?monitor=<i>` param on secondary overlays, or
  * null on the primary (main) window. */
@@ -71,4 +73,30 @@ export async function spawnSecondaryOverlays(): Promise<void> {
 		});
 		w.once('tauri://error', (err) => console.warn('overlay window error', label, err));
 	}
+}
+
+/**
+ * Tell the backend which of this window's widgets should catch clicks in passive mode,
+ * as physical screen rects. In edit mode the whole window is interactive, so send none.
+ */
+export async function syncInteractiveRects(
+	widgets: WidgetInstance[],
+	editMode: boolean
+): Promise<void> {
+	const win = getCurrentWindow();
+	const label = win.label;
+	if (editMode) {
+		await invoke('set_interactive_rects', { label, rects: [] });
+		return;
+	}
+	const [scale, pos] = await Promise.all([win.scaleFactor(), win.outerPosition()]);
+	const rects = widgets
+		.filter((w) => w.interactive)
+		.map((w) => ({
+			x: pos.x + w.rect.x * scale,
+			y: pos.y + w.rect.y * scale,
+			w: w.rect.w * scale,
+			h: w.rect.h * scale
+		}));
+	await invoke('set_interactive_rects', { label, rects });
 }

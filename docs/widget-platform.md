@@ -312,8 +312,11 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [ ] **3c-3 (desktop layer):** a second overlay window per monitor pinned to the wallpaper
       via WorkerW/Progman; widgets with `layer: 'desktop'` route to it. Fragile / Windows-
       version-specific — opt-in, additive (routing by `layer` is already in the model).
-- [ ] Per-widget click-through: cursor-poll hit-testing for widgets needing clicks in normal
-      mode (now-playing controls). Deferred — whole-window click-through ships first.
+- [x] Per-widget click-through (Phase 4, **pending visual verify**): widgets flagged
+      `interactive` catch clicks in passive mode. A Rust cursor watcher (`clickthrough.rs`,
+      ~60 Hz, idle when none, toggles on transition) hit-tests `app.cursor_position()` against
+      per-window screen rects synced from the frontend, flipping that window's
+      ignore-cursor-events. A demo `button` (counter) widget is the test fixture.
 - [x] Editor: alignment guides — snap a dragged widget's edges/centres to peers, with
       teal guide lines (pure tested `snapRectToPeers`) — Phase 4.
 - [ ] PDH GPU fallback for non-NVIDIA; temps/fans via HWiNFO/LHM shared memory (optional).
