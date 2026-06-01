@@ -1,12 +1,13 @@
 <script lang="ts">
 	// Canvas (organism): owns the telemetry hub, wires the backend source, and lays
-	// out widget instances. Phase S hardcodes a single CPU gauge to prove the pipe;
-	// Phase 3 loads widgets.json per monitor.
+	// out widget instances. Loads the saved widgets.json on mount (Phase 3a); the
+	// hardcoded list below is the fallback/demo default until a layout is saved.
 	import { onDestroy, onMount } from 'svelte';
+	import { invoke } from '@tauri-apps/api/core';
 	import type { UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
 	import { startTelemetrySource } from '../telemetry/source';
-	import type { WidgetInstance } from '../core/layout';
+	import { DEFAULT_MONITOR, parseLayout, type WidgetInstance } from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
@@ -96,6 +97,16 @@
 
 	onMount(async () => {
 		unlisten = await startTelemetrySource(hub);
+		try {
+			const raw = await invoke<string | null>('load_layout');
+			const saved = raw ? parseLayout(JSON.parse(raw)) : null;
+			const monitor = saved?.monitors[DEFAULT_MONITOR];
+			if (monitor && monitor.widgets.length > 0) {
+				widgets = monitor.widgets;
+			}
+		} catch (err) {
+			console.warn('load_layout failed; using default layout', err);
+		}
 	});
 
 	onDestroy(() => unlisten?.());

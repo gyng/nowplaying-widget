@@ -19,3 +19,45 @@ export type Layout = {
 	version: number;
 	monitors: Record<string, MonitorLayout>; // key = monitor id
 };
+
+export const LAYOUT_VERSION = 1;
+export const DEFAULT_MONITOR = 'default';
+
+export function defaultLayout(): Layout {
+	return { version: LAYOUT_VERSION, monitors: { [DEFAULT_MONITOR]: { widgets: [] } } };
+}
+
+function isWidgetInstance(w: unknown): w is WidgetInstance {
+	if (typeof w !== 'object' || w === null) return false;
+	const o = w as Record<string, unknown>;
+	return (
+		typeof o.id === 'string' &&
+		typeof o.type === 'string' &&
+		typeof o.rect === 'object' &&
+		o.rect !== null &&
+		typeof o.config === 'object' &&
+		o.config !== null
+	);
+}
+
+/**
+ * Validate raw JSON into a Layout. Returns null on structural failure (so the
+ * caller can fall back to a default); individually malformed widgets are dropped
+ * rather than failing the whole layout. Pure — unit-tested, no I/O.
+ */
+export function parseLayout(raw: unknown): Layout | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.version !== 'number') return null;
+	if (typeof obj.monitors !== 'object' || obj.monitors === null) return null;
+
+	const monitors: Record<string, MonitorLayout> = {};
+	for (const [key, mon] of Object.entries(obj.monitors as Record<string, unknown>)) {
+		if (typeof mon !== 'object' || mon === null) return null;
+		const widgets = (mon as Record<string, unknown>).widgets;
+		if (!Array.isArray(widgets)) return null;
+		monitors[key] = { widgets: widgets.filter(isWidgetInstance) };
+	}
+
+	return { version: obj.version, monitors };
+}

@@ -36,7 +36,11 @@ async fn main() -> Result<(), ()> {
         .manage(AppState {
             sessions: Default::default(),
         })
-        .invoke_handler(tauri::generate_handler![get_initial_sessions])
+        .invoke_handler(tauri::generate_handler![
+            get_initial_sessions,
+            command::load_layout,
+            command::save_layout
+        ])
         .setup(|app| {
             tauri::async_runtime::spawn(async move {
                 session_listener_windows_gsmtc(rx_session_manager, tx_gsmtc).await
