@@ -285,7 +285,8 @@ saved window state/settings are not orphaned):
 - [ ] One always-on-top overlay window per monitor (all monitors); click-through default
       + edit-mode toggle; widgets bound to one monitor (no cross-monitor drag yet).
 - [ ] Click-through watcher per Risks (gated, toggle-on-transition) for interactive widgets.
-- [ ] Visual editor: drag/resize, snap-to-grid, alignment guides, palette, inspector (x/y/w/h).
+- [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
+- [ ] Editor: resize handles, alignment guides, widget palette, inspector (x/y/w/h), add/remove.
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch

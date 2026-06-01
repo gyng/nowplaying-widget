@@ -7,7 +7,12 @@
 	import type { UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
 	import { startTelemetrySource } from '../telemetry/source';
-	import { DEFAULT_MONITOR, parseLayout, type WidgetInstance } from '../core/layout';
+	import {
+		DEFAULT_MONITOR,
+		LAYOUT_VERSION,
+		parseLayout,
+		type WidgetInstance
+	} from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
@@ -110,18 +115,70 @@
 	});
 
 	onDestroy(() => unlisten?.());
+
+	// Edit mode: Ctrl+E toggles; drag widgets to reposition, persisting on drop.
+	let editMode = false;
+	const GRID = 8;
+
+	function onKeydown(event: KeyboardEvent) {
+		if (event.ctrlKey && event.key.toLowerCase() === 'e') {
+			event.preventDefault();
+			editMode = !editMode;
+		}
+	}
+
+	function onMove(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
+		const { id, rect } = event.detail;
+		widgets = widgets.map((w) => (w.id === id ? { ...w, rect } : w));
+	}
+
+	function saveLayout() {
+		const layout = { version: LAYOUT_VERSION, monitors: { [DEFAULT_MONITOR]: { widgets } } };
+		invoke('save_layout', { contents: JSON.stringify(layout, null, 2) }).catch((err) =>
+			console.warn('save_layout failed', err)
+		);
+	}
 </script>
 
-<div class="canvas">
+<svelte:window on:keydown={onKeydown} />
+
+<div class="canvas" class:edit={editMode}>
 	{#each widgets as widget (widget.id)}
-		<WidgetHost {hub} instance={widget} />
+		<WidgetHost
+			{hub}
+			instance={widget}
+			{editMode}
+			grid={GRID}
+			on:move={onMove}
+			on:commit={saveLayout}
+		/>
 	{/each}
+	{#if editMode}
+		<div class="edit-badge">EDIT — Ctrl+E to exit</div>
+	{/if}
 </div>
 
 <style>
 	.canvas {
 		position: absolute;
 		inset: 0;
+		pointer-events: none;
+	}
+
+	.canvas.edit {
+		pointer-events: auto;
+	}
+
+	.edit-badge {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		padding: 2px 6px;
+		font-family: monospace;
+		font-size: 10px;
+		color: #fff;
+		background: rgba(119, 196, 211, 0.85);
+		border-radius: 3px;
 		pointer-events: none;
 	}
 </style>
