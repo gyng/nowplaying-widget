@@ -267,7 +267,8 @@ saved window state/settings are not orphaned):
 - [ ] Canvas becomes the main view; nothing lost.
 
 ### Phase 1 — sensors
-- [ ] sysinfo: `cpu.core.N`, `mem.used`/`mem.total`, `swap.used`, `net.up`/`net.down` (rate).
+- [x] sysinfo: `mem.used`, `swap.used` (%), `net.up`/`net.down` (B/s) — Phase 1a, with pure `percent`/`rate_per_sec` tests; CPU + RAM gauges wired on the canvas.
+- [ ] sysinfo: `cpu.core.N` series (pairs with the sparkline meter).
 - [ ] GPU: NVML util/VRAM/temp with graceful fallback to PDH; only run when referenced.
 - [ ] Media (GSMTC) re-expressed as a push sensor emitting `Json` under the same contract.
 - [ ] `list_sensors` command + per-sensor interval (1 Hz default); sensors run only if in the layout.

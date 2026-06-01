@@ -16,6 +16,13 @@
 			sensor: 'cpu.total',
 			rect: { x: 170, y: 16, w: 110, h: 110 },
 			config: { label: 'CPU', unit: '%', min: 0, max: 100 }
+		},
+		{
+			id: 'ram-1',
+			type: 'gauge',
+			sensor: 'mem.used',
+			rect: { x: 170, y: 140, w: 110, h: 110 },
+			config: { label: 'RAM', unit: '%', min: 0, max: 100 }
 		}
 	];
 

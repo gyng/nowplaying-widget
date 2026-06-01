@@ -8,7 +8,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use sysinfo::System;
+use sysinfo::{Networks, System};
 use tauri::{AppHandle, Emitter, Runtime};
 
 /// The `telemetry` event name on the Tauri bridge.
@@ -54,25 +54,57 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Base sampling interval. Per-sensor intervals arrive later in Phase 1.
+const INTERVAL_MS: u64 = 1000;
+
+/// `used / total` as a 0..100 percentage. Returns 0 when `total` is 0.
+fn percent(used: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        used as f64 * 100.0 / total as f64
+    }
+}
+
+/// Convert a per-tick byte delta into a bytes-per-second rate.
+fn rate_per_sec(bytes: u64, interval_ms: u64) -> f64 {
+    if interval_ms == 0 {
+        0.0
+    } else {
+        bytes as f64 * 1000.0 / interval_ms as f64
+    }
+}
+
 /// Poll system sensors on an interval and emit a `telemetry` batch each tick.
 ///
-/// Phase S: only `cpu.total`. CPU usage needs two refreshes spaced apart to be
-/// non-zero, so the first tick primes it and real values start on the next tick.
-/// Runs until the app exits.
+/// Phase 1a: `cpu.total`, `mem.used`, `swap.used` (percentages) and
+/// `net.down` / `net.up` (bytes/sec, summed across interfaces). CPU usage needs
+/// two refreshes spaced apart to be non-zero, so the first tick primes it. Runs
+/// until the app exits.
 pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
     let mut sys = System::new();
     sys.refresh_cpu_usage();
+    sys.refresh_memory();
+    let mut networks = Networks::new_with_refreshed_list();
 
-    let mut ticker = tokio::time::interval(Duration::from_millis(1000));
+    let mut ticker = tokio::time::interval(Duration::from_millis(INTERVAL_MS));
     loop {
         ticker.tick().await;
         sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        networks.refresh(true);
 
-        let batch = vec![SensorSample::scalar(
-            "cpu.total",
-            now_ms(),
-            f64::from(sys.global_cpu_usage()),
-        )];
+        let ts = now_ms();
+        let down: u64 = networks.values().map(|data| data.received()).sum();
+        let up: u64 = networks.values().map(|data| data.transmitted()).sum();
+
+        let batch = vec![
+            SensorSample::scalar("cpu.total", ts, f64::from(sys.global_cpu_usage())),
+            SensorSample::scalar("mem.used", ts, percent(sys.used_memory(), sys.total_memory())),
+            SensorSample::scalar("swap.used", ts, percent(sys.used_swap(), sys.total_swap())),
+            SensorSample::scalar("net.down", ts, rate_per_sec(down, INTERVAL_MS)),
+            SensorSample::scalar("net.up", ts, rate_per_sec(up, INTERVAL_MS)),
+        ];
 
         if let Err(err) = app.emit(TELEMETRY_EVENT, &batch) {
             eprintln!("failed to emit telemetry: {err}");
@@ -93,5 +125,24 @@ mod tests {
         assert_eq!(json["ts_ms"], 1_700_000_000_000u64);
         assert_eq!(json["value"]["kind"], "scalar");
         assert_eq!(json["value"]["value"], 12.5);
+    }
+
+    #[test]
+    fn percent_handles_zero_total() {
+        assert_eq!(percent(0, 0), 0.0);
+        assert_eq!(percent(5, 0), 0.0);
+    }
+
+    #[test]
+    fn percent_computes_ratio() {
+        assert_eq!(percent(50, 200), 25.0);
+        assert_eq!(percent(8, 16), 50.0);
+    }
+
+    #[test]
+    fn rate_per_sec_scales_to_one_second() {
+        assert_eq!(rate_per_sec(1000, 1000), 1000.0);
+        assert_eq!(rate_per_sec(2000, 500), 4000.0);
+        assert_eq!(rate_per_sec(100, 0), 0.0);
     }
 }
