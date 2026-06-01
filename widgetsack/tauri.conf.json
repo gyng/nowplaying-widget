@@ -23,7 +23,7 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": ""
     },
-    "longDescription": "Now Playing desktop widget",
+    "longDescription": "WidgetSack desktop widget platform",
     "macOS": {
       "entitlements": null,
       "exceptionDomain": "",
@@ -40,7 +40,7 @@
     },
     "createUpdaterArtifacts": false
   },
-  "productName": "np",
+  "productName": "widgetsack",
   "version": "0.0.19",
   "identifier": "io.github.gyng",
   "plugins": {},
@@ -51,7 +51,7 @@
         "fullscreen": false,
         "height": 400,
         "resizable": true,
-        "title": "NowPlaying",
+        "title": "WidgetSack",
         "width": 300,
         "transparent": true,
         "shadow": false,

@@ -39,6 +39,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ github.event.release.id }}
-          # tauri-action@v0 installs @tauri-apps/cli, which installs tauri v1's CLI
-          # this causes problems as tauri.conf.json schema is incompatible with v1's
-          tauriScript: npx @tauri-apps/cli@2.0.0-rc.0
+          # tauri-action@v0's bundled CLI is too old for the v2 config schema; pin a
+          # current v2 CLI matching the tauri 2.11 crates.
+          tauriScript: npx @tauri-apps/cli@2

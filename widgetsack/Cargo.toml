@@ -1,11 +1,11 @@
 [package]
-name = "np"
+name = "widgetsack"
 version = "0.1.0"
-description = "nowplaying desktop app"
+description = "widgetsack desktop widget platform"
 authors = ["you"]
 license = ""
 repository = ""
-default-run = "np"
+default-run = "widgetsack"
 edition = "2024"
 rust-version = "1.90"
 

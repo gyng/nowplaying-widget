@@ -2014,23 +2014,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "np"
-version = "0.1.0"
-dependencies = [
- "notify",
- "nvml-wrapper",
- "serde",
- "serde_json",
- "sysinfo",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-window-state",
- "tokio",
- "win-gsmtc",
-]
-
-[[package]]
 name = "ntapi"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4323,6 +4306,23 @@ dependencies = [
  "thiserror 2.0.18",
  "windows 0.61.3",
  "windows-core 0.61.2",
+]
+
+[[package]]
+name = "widgetsack"
+version = "0.1.0"
+dependencies = [
+ "notify",
+ "nvml-wrapper",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-window-state",
+ "tokio",
+ "win-gsmtc",
 ]
 
 [[package]]
