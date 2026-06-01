@@ -276,7 +276,7 @@ saved window state/settings are not orphaned):
 ### Phase 2 — meters
 - [x] `Gauge` (Phase S) + `Sparkline` (Phase 2a, pure geometry + tests); per-core CPU row + net sparkline on the canvas.
 - [x] `Text` (byte-rate/percent formatters) + `Clock` (moment-like tokens, `[literal]` escaping) — Phase 2b, pure formatters + tests; clock/date + net up/down readouts on the canvas.
-- [ ] `Bar` meter.
+- [x] `Bar` meter (horizontal/vertical fill; shares pure `fraction` scale with Gauge) — Phase 2c. Core meter set complete.
 - [ ] Carry palette + fonts (system `fontFamily` override). Rebuild DateTime / System / Network as instances; reach parity.
 
 ### Phase 3 — layout + config (the stated priority)

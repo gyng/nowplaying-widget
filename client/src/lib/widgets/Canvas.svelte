@@ -33,6 +33,13 @@
 			config: { format: 'dddd D MMMM', color: 'rgb(218, 237, 226)' }
 		},
 		{
+			id: 'swap-bar',
+			type: 'bar',
+			sensor: 'swap.used',
+			rect: { x: 16, y: 100, w: 150, h: 16 },
+			config: { min: 0, max: 100, label: 'SWAP' }
+		},
+		{
 			id: 'cpu-1',
 			type: 'gauge',
 			sensor: 'cpu.total',

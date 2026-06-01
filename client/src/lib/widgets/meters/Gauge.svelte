@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Presentational meter (molecule): driven entirely by props, no store/Tauri access.
-	import { gaugeFraction } from './gauge';
+	import { fraction } from './scale';
 
 	export let value: number | null = null;
 	export let min = 0;
@@ -16,7 +16,7 @@
 	const C = 2 * Math.PI * R;
 	const SWEEP = 0.75; // 270° arc, gap centred at the bottom
 
-	$: frac = gaugeFraction(value, min, max);
+	$: frac = fraction(value, min, max);
 	$: display = value === null ? '–' : Math.round(value).toString();
 </script>
 
