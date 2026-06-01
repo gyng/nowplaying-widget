@@ -287,7 +287,8 @@ saved window state/settings are not orphaned):
 - [ ] Click-through watcher per Risks (gated, toggle-on-transition) for interactive widgets.
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
 - [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
-- [ ] Editor: alignment guides, widget palette, inspector (x/y/w/h + config), add/remove.
+- [x] Editor: widget palette (add) + inspector (sensor / x/y/w/h / config JSON) + select + remove — Phase 3d-3.
+- [ ] Editor nicety: alignment guides / snap-to-other-widgets.
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch

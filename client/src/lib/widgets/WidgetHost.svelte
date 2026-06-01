@@ -13,10 +13,15 @@
 	export let hub: TelemetryHub;
 	export let instance: WidgetInstance;
 	export let editMode = false;
+	export let selected = false;
 	export let grid = 8;
 
 	const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-	const dispatch = createEventDispatcher<{ change: { id: string; rect: Rect }; commit: void }>();
+	const dispatch = createEventDispatcher<{
+		change: { id: string; rect: Rect };
+		commit: void;
+		select: { id: string };
+	}>();
 
 	// A sentinel id keeps `$store` a valid store for self-sourcing widgets (no sensor).
 	$: store = sensorStore(hub, instance.sensor ?? '__none__');
@@ -31,6 +36,7 @@
 
 	function begin(kind: 'move' | ResizeHandle, event: PointerEvent) {
 		if (!editMode) return;
+		dispatch('select', { id: instance.id });
 		action = kind;
 		startX = event.clientX;
 		startY = event.clientY;
@@ -61,6 +67,7 @@
 <div
 	class="widget"
 	class:editable={editMode}
+	class:selected
 	class:active={action !== null}
 	style="left: {instance.rect.x}px; top: {instance.rect.y}px; width: {instance.rect
 		.w}px; height: {instance.rect.h}px"
@@ -108,6 +115,11 @@
 	}
 
 	.widget.active {
+		outline-style: solid;
+	}
+
+	.widget.selected {
+		outline-color: rgb(119, 196, 211);
 		outline-style: solid;
 	}
 

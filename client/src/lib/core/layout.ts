@@ -61,3 +61,42 @@ export function parseLayout(raw: unknown): Layout | null {
 
 	return { version: obj.version, monitors };
 }
+
+export const WIDGET_TYPES = ['gauge', 'bar', 'sparkline', 'text', 'clock'];
+
+/** Build a sensible default instance for a widget `type` with the given id. Pure. */
+export function createWidget(type: string, id: string): WidgetInstance {
+	const at = { x: 24, y: 24 };
+	switch (type) {
+		case 'gauge':
+			return {
+				id,
+				type,
+				sensor: 'cpu.total',
+				rect: { ...at, w: 110, h: 110 },
+				config: { label: 'CPU', unit: '%', min: 0, max: 100 }
+			};
+		case 'bar':
+			return {
+				id,
+				type,
+				sensor: 'mem.used',
+				rect: { ...at, w: 140, h: 16 },
+				config: { min: 0, max: 100, label: 'MEM' }
+			};
+		case 'sparkline':
+			return { id, type, sensor: 'cpu.total', rect: { ...at, w: 140, h: 30 }, config: {} };
+		case 'text':
+			return {
+				id,
+				type,
+				sensor: 'net.down',
+				rect: { ...at, w: 100, h: 18 },
+				config: { format: 'rate', label: '↓' }
+			};
+		case 'clock':
+			return { id, type, rect: { ...at, w: 160, h: 40 }, config: { format: 'HH:mm:ss' } };
+		default:
+			return { id, type, rect: { ...at, w: 120, h: 80 }, config: {} };
+	}
+}

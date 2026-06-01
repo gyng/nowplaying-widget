@@ -10,10 +10,13 @@
 	import {
 		DEFAULT_MONITOR,
 		LAYOUT_VERSION,
+		WIDGET_TYPES,
+		createWidget,
 		parseLayout,
 		type WidgetInstance
 	} from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
+	import Inspector from './Inspector.svelte';
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
 	// configurable grid arrives with the Phase 3 editor; this proves the per-core pipe.
@@ -116,9 +119,12 @@
 
 	onDestroy(() => unlisten?.());
 
-	// Edit mode: Ctrl+E toggles; drag widgets to reposition, persisting on drop.
+	// Edit mode: Ctrl+E toggles; drag/resize widgets and edit them via the inspector.
 	let editMode = false;
+	let selectedId: string | null = null;
 	const GRID = 8;
+
+	$: selectedWidget = widgets.find((w) => w.id === selectedId) ?? null;
 
 	function onKeydown(event: KeyboardEvent) {
 		if (event.ctrlKey && event.key.toLowerCase() === 'e') {
@@ -138,6 +144,31 @@
 			console.warn('save_layout failed', err)
 		);
 	}
+
+	function onSelect(event: CustomEvent<{ id: string }>) {
+		selectedId = event.detail.id;
+	}
+
+	function onUpdate(event: CustomEvent<Partial<WidgetInstance>>) {
+		if (!selectedId) return;
+		const patch = event.detail;
+		widgets = widgets.map((w) => (w.id === selectedId ? { ...w, ...patch } : w));
+		saveLayout();
+	}
+
+	function onRemove() {
+		widgets = widgets.filter((w) => w.id !== selectedId);
+		selectedId = null;
+		saveLayout();
+	}
+
+	function onAdd(event: CustomEvent<{ type: string }>) {
+		const { type } = event.detail;
+		const id = `${type}-${Math.random().toString(36).slice(2, 8)}`;
+		widgets = [...widgets, createWidget(type, id)];
+		selectedId = id;
+		saveLayout();
+	}
 </script>
 
 <svelte:window on:keydown={onKeydown} />
@@ -148,13 +179,22 @@
 			{hub}
 			instance={widget}
 			{editMode}
+			selected={widget.id === selectedId}
 			grid={GRID}
 			on:change={onChange}
 			on:commit={saveLayout}
+			on:select={onSelect}
 		/>
 	{/each}
 	{#if editMode}
 		<div class="edit-badge">EDIT — Ctrl+E to exit</div>
+		<Inspector
+			widget={selectedWidget}
+			types={WIDGET_TYPES}
+			on:update={onUpdate}
+			on:remove={onRemove}
+			on:add={onAdd}
+		/>
 	{/if}
 </div>
 
