@@ -15,6 +15,7 @@ rust-version = "1.90"
 tauri-build = { version = "2.4.1", features = [] }
 
 [dependencies]
+notify = "6"
 nvml-wrapper = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }

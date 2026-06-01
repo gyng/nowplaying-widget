@@ -64,6 +64,10 @@ async fn main() -> Result<(), ()> {
                 sensors::run_system_sensors(sensors_handle).await;
             });
 
+            if let Err(err) = command::watch_layout(app.handle().clone()) {
+                eprintln!("failed to start layout watcher: {err}");
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

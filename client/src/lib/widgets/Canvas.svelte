@@ -4,7 +4,7 @@
 	// hardcoded list below is the fallback/demo default until a layout is saved.
 	import { onDestroy, onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import type { UnlistenFn } from '@tauri-apps/api/event';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
 	import { startTelemetrySource } from '../telemetry/source';
 	import {
@@ -102,9 +102,9 @@
 
 	const hub = createTelemetryHub();
 	let unlisten: UnlistenFn | undefined;
+	let unlistenLayout: UnlistenFn | undefined;
 
-	onMount(async () => {
-		unlisten = await startTelemetrySource(hub);
+	async function reloadLayout() {
 		try {
 			const raw = await invoke<string | null>('load_layout');
 			const saved = raw ? parseLayout(JSON.parse(raw)) : null;
@@ -115,9 +115,21 @@
 		} catch (err) {
 			console.warn('load_layout failed; using default layout', err);
 		}
+	}
+
+	onMount(async () => {
+		unlisten = await startTelemetrySource(hub);
+		await reloadLayout();
+		// Live-reload external edits to widgets.json (ignored while actively editing).
+		unlistenLayout = await listen('layout_changed', () => {
+			if (!editMode) reloadLayout();
+		});
 	});
 
-	onDestroy(() => unlisten?.());
+	onDestroy(() => {
+		unlisten?.();
+		unlistenLayout?.();
+	});
 
 	// Edit mode: Ctrl+E toggles; drag/resize widgets and edit them via the inspector.
 	let editMode = false;

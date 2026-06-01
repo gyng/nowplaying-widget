@@ -281,7 +281,7 @@ saved window state/settings are not orphaned):
 
 ### Phase 3 — layout + config (the stated priority)
 - [x] `widgets.json` in app config dir; `load_layout`/`save_layout` commands + pure `parseLayout` validation (Phase 3a, tested). Canvas loads it on mount, falling back to the demo default.
-- [ ] `notify` file-watch → `layout_changed` live reload.
+- [x] `notify` file-watch on widgets.json → `layout_changed`; Canvas live-reloads external edits (ignored while actively editing) — Phase 3b.
 - [ ] One always-on-top overlay window per monitor (all monitors); click-through default
       + edit-mode toggle; widgets bound to one monitor (no cross-monitor drag yet).
 - [ ] Click-through watcher per Risks (gated, toggle-on-transition) for interactive widgets.
