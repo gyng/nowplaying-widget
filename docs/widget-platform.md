@@ -287,8 +287,8 @@ saved window state/settings are not orphaned):
       its monitor; `setIgnoreCursorEvents(true)` normally, `false` in edit mode (whole-window
       click-through). Edit toggled by a **tray menu** ("Edit layout" / "Quit"). `layer` field
       added (default `top`); NowPlaying legacy positioning disabled (overlay owns the window;
-      settings stay reachable in edit mode). New capability file `overlay.json`. **Needs a
-      visual `cargo tauri dev` check** (overlay/click-through/tray are not gate-testable).
+      settings stay reachable in edit mode). New capability file `overlay.json`. **Verified
+      on hardware** (overlay fills monitor, clicks pass through, tray toggles edit).
 - [ ] **3c-1 follow-up — global hotkey** (Ctrl+Alt+E). Deferred: `tauri-plugin-global-shortcut`
       pulled an incompatible `tauri-runtime-wry 2.10` against the pinned `tauri 2.8.5`
       (Sync/`eval_script_with_callback` trait errors). Needs a deliberate tauri-stack bump —
@@ -297,7 +297,8 @@ saved window state/settings are not orphaned):
       monitor (`?monitor=<i>`); each window renders/saves only its monitor's widgets
       (read-modify-write, no clobber). NowPlaying renders on the primary only. Capability
       `overlay.json` covers `overlay-*` (create-window + window perms + core:default).
-      **Needs a visual multi-monitor `cargo tauri dev` check.**
+      Edit toggles broadcast (tray + Ctrl+E) so all monitors stay in sync.
+      **Verified on hardware** (multi-monitor overlays, per-monitor add/persist, Ctrl+E all).
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
 - [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
 - [x] Editor: widget palette (add) + inspector (sensor / x/y/w/h / config JSON) + select + remove — Phase 3d-3.
