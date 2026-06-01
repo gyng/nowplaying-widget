@@ -1,10 +1,17 @@
 {
   "identifier": "overlay",
-  "description": "Overlay window: click-through toggle and always-on-top",
+  "description": "Overlay windows (primary + per-monitor): event/command access, window creation, click-through, always-on-top, and sizing",
   "local": true,
-  "windows": ["main"],
+  "windows": ["main", "overlay-*"],
   "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
     "core:window:allow-set-ignore-cursor-events",
-    "core:window:allow-set-always-on-top"
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-show",
+    "core:window:allow-current-monitor",
+    "core:window:allow-available-monitors"
   ]
 }

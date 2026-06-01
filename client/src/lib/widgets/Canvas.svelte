@@ -9,15 +9,26 @@
 	import { startTelemetrySource } from '../telemetry/source';
 	import {
 		DEFAULT_MONITOR,
-		LAYOUT_VERSION,
 		WIDGET_TYPES,
 		createWidget,
+		defaultLayout,
 		parseLayout,
+		type Layout,
 		type WidgetInstance
 	} from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 	import Inspector from './Inspector.svelte';
-	import { fillCurrentMonitor, setClickThrough } from '../overlay';
+	import {
+		fillCurrentMonitor,
+		monitorParam,
+		setClickThrough,
+		spawnSecondaryOverlays
+	} from '../overlay';
+
+	// This window's monitor key: ?monitor=<i> on secondary overlays, else the primary
+	// key on main. Widgets are filtered/saved per monitor so windows don't clobber each
+	// other.
+	const myMonitor = monitorParam() ?? DEFAULT_MONITOR;
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
 	// configurable grid arrives with the Phase 3 editor; this proves the per-core pipe.
@@ -29,7 +40,7 @@
 		config: { min: 0, max: 100 }
 	}));
 
-	export let widgets: WidgetInstance[] = [
+	const DEMO_WIDGETS: WidgetInstance[] = [
 		{
 			id: 'clock',
 			type: 'clock',
@@ -101,6 +112,9 @@
 		...cores
 	];
 
+	// The demo layout seeds the primary monitor only; secondaries start empty.
+	export let widgets: WidgetInstance[] = monitorParam() ? [] : DEMO_WIDGETS;
+
 	const hub = createTelemetryHub();
 	let unlisten: UnlistenFn | undefined;
 	let unlistenLayout: UnlistenFn | undefined;
@@ -110,8 +124,8 @@
 		try {
 			const raw = await invoke<string | null>('load_layout');
 			const saved = raw ? parseLayout(JSON.parse(raw)) : null;
-			const monitor = saved?.monitors[DEFAULT_MONITOR];
-			if (monitor && monitor.widgets.length > 0) {
+			const monitor = saved?.monitors[myMonitor];
+			if (monitor) {
 				widgets = monitor.widgets;
 			}
 		} catch (err) {
@@ -126,8 +140,11 @@
 		unlistenLayout = await listen('layout_changed', () => {
 			if (!editMode) reloadLayout();
 		});
-		// Become a monitor-filling, click-through overlay; the tray toggles edit mode.
-		await fillCurrentMonitor();
+		// The primary window fills its monitor and opens overlays on the others.
+		if (!monitorParam()) {
+			await fillCurrentMonitor();
+			await spawnSecondaryOverlays();
+		}
 		await setClickThrough(true);
 		unlistenEdit = await listen('toggle_edit', () => setEdit(!editMode));
 	});
@@ -167,11 +184,21 @@
 		widgets = widgets.map((w) => (w.id === id ? { ...w, rect } : w));
 	}
 
-	function saveLayout() {
-		const layout = { version: LAYOUT_VERSION, monitors: { [DEFAULT_MONITOR]: { widgets } } };
-		invoke('save_layout', { contents: JSON.stringify(layout, null, 2) }).catch((err) =>
-			console.warn('save_layout failed', err)
-		);
+	async function saveLayout() {
+		let layout: Layout;
+		try {
+			const raw = await invoke<string | null>('load_layout');
+			layout = (raw ? parseLayout(JSON.parse(raw)) : null) ?? defaultLayout();
+		} catch {
+			layout = defaultLayout();
+		}
+		// Update only this monitor's widgets so other monitors aren't clobbered.
+		layout.monitors[myMonitor] = { widgets };
+		try {
+			await invoke('save_layout', { contents: JSON.stringify(layout, null, 2) });
+		} catch (err) {
+			console.warn('save_layout failed', err);
+		}
 	}
 
 	function onSelect(event: CustomEvent<{ id: string }>) {

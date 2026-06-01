@@ -293,9 +293,11 @@ saved window state/settings are not orphaned):
       pulled an incompatible `tauri-runtime-wry 2.10` against the pinned `tauri 2.8.5`
       (Sync/`eval_script_with_callback` trait errors). Needs a deliberate tauri-stack bump —
       bundle it with the rename / a deps refresh.
-- [ ] **3c-2 (multi-monitor):** one overlay window per monitor, created from the layout's
-      monitor map (configurable which monitors are active); each renders `?monitor=<id>`.
-      Runtime window creation + capability updates; widgets bound to one monitor.
+- [x] **3c-2 (multi-monitor):** the primary window spawns a click-through overlay per other
+      monitor (`?monitor=<i>`); each window renders/saves only its monitor's widgets
+      (read-modify-write, no clobber). NowPlaying renders on the primary only. Capability
+      `overlay.json` covers `overlay-*` (create-window + window perms + core:default).
+      **Needs a visual multi-monitor `cargo tauri dev` check.**
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
 - [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
 - [x] Editor: widget palette (add) + inspector (sensor / x/y/w/h / config JSON) + select + remove — Phase 3d-3.
