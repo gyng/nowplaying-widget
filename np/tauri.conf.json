@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeBuildCommand": "cd ./client && npm run build",
-    "beforeDevCommand": "cd ./client && npm run dev",
+    "beforeBuildCommand": "cd ../client && npm run build",
+    "beforeDevCommand": "cd ../client && npm run dev",
     "frontendDist": "../client/build",
     "devUrl": "http://localhost:5173"
   },
