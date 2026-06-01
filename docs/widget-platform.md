@@ -5,7 +5,10 @@ platform — so the existing Rainmeter skins under `C:\Users\gng\Documents\Rainm
 can move here, with **better layouting** for the Corsair Xeneon and **easier config**
 than hand-editing `.ini` files.
 
-> Status: planning. Nothing built yet except the `sysinfo` dependency line in `np/Cargo.toml`.
+> Status: **shipped to `main`** — full sensor/meter platform, transparent multi-monitor
+> click-through overlay, visual editor (drag/resize/snap/align/inspector/palette), persistence
+> + live-reload, tauri 2.11 + global hotkey, renamed to `widgetsack`, all verified on hardware.
+> Remaining stretch items are deferred/skipped (see Phase 4).
 
 ## Goals
 
@@ -309,9 +312,10 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch
-- [ ] **3c-3 (desktop layer):** a second overlay window per monitor pinned to the wallpaper
-      via WorkerW/Progman; widgets with `layer: 'desktop'` route to it. Fragile / Windows-
-      version-specific — opt-in, additive (routing by `layer` is already in the model).
+- 🚫 **DEFERRED — 3c-3 (desktop-pinned layer):** a second overlay window per monitor pinned
+      to the wallpaper via WorkerW/Progman; widgets with `layer: 'desktop'` route to it.
+      Fragile / Windows-version-specific. Deferred indefinitely — always-on-top covers the
+      need; the `layer` field is already in the model so it can be picked up later additively.
 - [x] Per-widget click-through (Phase 4, **verified on hardware**): widgets flagged
       `interactive` catch clicks in passive mode. A Rust cursor watcher (`clickthrough.rs`,
       ~60 Hz, idle when none, toggles on transition) hit-tests `app.cursor_position()` against
@@ -320,7 +324,9 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
       passed (interactive catches, meters/empty pass through).
 - [x] Editor: alignment guides — snap a dragged widget's edges/centres to peers, with
       teal guide lines (pure tested `snapRectToPeers`) — Phase 4.
-- [ ] PDH GPU fallback for non-NVIDIA; temps/fans via HWiNFO/LHM shared memory (optional).
+- 🚫 **SKIPPED — PDH GPU fallback for non-NVIDIA** (and temps/fans via HWiNFO/LHM shared
+      memory). The target machine is NVIDIA (NVML covers it) and there's no non-NVIDIA
+      hardware to verify against — not worth building blind. Revisit only if needed.
 
 ## Resolved decisions (2026-06-01)
 
