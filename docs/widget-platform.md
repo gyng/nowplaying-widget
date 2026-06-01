@@ -251,15 +251,14 @@ now; revisit web-components only if the React timeline firms up (see Open decisi
 - [x] All gates green: `npm run check`/`lint`/`test:unit`/`build`, `cargo test`/`clippy`.
 - [ ] Visual confirm: `cargo tauri dev` → live CPU gauge (run by user). Checkpoint.
 
-### Phase R — rename np → widgetsack (own commit, low-risk first)
-Blast radius (keep the **identifier** `io.github.gyng` unchanged so the app data dir and
-saved window state/settings are not orphaned):
-- [ ] `np/Cargo.toml`: `name`/`default-run`/description `np` → `widgetsack`.
-- [ ] root `Cargo.toml` workspace member; rename dir `np/` → `widgetsack/` (relative paths
-      inside `tauri.conf.json` are unaffected).
-- [ ] `tauri.conf.json`: `productName` → `widgetsack`, window `title` → `WidgetSack`.
-- [ ] `.github/workflows/*.yml`: paths + binary name (`np.exe` → `widgetsack.exe`).
-- [ ] README + docs. (localStorage key `_mediaStore` can stay or migrate in Phase 3.)
+### Phase R — rename np → widgetsack ✅ done (999b4a3), verified on hardware
+Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orphaned.
+- [x] crate `name`/`default-run`/description → `widgetsack` (binary `widgetsack.exe`).
+- [x] root `Cargo.toml` workspace member; dir `np/` → `widgetsack/` (`git mv`; before-command
+      / `frontendDist` paths are relative to the conf dir so they still resolve to `client/`).
+- [x] `tauri.conf.json`: `productName` → `widgetsack`, window `title` → `WidgetSack`.
+- [x] `.github/workflows/build.yml`: pin a current v2 tauri CLI (old rc.0 can't parse 2.11).
+- [ ] README — deferred (has uncommitted local edits). localStorage key `_mediaStore` left as-is.
 
 ### Phase 0 — refactor seam (+ core boundary)
 - [ ] Establish `core/` (zero Svelte) vs `widgets/` (Svelte) split; move types into `core/`.
@@ -289,10 +288,10 @@ saved window state/settings are not orphaned):
       added (default `top`); NowPlaying legacy positioning disabled (overlay owns the window;
       settings stay reachable in edit mode). New capability file `overlay.json`. **Verified
       on hardware** (overlay fills monitor, clicks pass through, tray toggles edit).
-- [ ] **3c-1 follow-up — global hotkey** (Ctrl+Alt+E). Deferred: `tauri-plugin-global-shortcut`
-      pulled an incompatible `tauri-runtime-wry 2.10` against the pinned `tauri 2.8.5`
-      (Sync/`eval_script_with_callback` trait errors). Needs a deliberate tauri-stack bump —
-      bundle it with the rename / a deps refresh.
+- [x] **3c-1 follow-up — global hotkey** (Ctrl+Alt+E) ✅ done (29b9ac8). Bumped the whole
+      tauri stack to 2.11 (a fresh lock resolve; the earlier conflict was pinned `tauri 2.8.5`
+      vs a 2.10 `tauri-runtime-wry` the plugin pulled). Registered in Rust; broadcasts
+      `toggle_edit` like the tray/Ctrl+E. Aligned `@tauri-apps/api` to ^2. Verified on hardware.
 - [x] **3c-2 (multi-monitor):** the primary window spawns a click-through overlay per other
       monitor (`?monitor=<i>`); each window renders/saves only its monitor's widgets
       (read-modify-write, no clobber). NowPlaying renders on the primary only. Capability
