@@ -54,6 +54,20 @@
 			config: { label: 'RAM', unit: '%', min: 0, max: 100 }
 		},
 		{
+			id: 'gpu-1',
+			type: 'gauge',
+			sensor: 'gpu.util',
+			rect: { x: 170, y: 262, w: 110, h: 100 },
+			config: { label: 'GPU', unit: '%', min: 0, max: 100 }
+		},
+		{
+			id: 'vram-bar',
+			type: 'bar',
+			sensor: 'gpu.vram',
+			rect: { x: 16, y: 124, w: 140, h: 12 },
+			config: { min: 0, max: 100, label: 'VRAM', color: 'rgb(119, 196, 211)' }
+		},
+		{
 			id: 'net-down-txt',
 			type: 'text',
 			sensor: 'net.down',

@@ -7,6 +7,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, Nvml};
 use serde::Serialize;
 use sysinfo::{Networks, System};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -82,15 +83,27 @@ fn core_sensor_id(index: usize) -> String {
 
 /// Poll system sensors on an interval and emit a `telemetry` batch each tick.
 ///
-/// Phase 1a: `cpu.total`, `mem.used`, `swap.used` (percentages) and
-/// `net.down` / `net.up` (bytes/sec, summed across interfaces). CPU usage needs
-/// two refreshes spaced apart to be non-zero, so the first tick primes it. Runs
-/// until the app exits.
+/// `cpu.total`, `cpu.core.N`, `mem.used`, `swap.used` (percentages),
+/// `net.down` / `net.up` (bytes/sec) and — when an NVIDIA GPU is present —
+/// `gpu.util`, `gpu.vram`, `gpu.temp`. CPU usage needs two refreshes spaced
+/// apart to be non-zero, so the first tick primes it. NVML is optional: if init
+/// fails (no NVIDIA driver) GPU sensors are skipped without erroring. Runs until
+/// the app exits.
 pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
     let mut sys = System::new();
     sys.refresh_cpu_usage();
     sys.refresh_memory();
     let mut networks = Networks::new_with_refreshed_list();
+
+    // GPU is best-effort: degrade gracefully on machines without NVML/NVIDIA.
+    let nvml = match Nvml::init() {
+        Ok(nvml) => Some(nvml),
+        Err(err) => {
+            eprintln!("GPU sensors disabled (NVML init failed): {err}");
+            None
+        }
+    };
+    let gpu = nvml.as_ref().and_then(|nvml| nvml.device_by_index(0).ok());
 
     let mut ticker = tokio::time::interval(Duration::from_millis(INTERVAL_MS));
     loop {
@@ -113,6 +126,18 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
 
         for (i, cpu) in sys.cpus().iter().enumerate() {
             batch.push(SensorSample::scalar(core_sensor_id(i), ts, f64::from(cpu.cpu_usage())));
+        }
+
+        if let Some(device) = &gpu {
+            if let Ok(util) = device.utilization_rates() {
+                batch.push(SensorSample::scalar("gpu.util", ts, f64::from(util.gpu)));
+            }
+            if let Ok(mem) = device.memory_info() {
+                batch.push(SensorSample::scalar("gpu.vram", ts, percent(mem.used, mem.total)));
+            }
+            if let Ok(temp) = device.temperature(TemperatureSensor::Gpu) {
+                batch.push(SensorSample::scalar("gpu.temp", ts, f64::from(temp)));
+            }
         }
 
         if let Err(err) = app.emit(TELEMETRY_EVENT, &batch) {

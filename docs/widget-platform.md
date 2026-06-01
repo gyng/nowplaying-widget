@@ -269,7 +269,7 @@ saved window state/settings are not orphaned):
 ### Phase 1 — sensors
 - [x] sysinfo: `mem.used`, `swap.used` (%), `net.up`/`net.down` (B/s) — Phase 1a, with pure `percent`/`rate_per_sec` tests; CPU + RAM gauges wired on the canvas.
 - [x] sysinfo: `cpu.core.N` per-core scalars (Phase 2a) — one ring-buffered sensor per core.
-- [ ] GPU: NVML util/VRAM/temp with graceful fallback to PDH; only run when referenced.
+- [x] GPU: NVML `gpu.util` / `gpu.vram` / `gpu.temp` with graceful degrade (NVML init fails → skipped, no crash) — Phase 1b. PDH fallback for non-NVIDIA still pending.
 - [ ] Media (GSMTC) re-expressed as a push sensor emitting `Json` under the same contract.
 - [ ] `list_sensors` command + per-sensor interval (1 Hz default); sensors run only if in the layout.
 
