@@ -4,7 +4,7 @@
 	// hardcoded list below is the fallback/demo default until a layout is saved.
 	import { onDestroy, onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
 	import { startTelemetrySource } from '../telemetry/source';
 	import {
@@ -175,7 +175,8 @@
 	function onKeydown(event: KeyboardEvent) {
 		if (event.ctrlKey && event.key.toLowerCase() === 'e') {
 			event.preventDefault();
-			setEdit(!editMode);
+			// Broadcast so every monitor's overlay toggles together, not just this one.
+			emit('toggle_edit');
 		}
 	}
 
