@@ -1,11 +1,12 @@
 <script lang="ts">
 	// Container (organism): positions one widget and wires its sensor to the
 	// presentational meter. The meter stays prop-only; all subscription lives here.
-	// In edit mode a transparent overlay makes the widget draggable.
+	// In edit mode a transparent overlay drags the widget and corner/edge handles
+	// resize it; both report rect changes up via the `change` event.
 	import { createEventDispatcher } from 'svelte';
 	import type { TelemetryHub } from '../core/telemetry';
 	import type { Rect, WidgetInstance } from '../core/layout';
-	import { moveRect } from '../core/geometry';
+	import { moveRect, resizeRect, type ResizeHandle } from '../core/geometry';
 	import { registry } from './registry';
 	import { sensorStore } from './sensorStore';
 
@@ -14,7 +15,8 @@
 	export let editMode = false;
 	export let grid = 8;
 
-	const dispatch = createEventDispatcher<{ move: { id: string; rect: Rect }; commit: void }>();
+	const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+	const dispatch = createEventDispatcher<{ change: { id: string; rect: Rect }; commit: void }>();
 
 	// A sentinel id keeps `$store` a valid store for self-sourcing widgets (no sensor).
 	$: store = sensorStore(hub, instance.sensor ?? '__none__');
@@ -22,30 +24,36 @@
 	$: scalar = $store.value && $store.value.kind === 'scalar' ? $store.value.value : null;
 	$: history = $store.history;
 
-	let dragging = false;
+	let action: 'move' | ResizeHandle | null = null;
 	let startX = 0;
 	let startY = 0;
 	let startRect: Rect = instance.rect;
 
-	function onPointerDown(event: PointerEvent) {
+	function begin(kind: 'move' | ResizeHandle, event: PointerEvent) {
 		if (!editMode) return;
-		dragging = true;
+		action = kind;
 		startX = event.clientX;
 		startY = event.clientY;
 		startRect = instance.rect;
 		(event.currentTarget as Element).setPointerCapture(event.pointerId);
 		event.preventDefault();
+		event.stopPropagation();
 	}
 
-	function onPointerMove(event: PointerEvent) {
-		if (!dragging) return;
-		const rect = moveRect(startRect, event.clientX - startX, event.clientY - startY, grid);
-		dispatch('move', { id: instance.id, rect });
+	function move(event: PointerEvent) {
+		if (action === null) return;
+		const dx = event.clientX - startX;
+		const dy = event.clientY - startY;
+		const rect =
+			action === 'move'
+				? moveRect(startRect, dx, dy, grid)
+				: resizeRect(startRect, action, dx, dy, grid);
+		dispatch('change', { id: instance.id, rect });
 	}
 
-	function onPointerUp() {
-		if (!dragging) return;
-		dragging = false;
+	function end() {
+		if (action === null) return;
+		action = null;
 		dispatch('commit');
 	}
 </script>
@@ -53,7 +61,7 @@
 <div
 	class="widget"
 	class:editable={editMode}
-	class:dragging
+	class:active={action !== null}
 	style="left: {instance.rect.x}px; top: {instance.rect.y}px; width: {instance.rect
 		.w}px; height: {instance.rect.h}px"
 >
@@ -72,10 +80,20 @@
 			type="button"
 			class="drag-overlay"
 			aria-label="Move {instance.type} widget"
-			on:pointerdown={onPointerDown}
-			on:pointermove={onPointerMove}
-			on:pointerup={onPointerUp}
+			on:pointerdown={(e) => begin('move', e)}
+			on:pointermove={move}
+			on:pointerup={end}
 		/>
+		{#each HANDLES as handle (handle)}
+			<button
+				type="button"
+				class="handle {handle}"
+				aria-label="Resize {handle}"
+				on:pointerdown={(e) => begin(handle, e)}
+				on:pointermove={move}
+				on:pointerup={end}
+			/>
+		{/each}
 	{/if}
 </div>
 
@@ -89,7 +107,7 @@
 		outline-offset: 2px;
 	}
 
-	.widget.dragging {
+	.widget.active {
 		outline-style: solid;
 	}
 
@@ -101,6 +119,66 @@
 		border: none;
 		background: transparent;
 		cursor: move;
+	}
+
+	.handle {
+		position: absolute;
+		width: 8px;
+		height: 8px;
+		margin: 0;
+		padding: 0;
+		box-sizing: border-box;
+		border: 1px solid rgba(119, 196, 211, 0.9);
+		background: #0b0b0b;
+		z-index: 1;
+	}
+
+	.handle.n {
+		top: -4px;
+		left: calc(50% - 4px);
+		cursor: ns-resize;
+	}
+
+	.handle.s {
+		bottom: -4px;
+		left: calc(50% - 4px);
+		cursor: ns-resize;
+	}
+
+	.handle.e {
+		right: -4px;
+		top: calc(50% - 4px);
+		cursor: ew-resize;
+	}
+
+	.handle.w {
+		left: -4px;
+		top: calc(50% - 4px);
+		cursor: ew-resize;
+	}
+
+	.handle.ne {
+		top: -4px;
+		right: -4px;
+		cursor: nesw-resize;
+	}
+
+	.handle.nw {
+		top: -4px;
+		left: -4px;
+		cursor: nwse-resize;
+	}
+
+	.handle.se {
+		bottom: -4px;
+		right: -4px;
+		cursor: nwse-resize;
+	}
+
+	.handle.sw {
+		bottom: -4px;
+		left: -4px;
+		cursor: nesw-resize;
 	}
 
 	.missing {

@@ -286,7 +286,8 @@ saved window state/settings are not orphaned):
       + edit-mode toggle; widgets bound to one monitor (no cross-monitor drag yet).
 - [ ] Click-through watcher per Risks (gated, toggle-on-transition) for interactive widgets.
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
-- [ ] Editor: resize handles, alignment guides, widget palette, inspector (x/y/w/h), add/remove.
+- [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
+- [ ] Editor: alignment guides, widget palette, inspector (x/y/w/h + config), add/remove.
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch

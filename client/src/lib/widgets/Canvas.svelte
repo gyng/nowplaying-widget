@@ -127,7 +127,7 @@
 		}
 	}
 
-	function onMove(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
+	function onChange(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
 		const { id, rect } = event.detail;
 		widgets = widgets.map((w) => (w.id === id ? { ...w, rect } : w));
 	}
@@ -149,7 +149,7 @@
 			instance={widget}
 			{editMode}
 			grid={GRID}
-			on:move={onMove}
+			on:change={onChange}
 			on:commit={saveLayout}
 		/>
 	{/each}
