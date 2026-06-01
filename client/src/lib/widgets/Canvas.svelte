@@ -18,6 +18,7 @@
 	} from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 	import Inspector from './Inspector.svelte';
+	import { snapRectToPeers } from '../core/align';
 	import {
 		fillCurrentMonitor,
 		monitorParam,
@@ -160,6 +161,9 @@
 	let editMode = false;
 	let selectedId: string | null = null;
 	const GRID = 8;
+	const ALIGN_THRESHOLD = 6;
+	let guideXs: number[] = [];
+	let guideYs: number[] = [];
 
 	$: selectedWidget = widgets.find((w) => w.id === selectedId) ?? null;
 
@@ -182,7 +186,17 @@
 
 	function onChange(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
 		const { id, rect } = event.detail;
-		widgets = widgets.map((w) => (w.id === id ? { ...w, rect } : w));
+		const peers = widgets.filter((w) => w.id !== id).map((w) => w.rect);
+		const snapped = snapRectToPeers(rect, peers, ALIGN_THRESHOLD);
+		guideXs = snapped.guideXs;
+		guideYs = snapped.guideYs;
+		widgets = widgets.map((w) => (w.id === id ? { ...w, rect: snapped.rect } : w));
+	}
+
+	function onCommit() {
+		guideXs = [];
+		guideYs = [];
+		saveLayout();
 	}
 
 	async function saveLayout() {
@@ -239,11 +253,17 @@
 			selected={widget.id === selectedId}
 			grid={GRID}
 			on:change={onChange}
-			on:commit={saveLayout}
+			on:commit={onCommit}
 			on:select={onSelect}
 		/>
 	{/each}
 	{#if editMode}
+		{#each guideXs as gx (gx)}
+			<div class="guide v" style="left: {gx}px" />
+		{/each}
+		{#each guideYs as gy (gy)}
+			<div class="guide h" style="top: {gy}px" />
+		{/each}
 		<div class="edit-badge">EDIT — Ctrl+E to exit</div>
 		<Inspector
 			widget={selectedWidget}
@@ -264,6 +284,25 @@
 
 	.canvas.edit {
 		pointer-events: auto;
+	}
+
+	.guide {
+		position: absolute;
+		background: rgba(119, 196, 211, 0.9);
+		pointer-events: none;
+		z-index: 2;
+	}
+
+	.guide.v {
+		top: 0;
+		bottom: 0;
+		width: 1px;
+	}
+
+	.guide.h {
+		left: 0;
+		right: 0;
+		height: 1px;
 	}
 
 	.edit-badge {

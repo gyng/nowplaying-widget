@@ -301,7 +301,8 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
 - [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
 - [x] Editor: widget palette (add) + inspector (sensor / x/y/w/h / config JSON) + select + remove — Phase 3d-3.
-- [ ] Editor nicety: alignment guides / snap-to-other-widgets.
+- [x] Editor: alignment guides — snap a dragged widget's edges/centres to peers, with
+      teal guide lines (pure tested `snapRectToPeers`) — Phase 4.
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch
@@ -310,7 +311,8 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
       version-specific — opt-in, additive (routing by `layer` is already in the model).
 - [ ] Per-widget click-through: cursor-poll hit-testing for widgets needing clicks in normal
       mode (now-playing controls). Deferred — whole-window click-through ships first.
-- [ ] Editor nicety: alignment guides / snap-to-other-widgets.
+- [x] Editor: alignment guides — snap a dragged widget's edges/centres to peers, with
+      teal guide lines (pure tested `snapRectToPeers`) — Phase 4.
 - [ ] PDH GPU fallback for non-NVIDIA; temps/fans via HWiNFO/LHM shared memory (optional).
 
 ## Resolved decisions (2026-06-01)
