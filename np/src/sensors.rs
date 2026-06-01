@@ -75,6 +75,11 @@ fn rate_per_sec(bytes: u64, interval_ms: u64) -> f64 {
     }
 }
 
+/// Stable sensor id for a per-core CPU usage reading (zero-indexed).
+fn core_sensor_id(index: usize) -> String {
+    format!("cpu.core.{index}")
+}
+
 /// Poll system sensors on an interval and emit a `telemetry` batch each tick.
 ///
 /// Phase 1a: `cpu.total`, `mem.used`, `swap.used` (percentages) and
@@ -98,13 +103,17 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
         let down: u64 = networks.values().map(|data| data.received()).sum();
         let up: u64 = networks.values().map(|data| data.transmitted()).sum();
 
-        let batch = vec![
+        let mut batch = vec![
             SensorSample::scalar("cpu.total", ts, f64::from(sys.global_cpu_usage())),
             SensorSample::scalar("mem.used", ts, percent(sys.used_memory(), sys.total_memory())),
             SensorSample::scalar("swap.used", ts, percent(sys.used_swap(), sys.total_swap())),
             SensorSample::scalar("net.down", ts, rate_per_sec(down, INTERVAL_MS)),
             SensorSample::scalar("net.up", ts, rate_per_sec(up, INTERVAL_MS)),
         ];
+
+        for (i, cpu) in sys.cpus().iter().enumerate() {
+            batch.push(SensorSample::scalar(core_sensor_id(i), ts, f64::from(cpu.cpu_usage())));
+        }
 
         if let Err(err) = app.emit(TELEMETRY_EVENT, &batch) {
             eprintln!("failed to emit telemetry: {err}");
@@ -144,5 +153,11 @@ mod tests {
         assert_eq!(rate_per_sec(1000, 1000), 1000.0);
         assert_eq!(rate_per_sec(2000, 500), 4000.0);
         assert_eq!(rate_per_sec(100, 0), 0.0);
+    }
+
+    #[test]
+    fn core_sensor_id_is_zero_indexed() {
+        assert_eq!(core_sensor_id(0), "cpu.core.0");
+        assert_eq!(core_sensor_id(7), "cpu.core.7");
     }
 }

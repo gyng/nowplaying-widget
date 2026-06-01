@@ -9,6 +9,16 @@
 	import type { WidgetInstance } from '../core/layout';
 	import WidgetHost from './WidgetHost.svelte';
 
+	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
+	// configurable grid arrives with the Phase 3 editor; this proves the per-core pipe.
+	const cores: WidgetInstance[] = Array.from({ length: 4 }, (_, i) => ({
+		id: `core-${i}`,
+		type: 'sparkline',
+		sensor: `cpu.core.${i}`,
+		rect: { x: 16 + i * 40, y: 280, w: 36, h: 26 },
+		config: { min: 0, max: 100 }
+	}));
+
 	export let widgets: WidgetInstance[] = [
 		{
 			id: 'cpu-1',
@@ -23,7 +33,15 @@
 			sensor: 'mem.used',
 			rect: { x: 170, y: 140, w: 110, h: 110 },
 			config: { label: 'RAM', unit: '%', min: 0, max: 100 }
-		}
+		},
+		{
+			id: 'net-down',
+			type: 'sparkline',
+			sensor: 'net.down',
+			rect: { x: 16, y: 240, w: 140, h: 30 },
+			config: { color: 'rgb(218, 237, 226)' }
+		},
+		...cores
 	];
 
 	const hub = createTelemetryHub();

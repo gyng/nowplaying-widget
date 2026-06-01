@@ -13,6 +13,7 @@
 	$: store = sensorStore(hub, instance.sensor ?? '__none__');
 	$: comp = registry[instance.type];
 	$: scalar = $store.value && $store.value.kind === 'scalar' ? $store.value.value : null;
+	$: history = $store.history;
 </script>
 
 <div
@@ -21,7 +22,7 @@
 		.w}px; height: {instance.rect.h}px"
 >
 	{#if comp}
-		<svelte:component this={comp} value={scalar} {...instance.config} />
+		<svelte:component this={comp} value={scalar} {history} {...instance.config} />
 	{:else}
 		<div class="missing">?{instance.type}</div>
 	{/if}

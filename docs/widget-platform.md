@@ -268,13 +268,14 @@ saved window state/settings are not orphaned):
 
 ### Phase 1 — sensors
 - [x] sysinfo: `mem.used`, `swap.used` (%), `net.up`/`net.down` (B/s) — Phase 1a, with pure `percent`/`rate_per_sec` tests; CPU + RAM gauges wired on the canvas.
-- [ ] sysinfo: `cpu.core.N` series (pairs with the sparkline meter).
+- [x] sysinfo: `cpu.core.N` per-core scalars (Phase 2a) — one ring-buffered sensor per core.
 - [ ] GPU: NVML util/VRAM/temp with graceful fallback to PDH; only run when referenced.
 - [ ] Media (GSMTC) re-expressed as a push sensor emitting `Json` under the same contract.
 - [ ] `list_sensors` command + per-sensor interval (1 Hz default); sensors run only if in the layout.
 
 ### Phase 2 — meters
-- [ ] `Text`/`Clock` (format strings, day pictographs), `Bar`, `Gauge/Roundline`, `Sparkline`.
+- [x] `Gauge` (Phase S) + `Sparkline` (Phase 2a, pure geometry + tests); per-core CPU row + net sparkline on the canvas.
+- [ ] `Text` / `Clock` (format strings, day pictographs), `Bar`.
 - [ ] Carry palette + fonts. Rebuild DateTime / System / Network as instances; reach parity.
 
 ### Phase 3 — layout + config (the stated priority)
