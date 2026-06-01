@@ -10,6 +10,7 @@ use tauri::async_runtime::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::sync::mpsc;
 
 use crate::command::get_initial_sessions;
@@ -35,6 +36,7 @@ async fn main() -> Result<(), ()> {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             sessions: Default::default(),
         })
@@ -87,6 +89,22 @@ async fn main() -> Result<(), ()> {
                     _ => {}
                 })
                 .build(app)?;
+
+            // Global hotkey: toggle edit mode from anywhere (a passive click-through
+            // overlay receives no in-app keys). Broadcasts the same event the tray and
+            // Ctrl+E use, so every monitor's overlay toggles together.
+            let toggle_edit_shortcut =
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyE);
+            if let Err(err) =
+                app.global_shortcut()
+                    .on_shortcut(toggle_edit_shortcut, |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            let _ = app.emit("toggle_edit", ());
+                        }
+                    })
+            {
+                eprintln!("failed to register global shortcut: {err}");
+            }
 
             Ok(())
         })
