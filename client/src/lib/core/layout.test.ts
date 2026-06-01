@@ -62,4 +62,10 @@ describe('createWidget', () => {
 		expect(w).toMatchObject({ id: 'm1', type: 'mystery', config: {} });
 		expect(w.rect.w).toBeGreaterThan(0);
 	});
+
+	it('builds an interactive button', () => {
+		const w = createWidget('button', 'b1');
+		expect(w.type).toBe('button');
+		expect(w.interactive).toBe(true);
+	});
 });

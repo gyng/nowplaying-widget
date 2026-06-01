@@ -64,7 +64,7 @@ export function parseLayout(raw: unknown): Layout | null {
 	return { version: obj.version, monitors };
 }
 
-export const WIDGET_TYPES = ['gauge', 'bar', 'sparkline', 'text', 'clock'];
+export const WIDGET_TYPES = ['gauge', 'bar', 'sparkline', 'text', 'clock', 'button'];
 
 /** Build a sensible default instance for a widget `type` with the given id. Pure. */
 export function createWidget(type: string, id: string): WidgetInstance {
@@ -98,6 +98,14 @@ export function createWidget(type: string, id: string): WidgetInstance {
 			};
 		case 'clock':
 			return { id, type, rect: { ...at, w: 160, h: 40 }, config: { format: 'HH:mm:ss' } };
+		case 'button':
+			return {
+				id,
+				type,
+				rect: { ...at, w: 90, h: 44 },
+				config: { label: 'tap' },
+				interactive: true
+			};
 		default:
 			return { id, type, rect: { ...at, w: 120, h: 80 }, config: {} };
 	}
