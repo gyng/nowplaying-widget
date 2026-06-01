@@ -7,6 +7,7 @@
 
 	export let widget: WidgetInstance | null = null;
 	export let types: string[] = [];
+	export let sensors: string[] = [];
 
 	const RECT_KEYS = ['x', 'y', 'w', 'h'] as const;
 	const dispatch = createEventDispatcher<{
@@ -56,12 +57,18 @@
 			<label class="full">
 				sensor
 				<input
+					list="sensor-list"
 					value={widget.sensor ?? ''}
 					placeholder="(none)"
 					on:input={(e) =>
 						dispatch('update', { sensor: e.currentTarget.value.trim() || undefined })}
 				/>
 			</label>
+			<datalist id="sensor-list">
+				{#each sensors as s (s)}
+					<option value={s} />
+				{/each}
+			</datalist>
 			<div class="row">
 				{#each RECT_KEYS as key (key)}
 					<label>

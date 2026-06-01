@@ -271,7 +271,10 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [x] sysinfo: `cpu.core.N` per-core scalars (Phase 2a) — one ring-buffered sensor per core.
 - [x] GPU: NVML `gpu.util` / `gpu.vram` / `gpu.temp` with graceful degrade (NVML init fails → skipped, no crash) — Phase 1b. PDH fallback for non-NVIDIA still pending.
 - [ ] Media (GSMTC) re-expressed as a push sensor emitting `Json` under the same contract.
-- [ ] `list_sensors` command + per-sensor interval (1 Hz default); sensors run only if in the layout.
+- [x] Sensor catalog for the editor: live ids from the telemetry hub (`sensorIds`) + a curated
+      list → inspector `<datalist>` (tested `sensorCatalog`). Replaces a Rust `list_sensors`.
+- [ ] Deferred (low value): per-sensor configurable interval; running sensors only when
+      referenced by the layout — all current sensors are cheap at 1 Hz.
 
 ### Phase 2 — meters
 - [x] `Gauge` (Phase S) + `Sparkline` (Phase 2a, pure geometry + tests); per-core CPU row + net sparkline on the canvas.

@@ -66,4 +66,17 @@ describe('createTelemetryHub', () => {
 		const obs = createTelemetryHub().sensor('missing');
 		expect(obs.getSnapshot()).toBe(obs.getSnapshot());
 	});
+
+	it('lists ids of sensors that have emitted a sample', () => {
+		const hub = createTelemetryHub();
+		expect(hub.sensorIds()).toEqual([]);
+		hub.ingestBatch([
+			{ sensor: 'cpu.total', ts_ms: 1, value: { kind: 'scalar', value: 1 } },
+			{ sensor: 'cpu.core.0', ts_ms: 1, value: { kind: 'scalar', value: 2 } }
+		]);
+		expect(hub.sensorIds().sort()).toEqual(['cpu.core.0', 'cpu.total']);
+		// merely reading a sensor doesn't register it
+		hub.sensor('mem.used');
+		expect(hub.sensorIds()).not.toContain('mem.used');
+	});
 });

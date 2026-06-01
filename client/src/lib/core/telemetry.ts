@@ -50,6 +50,8 @@ export interface TelemetryHub {
 	ingest(sample: SensorSample): void;
 	ingestBatch(batch: TelemetryBatch): void;
 	sensor(id: string): SensorObservable;
+	/** Ids of sensors seen so far (i.e. that have emitted at least one sample). */
+	sensorIds(): string[];
 }
 
 /** Create a hub that routes samples to per-sensor state and notifies subscribers. */
@@ -67,6 +69,7 @@ export function createTelemetryHub(historyLen = 120): TelemetryHub {
 	return {
 		ingest,
 		ingestBatch: (batch) => batch.forEach(ingest),
+		sensorIds: () => Array.from(states.keys()),
 		sensor: (id) => ({
 			subscribe(cb) {
 				let set = listeners.get(id);

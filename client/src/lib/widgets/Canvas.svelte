@@ -19,6 +19,7 @@
 	import WidgetHost from './WidgetHost.svelte';
 	import Inspector from './Inspector.svelte';
 	import { snapRectToPeers } from '../core/align';
+	import { sensorCatalog } from '../core/sensors';
 	import {
 		fillCurrentMonitor,
 		monitorParam,
@@ -166,6 +167,7 @@
 	let guideYs: number[] = [];
 
 	$: selectedWidget = widgets.find((w) => w.id === selectedId) ?? null;
+	$: sensors = sensorCatalog(selectedWidget ? hub.sensorIds() : []);
 
 	async function setEdit(value: boolean) {
 		editMode = value;
@@ -268,6 +270,7 @@
 		<Inspector
 			widget={selectedWidget}
 			types={WIDGET_TYPES}
+			{sensors}
 			on:update={onUpdate}
 			on:remove={onRemove}
 			on:add={onAdd}
