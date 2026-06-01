@@ -1,32 +1,50 @@
-# nowplaying-widget
+# widgetsack
 
-Shows the currently playing track in a themable widget on Windows.
+A themable, Rainmeter-style desktop widget overlay for Windows. Put system meters
+(CPU, per-core, GPU/VRAM, memory, network), clocks, and the currently-playing track on a
+transparent, click-through overlay across all your monitors — and arrange them with a
+built-in visual editor.
+
+> Evolved from `nowplaying-widget`; the now-playing widget is still built in.
 
 [.msi download for the latest release](https://github.com/gyng/nowplaying-widget/releases/latest)
 
-|                                                       |                                                       |
-| ----------------------------------------------------- | ----------------------------------------------------- |
-| ![np/docs/screenshot-a.jpg](np/docs/screenshot-a.jpg) | ![np/docs/screenshot-a.jpg](np/docs/screenshot-b.jpg) |
+|                                                             |                                                             |
+| ----------------------------------------------------------- | ----------------------------------------------------------- |
+| ![screenshot-a](widgetsack/docs/screenshot-a.jpg)           | ![screenshot-b](widgetsack/docs/screenshot-b.jpg)           |
 
-## Features/support/limitations
+## Features
 
-- Windows RT media API (Global System Media Transport Controls (GSMTC), [support table](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md))
-  - Anything that shows up in the Windows audio flyout works: Spotify/Foobar2000/Chrome/Firefox
-- User CSS theming
-- Priority list for audio sources
-- Draggable and resizable. Saves location and size.
-- Works with OBS
-- Tauri + Svelte
+- **Meters:** radial gauges, bars, sparklines, text readouts, clocks, and a now-playing
+  widget — driven by a sensor + meter model (à la Rainmeter measures/meters).
+- **Sensors:** CPU total + per-core, memory, swap, network up/down (bytes/sec), and
+  NVIDIA GPU util / VRAM / temp (via NVML; degrades gracefully without an NVIDIA GPU).
+- **Now playing:** Windows media (GSMTC) — anything in the Windows audio flyout
+  (Spotify / foobar2000 / Chrome / Firefox)
+  ([GSMTC support table](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md)).
+- **Overlay:** transparent, always-on-top, click-through window filling each monitor.
+  Multi-monitor (one overlay per monitor; widgets are bound to a monitor).
+- **Visual editor:** toggle edit mode (tray menu or `Ctrl+Alt+E`) to drag, resize,
+  snap-to-grid, add/remove widgets, and edit their config — saved to `widgets.json` with
+  live reload.
+- **Theming:** per-widget user CSS; system fonts.
+- Works with OBS. Built with Tauri + Svelte.
 
 ## Usage
 
 Download the installer msi from the [latest release](https://github.com/gyng/nowplaying-widget/releases/latest).
 
+The overlay starts passive (click-through). To arrange widgets:
+
+1. **Enter edit mode** — the tray icon's **"Edit layout"**, or press **`Ctrl+Alt+E`**.
+2. Drag widgets to move, drag the handles to resize. Use the **palette** (bottom-left) to
+   add widgets and the **inspector** to edit a selected widget's sensor / position / config.
+3. **Exit edit mode** the same way. The layout saves to `widgets.json` (in the app config
+   dir) and reloads automatically if you hand-edit that file.
+
 ### Theming
 
-Insert your CSS styles into the "Style override" textarea.
-
-Eg, to turn images grayscale
+Each widget can take a CSS override. Eg, to turn images grayscale:
 
 ```css
 img {
@@ -34,51 +52,67 @@ img {
 }
 ```
 
+### Now playing — source priority
+
+If multiple audio sources are active, a priority list of executable names decides which to
+show (reachable in edit mode; "All media" lists the current sources).
+
 ### Autostart
 
-Add np.exe to Startup apps in Task Manager.
-
-### Priority list
-
-If multiple audio sources exist nowplaying-widget uses this list of executable names to decide which to show. The current list of all audio sources is in "All media".
+Add `widgetsack.exe` to Startup apps in Task Manager.
 
 ## Feature ideas
 
-- More widgets (CPU, memory, network, lyrics, spectrogram)
-- Widget bundles (JS/HTML/CSS)
-- Dynamic Svelte component loading
+- Desktop-pinned widget layer (behind windows, à la wallpaper engines)
+- Editor alignment guides / snap-to-other-widgets
+- Widget bundles (JS/HTML/CSS); more sensors (lyrics, spectrogram, temps/fans)
+
+## Development
+
+Contributions welcome. The architecture and roadmap live in
+[docs/widget-platform.md](docs/widget-platform.md).
+
+### Getting started
+
+> **Note**  
+> widgetsack has to be built on Windows.
+
+Install [Tauri prerequisites](https://tauri.app/start/prerequisites/) first, plus a current
+**v2** Tauri CLI (the project uses tauri 2.11):
+
+```sh
+# if `cargo tauri` is missing or older than 2.x:
+$ cargo install tauri-cli --version "^2" --locked
+```
+
+```sh
+# Install client dependencies first
+$ (cd client && npm i)
+
+# Run the full app in dev (Tauri starts the Vite dev server for you)
+$ cargo tauri dev
+
+# Build the frontend before the Rust checks — Tauri embeds client/build,
+# so cargo test/clippy fail if it is missing
+$ (cd client && npm run build)
+$ cargo test
+$ cargo clippy
+
+# If needed; output is target/release/widgetsack.exe
+$ cargo tauri build
+
+# Client tests and checks (run from client/)
+$ (cd client && npm run test:unit)   # Vitest unit/component tests
+$ (cd client && npm run check)       # svelte-check type checking
+$ (cd client && npm run lint)        # Prettier + ESLint
+```
+
+### Release
+
+1. Bump the version in [widgetsack/tauri.conf.json](widgetsack/tauri.conf.json)
+2. Create a new release on the [releases](https://github.com/gyng/nowplaying-widget/releases) page.
 
 ## Links
 
 - https://rfdonnelly.github.io/posts/tauri-async-rust-process/#the-async-process
 - https://github.com/Nerixyz/current-song2
-
-## Development
-
-Contributions welcome.
-
-### Getting started
-
-> **Note**  
-> nowplaying-widget has to be built on Windows.
-
-Install [Tauri prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites) first.
-
-```sh
-$ cargo tauri dev
-$ cargo test
-$ cargo clippy
-
-# If needed; output is target/release/np.exe
-$ cargo tauri build
-
-# Run JS/client tests
-$ (cd client; npm i; npm run test; npm run check)
-$ npm run test:unit
-$ npm run check:watch
-```
-
-### Release
-
-1. Bump the version in [tauri.conf.json](np/tauri.conf.json)
-2. Create a new release on the [releases](https://github.com/gyng/nowplaying-widget/releases) page.
