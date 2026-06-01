@@ -22,7 +22,11 @@
 		.w}px; height: {instance.rect.h}px"
 >
 	{#if comp}
-		<svelte:component this={comp} value={scalar} {history} {...instance.config} />
+		{#if instance.sensor}
+			<svelte:component this={comp} value={scalar} {history} {...instance.config} />
+		{:else}
+			<svelte:component this={comp} {...instance.config} />
+		{/if}
 	{:else}
 		<div class="missing">?{instance.type}</div>
 	{/if}

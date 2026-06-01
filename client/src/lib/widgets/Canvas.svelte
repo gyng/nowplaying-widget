@@ -21,6 +21,18 @@
 
 	export let widgets: WidgetInstance[] = [
 		{
+			id: 'clock',
+			type: 'clock',
+			rect: { x: 16, y: 16, w: 160, h: 40 },
+			config: { format: 'HH:mm:ss' }
+		},
+		{
+			id: 'date',
+			type: 'clock',
+			rect: { x: 16, y: 58, w: 180, h: 22 },
+			config: { format: 'dddd D MMMM', color: 'rgb(218, 237, 226)' }
+		},
+		{
 			id: 'cpu-1',
 			type: 'gauge',
 			sensor: 'cpu.total',
@@ -35,10 +47,24 @@
 			config: { label: 'RAM', unit: '%', min: 0, max: 100 }
 		},
 		{
+			id: 'net-down-txt',
+			type: 'text',
+			sensor: 'net.down',
+			rect: { x: 16, y: 206, w: 90, h: 18 },
+			config: { format: 'rate', label: '↓', color: 'rgb(218, 237, 226)' }
+		},
+		{
+			id: 'net-up-txt',
+			type: 'text',
+			sensor: 'net.up',
+			rect: { x: 96, y: 206, w: 90, h: 18 },
+			config: { format: 'rate', label: '↑', color: 'rgb(119, 196, 211)' }
+		},
+		{
 			id: 'net-down',
 			type: 'sparkline',
 			sensor: 'net.down',
-			rect: { x: 16, y: 240, w: 140, h: 30 },
+			rect: { x: 16, y: 228, w: 140, h: 30 },
 			config: { color: 'rgb(218, 237, 226)' }
 		},
 		...cores
