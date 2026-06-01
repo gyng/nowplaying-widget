@@ -125,6 +125,7 @@ type WidgetInstance = {
   type: string;                     // 'clock'|'gauge'|'bar'|'sparkline'|'text'|'nowplaying'
   sensor?: string;                  // 'cpu.total','cpu.core.3','net.down',... (omit if self-sourcing)
   rect: { x: number; y: number; w: number; h: number };  // per-monitor logical px
+  layer?: 'top' | 'desktop';        // z-layer (3c); routes widget to that layer's overlay window. default 'top'
   config: Record<string, unknown>;  // min,max,format,color,historyLen,unit,...
   css?: string;                     // per-widget style override (current ThemeInjector)
 };
@@ -282,9 +283,16 @@ saved window state/settings are not orphaned):
 ### Phase 3 — layout + config (the stated priority)
 - [x] `widgets.json` in app config dir; `load_layout`/`save_layout` commands + pure `parseLayout` validation (Phase 3a, tested). Canvas loads it on mount, falling back to the demo default.
 - [x] `notify` file-watch on widgets.json → `layout_changed`; Canvas live-reloads external edits (ignored while actively editing) — Phase 3b.
-- [ ] One always-on-top overlay window per monitor (all monitors); click-through default
-      + edit-mode toggle; widgets bound to one monitor (no cross-monitor drag yet).
-- [ ] Click-through watcher per Risks (gated, toggle-on-transition) for interactive widgets.
+- [ ] **3c-1 (single overlay):** main window → transparent, borderless, always-on-top,
+      skip-taskbar overlay sized to its monitor; `setIgnoreCursorEvents(true)` normally,
+      `false` in edit mode (whole-window click-through). Edit toggled by **global hotkey
+      (Ctrl+Alt+E) + tray menu** — a click-through window can't receive in-app keys. Add
+      `layer` field (default `top`); relocate the NowPlaying hover settings/debug panel into
+      edit mode / a settings window. Capabilities for set-ignore-cursor / always-on-top.
+      Note: supersedes the saved-position window behavior (positions live in widgets.json).
+- [ ] **3c-2 (multi-monitor):** one overlay window per monitor, created from the layout's
+      monitor map (configurable which monitors are active); each renders `?monitor=<id>`.
+      Runtime window creation + capability updates; widgets bound to one monitor.
 - [x] Visual editor v1: Ctrl+E edit mode, drag-to-move with snap-to-grid (tested geometry), save-on-drop to widgets.json — Phase 3d.
 - [x] Editor: corner/edge resize handles with tested `resizeRect` — Phase 3d-2.
 - [x] Editor: widget palette (add) + inspector (sensor / x/y/w/h / config JSON) + select + remove — Phase 3d-3.
@@ -292,14 +300,21 @@ saved window state/settings are not orphaned):
 - [ ] Per-monitor layouts; Xeneon arrangement. Migrate existing localStorage settings.
 
 ### Phase 4 — polish / stretch
-- [ ] Tray menu (toggle widgets, open editor, reload).
-- [ ] Cursor-poll hit-testing for interactive widgets.
-- [ ] WorkerW "on-desktop" z-order (optional); temps/fans via HWiNFO/LHM shared mem (optional).
+- [ ] **3c-3 (desktop layer):** a second overlay window per monitor pinned to the wallpaper
+      via WorkerW/Progman; widgets with `layer: 'desktop'` route to it. Fragile / Windows-
+      version-specific — opt-in, additive (routing by `layer` is already in the model).
+- [ ] Per-widget click-through: cursor-poll hit-testing for widgets needing clicks in normal
+      mode (now-playing controls). Deferred — whole-window click-through ships first.
+- [ ] Editor nicety: alignment guides / snap-to-other-widgets.
+- [ ] PDH GPU fallback for non-NVIDIA; temps/fans via HWiNFO/LHM shared memory (optional).
 
 ## Resolved decisions (2026-06-01)
 
-1. **Z-order/input:** always-on-top, click-through, **per-region interactivity required**,
-   perf-conscious. (Folded into locked decisions + Risks.)
+1. **Z-order/input (3c, refined):** **whole-window click-through** (fully passive normally,
+   interactive in edit mode) on an **always-on-top** overlay. Per-widget `layer: top|desktop`
+   field added now; **always-on-top layer first**, WorkerW **desktop layer later** (Phase 4).
+   Per-widget click-through deferred. Edit toggled by **global hotkey + tray**. Overlays
+   **per monitor, configurable** via the layout map.
 2. **Monitors:** multi-monitor overlays from day one; **no cross-monitor widgets** to start.
 3. **Fonts:** free bundled default; `fontFamily` override resolves **system fonts** (user's
    DIN, day pictographs) for customization.
