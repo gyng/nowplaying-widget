@@ -242,12 +242,13 @@ now; revisit web-components only if the React timeline firms up (see Open decisi
 
 ## Phased plan
 
-### Phase S — vertical slice (prove the pipe) ⬅ next
-- [ ] `sysinfo` dep (done) + `np/src/sensors.rs`: scheduler emits `telemetry` batch with `cpu.total`.
-- [ ] Wire sensor loop into `main.rs` setup.
-- [ ] `core/telemetry.ts`: one `telemetry` listener → per-sensor observable (latest + ring buffer).
-- [ ] Svelte `sensorStore` adapter + `Gauge` meter + minimal `Canvas`/`WidgetHost`; render one CPU gauge.
-- [ ] `cargo check` + `npm run check` green; visually confirm live CPU gauge. Checkpoint.
+### Phase S — vertical slice (prove the pipe) ✅ code complete, gates green
+- [x] `sysinfo` dep + `np/src/sensors.rs`: loop emits `telemetry` batch with `cpu.total` (+ serde-contract test).
+- [x] Wire sensor loop into `main.rs` setup.
+- [x] `core/telemetry.ts`: framework-agnostic hub (per-sensor observable, ring buffer) + tests.
+- [x] Svelte `sensorStore` adapter + `Gauge` meter (pure `gaugeFraction` + tests) + `Canvas`/`WidgetHost`/registry; CPU gauge mounted on the page.
+- [x] All gates green: `npm run check`/`lint`/`test:unit`/`build`, `cargo test`/`clippy`.
+- [ ] Visual confirm: `cargo tauri dev` → live CPU gauge (run by user). Checkpoint.
 
 ### Phase R — rename np → widgetsack (own commit, low-risk first)
 Blast radius (keep the **identifier** `io.github.gyng` unchanged so the app data dir and

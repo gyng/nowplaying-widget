@@ -17,6 +17,7 @@ use crate::state::updater;
 pub mod command;
 pub mod event;
 pub mod listener;
+pub mod sensors;
 pub mod state;
 
 pub struct AppState {
@@ -52,6 +53,11 @@ async fn main() -> Result<(), ()> {
                         emit_to_bridge(&app_handle.clone(), delta);
                     }
                 }
+            });
+
+            let sensors_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                sensors::run_system_sensors(sensors_handle).await;
             });
 
             Ok(())
