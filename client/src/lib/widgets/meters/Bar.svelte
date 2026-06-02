@@ -51,7 +51,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-family: var(--np-font, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font, 'Bahnschrift', 'Arial Narrow', sans-serif);
 		font-size: 11px;
 		color: var(--np-fg, #fff);
 	}

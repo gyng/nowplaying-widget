@@ -37,11 +37,11 @@ export type WidgetMeta = {
 export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--np-gap, 4px);
 	width: 100%;
 	height: 100%;
 	overflow: hidden;
-	font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+	font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 	color: var(--np-fg, rgb(255, 255, 255));
 }
 .np-thumb {
@@ -55,7 +55,8 @@ export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 .np-artist {
 	flex: 0 0 auto;
 	font-size: 52px;
-	line-height: 1;
+	/* >1 so descenders (g, y, p) aren't clipped by the line's overflow:hidden (ellipsis). */
+	line-height: 1.2;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;

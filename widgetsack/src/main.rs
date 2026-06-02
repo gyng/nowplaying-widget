@@ -64,6 +64,7 @@ async fn main() -> Result<(), ()> {
             command::load_theme,
             command::save_theme,
             command::open_devtools,
+            command::system_fonts,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area,
             ha::ha_connect,

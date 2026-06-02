@@ -44,7 +44,7 @@
 		solveMonitor
 	} from '../core/solve';
 	import { assembleStyles } from '../core/style';
-	import { tokensToCss } from '../core/tokens';
+	import { DEFAULT_TOKENS, firstFontFamily, tokensToCss } from '../core/tokens';
 	import { TEMPLATES, getTemplate } from '../core/templates';
 	import {
 		collapseContainer,
@@ -70,6 +70,7 @@
 	import { rectsIntersect } from '../core/geometry';
 	import { sensorCatalog } from '../core/sensors';
 	import {
+		ensureFont,
 		fillPrimaryMonitor,
 		listThemes,
 		loadThemeCss,
@@ -361,6 +362,20 @@
 		library,
 		monitor
 	});
+	// Load whatever font families the body/display tokens resolve to (default: Bahnschrift) via the
+	// system-fonts pipeline, so a configured font renders even when the webview won't enumerate it
+	// (per-user installs). Re-runs when a token override changes; ensureFont is idempotent per family.
+	$: {
+		const families = new Set(
+			[
+				tokenOverrides['--np-font-display'] ?? DEFAULT_TOKENS['--np-font-display'],
+				tokenOverrides['--np-font'] ?? DEFAULT_TOKENS['--np-font']
+			]
+				.map(firstFontFamily)
+				.filter((f): f is string => !!f)
+		);
+		for (const family of families) ensureFont(family);
+	}
 
 	// The selected node can be a container (incl. root) or a primitive leaf, in either
 	// the flow tree or the floating layer.
@@ -459,10 +474,11 @@
 				selectedTheme = t;
 				await applyTheme();
 			}
+			// Tokens are global + authoritative on disk: always mirror the file (→ {} when the key is
+			// absent) so a CLEARED token reverts the live widget instead of keeping a stale override.
 			const tk = obj?.tokens;
-			if (tk && typeof tk === 'object' && !Array.isArray(tk)) {
-				tokenOverrides = tk as Record<string, string>;
-			}
+			tokenOverrides =
+				tk && typeof tk === 'object' && !Array.isArray(tk) ? (tk as Record<string, string>) : {};
 		} catch (err) {
 			console.warn('load_layout failed; using default layout', err);
 		}
@@ -959,17 +975,12 @@
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
-		let fileTokens: Record<string, string> | undefined;
 		try {
 			const raw = await invoke<string | null>('load_layout');
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 			monitors = (obj ? parseLayoutAny(obj) : null)?.monitors ?? {};
 			fileLib = obj?.library as Library | undefined;
 			fileTheme = typeof obj?.theme === 'string' ? (obj.theme as string) : undefined;
-			fileTokens =
-				obj?.tokens && typeof obj.tokens === 'object'
-					? (obj.tokens as Record<string, string>)
-					: undefined;
 		} catch {
 			monitors = {};
 		}
@@ -986,7 +997,9 @@
 		}
 		const lib = library ?? fileLib;
 		const theme = selectedTheme || fileTheme;
-		const tokens = Object.keys(tokenOverrides).length ? tokenOverrides : fileTokens;
+		// Authoritative: write our (loaded + edited) overrides as-is. Empty = intentionally cleared →
+		// omit `tokens` below so the file (and live widgets) revert, rather than restoring stale disk.
+		const tokens = tokenOverrides;
 		const out: Record<string, unknown> = { version: 2, monitors };
 		if (lib) out.library = lib;
 		if (theme) out.theme = theme;

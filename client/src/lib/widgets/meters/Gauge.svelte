@@ -77,7 +77,7 @@
 
 	.value {
 		fill: var(--np-fg, #fff);
-		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 		font-size: 26px;
 		text-anchor: middle;
 	}
@@ -89,7 +89,7 @@
 
 	.label {
 		fill: var(--np-label, rgb(218, 237, 226));
-		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 		font-size: 11px;
 		letter-spacing: 1px;
 		text-anchor: middle;

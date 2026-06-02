@@ -43,7 +43,7 @@
 		{ key: '--np-fg', label: 'text', ph: '#ffffff' },
 		{ key: '--np-label', label: 'label', ph: 'rgb(218, 237, 226)' },
 		{ key: '--np-track', label: 'track', ph: 'rgba(255, 255, 255, 0.15)' },
-		{ key: '--np-font-display', label: 'font', ph: "'DIN Engschrift Std', …" }
+		{ key: '--np-font-display', label: 'font', ph: "'Bahnschrift', …" }
 	];
 
 	let paramKey = '';

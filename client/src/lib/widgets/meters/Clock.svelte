@@ -35,7 +35,7 @@
 		gap: 6px;
 		width: 100%;
 		height: 100%;
-		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 	}
 
 	.value {

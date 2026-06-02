@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TOKENS, TOKEN_NAMES, tokensToCss } from './tokens';
+import { DEFAULT_TOKENS, firstFontFamily, TOKEN_NAMES, tokensToCss } from './tokens';
 
 describe('tokens', () => {
 	it('the default vocabulary covers the core themeable properties', () => {
@@ -24,5 +24,22 @@ describe('tokens', () => {
 		const css = tokensToCss(DEFAULT_TOKENS);
 		expect(css.startsWith(':root {')).toBe(true);
 		expect(css).toContain('--np-font-display:');
+	});
+
+	it('the default display font is Bahnschrift', () => {
+		expect(firstFontFamily(DEFAULT_TOKENS['--np-font-display'])).toBe('Bahnschrift');
+	});
+});
+
+describe('firstFontFamily', () => {
+	it('returns the first concrete family with quotes stripped', () => {
+		expect(firstFontFamily("'Bahnschrift', 'Arial Narrow', sans-serif")).toBe('Bahnschrift');
+		expect(firstFontFamily('Segoe UI, sans-serif')).toBe('Segoe UI');
+	});
+
+	it('returns null when the value leads with a generic keyword', () => {
+		expect(firstFontFamily('sans-serif')).toBeNull();
+		expect(firstFontFamily(' SYSTEM-UI , Arial')).toBeNull();
+		expect(firstFontFamily('')).toBeNull();
 	});
 });

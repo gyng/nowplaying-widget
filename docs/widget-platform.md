@@ -40,7 +40,7 @@ Source: `C:\Users\gng\Documents\Rainmeter\Skins\gyng`
 | **Music** | cover, progress bar, position/duration, title, artist | already covered by current NowPlaying widget |
 
 **Palette:** white text `255,255,255`; pale-green labels `218,237,226`; teal accent `119,196,211`.
-**Fonts:** DIN Engschrift Std; a pictographic day-of-week font in DateTime (see Risks → fonts).
+**Fonts:** a condensed grotesque (Bahnschrift by default); a pictographic day-of-week font in DateTime (see Risks → fonts).
 
 ## Decisions (locked)
 
@@ -74,10 +74,10 @@ Source: `C:\Users\gng\Documents\Rainmeter\Skins\gyng`
 - **Multi-monitor from day one, no cross-monitor widgets (yet).** One overlay window
   per monitor on all monitors; each widget is bound to a single monitor; no
   spanning/dragging widgets across monitors initially.
-- **Fonts: free by default, system fonts allowed for customization.** Bundle a free
-  condensed grotesque as default; any widget can set `fontFamily` to a system-installed
-  font, so the user's DIN Engschrift Std (and the day-pictograph font) resolve when
-  installed. Avoids bundling/licensing those.
+- **Fonts: system fonts by default, any installed font allowed.** Default to Bahnschrift (ships
+  with Windows); any widget can set `fontFamily` to an installed font, which the system-fonts
+  loader @font-faces by name so it resolves even for per-user installs (and the day-pictograph
+  font). Avoids bundling/licensing.
 - **Sensor cadence: per-sensor configurable interval, 1 Hz default.**
 - **Rename `np` → `widgetsack`.** Product identity change; staged as its own commit
   (Phase R) given the build-path blast radius — see Environment notes.
@@ -331,10 +331,10 @@ now; revisit web-components only if the React timeline firms up (see Open decisi
 - **DPI / multi-monitor.** Overlay must cover each monitor exactly; Tauri mixes
   physical/logical px and per-monitor scale factors. Reuse existing `monitor.ts` logic;
   store rects in per-monitor logical px.
-- **Fonts.** Bundle a free condensed grotesque as the default (avoids DIN Engschrift Std
-  licensing). Widgets expose a `fontFamily` config that resolves **system-installed**
-  fonts via CSS, so the user's DIN and the custom day-pictograph font work when present;
-  fall back to default/text when absent.
+- **Fonts.** Default to Bahnschrift (ships with Windows; no bundling/licensing). Widgets resolve
+  **system-installed** fonts via the system-fonts loader (fontdb → @font-face), so a configured
+  font and the custom day-pictograph font work when present, incl. per-user installs; fall back
+  to the token stack when absent.
 - **Phase 0 refactor risk.** Moving all window/monitor/settings logic out of
   `NowPlaying.svelte` and onto the canvas is the riskiest change. Mitigation: keep the
   current page working behind a flag/route until the canvas reaches parity; don't delete
@@ -771,8 +771,7 @@ already round-trip in `widgets.json`; this phase gives them (and a theme layer) 
 ### 7a — token-drive the meters (default look unchanged)
 Meters hard-code colours/fonts in Svelte-scoped `<style>`, so external CSS can't reach the
 hashed classes. Fix by reading **tokens with fallbacks** — `fill: var(--np-fg, #fff)`,
-`stroke: var(--np-accent, rgb(119,196,211))`, `font-family: var(--np-font-display, 'DIN
-Engschrift Std', 'Arial Narrow', sans-serif)`, `--np-track`, `--np-label`, … Custom properties
+`stroke: var(--np-accent, rgb(119,196,211))`, `font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif)`, `--np-track`, `--np-label`, … Custom properties
 **inherit through Svelte's scoping**, so just setting tokens on a parent restyles every meter —
 no unscoping needed, default look preserved (the fallbacks ARE today's palette). Starter
 vocabulary in `core/tokens.ts` (framework-agnostic data): `--np-accent / -fg / -muted / -label /
@@ -953,8 +952,8 @@ built-ins reproduce the old `createWidget` switch exactly (parity pinned by `wid
    Per-widget click-through deferred. Edit toggled by **global hotkey + tray**. Overlays
    **per monitor, configurable** via the layout map.
 2. **Monitors:** multi-monitor overlays from day one; **no cross-monitor widgets** to start.
-3. **Fonts:** free bundled default; `fontFamily` override resolves **system fonts** (user's
-   DIN, day pictographs) for customization.
+3. **Fonts:** Bahnschrift default; `fontFamily` override resolves **system fonts** (any installed
+   font, incl. the day-pictograph font) for customization.
 4. **React:** reimplement components later; **share `core/` only** (no web components now).
 5. **Sensor interval:** **configurable per sensor, 1 Hz default.**
 6. **Name:** **rename `np` → `widgetsack`** (Phase R).

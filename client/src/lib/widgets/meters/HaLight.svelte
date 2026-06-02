@@ -41,7 +41,7 @@
 		border-radius: var(--np-radius, 4px);
 		background: var(--np-bg, rgba(10, 10, 12, 0.6));
 		color: var(--np-fg, #fff);
-		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 		cursor: pointer;
 	}
 

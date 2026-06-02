@@ -839,7 +839,7 @@
     "defs": []
   },
   "tokens": {
-    "--np-font-display": "DIN Engschrift Std",
+    "--np-font-display": "Bahnschrift",
     "--np-accent": "rgb(119, 196, 211)",
     "--np-label": "rgb(218, 237, 226)",
     "--np-fg": "rgb(255, 255, 255)"

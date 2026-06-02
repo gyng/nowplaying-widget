@@ -62,6 +62,48 @@ pub fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFont {
+    /// Family name (CSS `font-family`).
+    pub name: String,
+    /// PostScript name (often a spaceless variant of the family).
+    pub font_name: String,
+    /// Absolute path to the font file (for the webview to @font-face via the asset protocol).
+    pub path: String,
+}
+
+/// Enumerate installed fonts (incl. PER-USER ones) with their file paths. Chromium's sandboxed
+/// webview won't render a per-user-installed font by name — but fontdb can find it here, and the
+/// frontend then loads the file directly via @font-face + the asset protocol (the approach of
+/// tauri-plugin-system-fonts, inlined). The per-user fonts dir is added explicitly (where Windows
+/// puts "install for me only" fonts).
+#[tauri::command]
+pub fn system_fonts() -> Vec<SystemFont> {
+    use fontdb::{Database, Source};
+    let mut db = Database::new();
+    db.load_system_fonts();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        db.load_fonts_dir(std::path::Path::new(&local).join("Microsoft\\Windows\\Fonts"));
+    }
+    db.faces()
+        .filter_map(|f| match &f.source {
+            Source::File(path) => {
+                let name = f.families.first()?.0.clone();
+                if name.starts_with('.') {
+                    return None; // hidden/system aliases
+                }
+                Some(SystemFont {
+                    name,
+                    font_name: f.post_script_name.clone(),
+                    path: path.to_string_lossy().into_owned(),
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 // ---- themes (Phase 7c): a `themes/<name>.css` plugin folder in the app config dir ----
 
 fn themes_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {

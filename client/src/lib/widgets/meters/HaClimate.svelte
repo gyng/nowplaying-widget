@@ -32,7 +32,7 @@
 		width: 100%;
 		height: 100%;
 		color: var(--np-fg, #fff);
-		font-family: var(--np-font, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+		font-family: var(--np-font, 'Bahnschrift', 'Arial Narrow', sans-serif);
 	}
 
 	.label {

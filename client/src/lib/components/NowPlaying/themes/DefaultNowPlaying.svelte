@@ -29,8 +29,8 @@
 	#root {
 		display: flex;
 		flex-direction: column;
-		font-family: Bahnschrift, 'DIN Alternate', 'Franklin Gothic Medium', 'Nimbus Sans Narrow',
-			sans-serif-condensed, sans-serif;
+		font-family: Bahnschrift, 'Franklin Gothic Medium', 'Nimbus Sans Narrow', sans-serif-condensed,
+			sans-serif;
 		color: white;
 		font-size: calc(0.7 * 10vh);
 		line-height: 1.3em;

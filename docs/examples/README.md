@@ -19,12 +19,11 @@ What it contains (46 widgets):
 - **Network** — NetOut / NetIn **histograms** (`sparkline` with `histogram: true`) + auto-scaled
   rate text.
 - **Music** — a compact `nowplaying` widget (no progress bar — foobar2000 doesn't emit a timeline).
-- **Theme** — `tokens` pin the DIN Engschrift Std font and the accent/label/fg palette the skins
-  used.
+- **Theme** — `tokens` pin the Bahnschrift font and the accent/label/fg palette the skins used.
 
-> `DIN Engschrift Std` must be installed for the webview to render it (it is on the author's
-> machine). Otherwise it falls back to Arial Narrow; drop the `.otf` into a theme `@font-face` to
-> bundle it.
+> `Bahnschrift` ships with Windows 10/11, so the webview renders it directly. The app also loads any
+> installed font (incl. per-user "install for me only" fonts) by name via its system-fonts loader,
+> so a custom `--np-font-display` resolves even when Chromium wouldn't otherwise enumerate it.
 
 ### Load it
 
