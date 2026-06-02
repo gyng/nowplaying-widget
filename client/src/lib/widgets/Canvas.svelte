@@ -37,6 +37,8 @@
 	} from '../core/layoutTree';
 	import { parseLayoutAny } from '../core/migration';
 	import { collectRenderables, intrinsicSize, solveMonitor } from '../core/solve';
+	import { assembleStyles } from '../core/style';
+	import { tokensToCss } from '../core/tokens';
 	import {
 		dropTarget,
 		findNode,
@@ -53,11 +55,14 @@
 	import WidgetHost from './WidgetHost.svelte';
 	import Inspector from './Inspector.svelte';
 	import Outline from './Outline.svelte';
+	import StyleLayer from './StyleLayer.svelte';
 	import type { LayoutOp } from './ops';
 	import { snapRectToPeers } from '../core/align';
 	import { sensorCatalog } from '../core/sensors';
 	import {
 		fillCurrentMonitor,
+		listThemes,
+		loadThemeCss,
 		monitorParam,
 		monitorWorkArea,
 		openStudio,
@@ -174,6 +179,14 @@
 	// The reusable widget library (Phase 6). Shared across monitors, embedded in
 	// widgets.json under a `library` key; loaded/saved alongside the layout.
 	let library: Library | undefined;
+	// Theming (Phase 7c): the selected theme name (global, in the layout file) + its loaded
+	// CSS + the list of available themes. Empty name = the default look (token fallbacks).
+	let selectedTheme = '';
+	let themeCss = '';
+	let themeList: string[] = [];
+	// Global token overrides (Phase 7d): set in the inspector, injected after the theme so
+	// they win; persisted in the layout under `tokens`.
+	let tokenOverrides: Record<string, string> = {};
 
 	// Def editor (6b): while editing a def, `monitor` is swapped for a scoped tree built
 	// from the def's child, and the real monitor is stashed. Edits propagate to the def
@@ -186,6 +199,7 @@
 	let unlistenLayout: UnlistenFn | undefined;
 	let unlistenEdit: UnlistenFn | undefined;
 	let unlistenStudio: UnlistenFn | undefined;
+	let unlistenThemes: UnlistenFn | undefined;
 
 	// The work area this overlay lays its flow tree into (logical px; the full monitor
 	// until 5b insets the taskbar). Set on mount + window resize.
@@ -205,6 +219,14 @@
 	// (incl. group descendants) with its rect via the pure collectRenderables.
 	$: solved = solveMonitor(monitor, workArea, library);
 	$: renderables = collectRenderables(monitor, solved, library);
+	// The assembled stylesheet for this monitor (Phase 7): theme → token overrides →
+	// def → instance css, in cascade order.
+	$: tokenCss = Object.keys(tokenOverrides).length ? tokensToCss(tokenOverrides) : '';
+	$: styleCss = assembleStyles({
+		themeCss: [themeCss, tokenCss].filter(Boolean).join('\n'),
+		library,
+		monitor
+	});
 
 	// The selected node can be a container (incl. root) or a primitive leaf, in either
 	// the flow tree or the floating layer.
@@ -264,9 +286,28 @@
 			if (lib && typeof lib === 'object' && Array.isArray((lib as { defs?: unknown }).defs)) {
 				library = lib as Library;
 			}
+			const t = obj?.theme;
+			if (typeof t === 'string' && t !== selectedTheme) {
+				selectedTheme = t;
+				await applyTheme();
+			}
+			const tk = obj?.tokens;
+			if (tk && typeof tk === 'object' && !Array.isArray(tk)) {
+				tokenOverrides = tk as Record<string, string>;
+			}
 		} catch (err) {
 			console.warn('load_layout failed; using default layout', err);
 		}
+	}
+
+	async function applyTheme() {
+		themeCss = await loadThemeCss(selectedTheme);
+	}
+
+	function setTheme(name: string) {
+		selectedTheme = name;
+		applyTheme();
+		saveLayout();
 	}
 
 	// Studio: switch which monitor's layout is being edited (reload its saved layout).
@@ -286,6 +327,12 @@
 		// Live-reload external edits to widgets.json (ignored while actively editing).
 		unlistenLayout = await listen('layout_changed', () => {
 			if (!editMode) reloadLayout().then(syncRects);
+		});
+		// Themes (Phase 7c): list them + live-reload the active theme when the folder changes.
+		themeList = await listThemes();
+		unlistenThemes = await listen('themes_changed', () => {
+			applyTheme();
+			listThemes().then((t) => (themeList = t));
 		});
 		if (studio) {
 			editMode = true; // the studio is always an editor; no overlay fill/click-through
@@ -309,6 +356,7 @@
 		unlistenLayout?.();
 		unlistenEdit?.();
 		unlistenStudio?.();
+		unlistenThemes?.();
 	});
 
 	// Edit mode: tray "Edit layout" toggles it (or Ctrl+E while the window is focused).
@@ -459,11 +507,18 @@
 	async function saveLayout() {
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
+		let fileTheme: string | undefined;
+		let fileTokens: Record<string, string> | undefined;
 		try {
 			const raw = await invoke<string | null>('load_layout');
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 			monitors = (obj ? parseLayoutAny(obj) : null)?.monitors ?? {};
 			fileLib = obj?.library as Library | undefined;
+			fileTheme = typeof obj?.theme === 'string' ? (obj.theme as string) : undefined;
+			fileTokens =
+				obj?.tokens && typeof obj.tokens === 'object'
+					? (obj.tokens as Record<string, string>)
+					: undefined;
 		} catch {
 			monitors = {};
 		}
@@ -474,7 +529,12 @@
 		if (editingDefId) syncEditingDef();
 		monitors[myMonitor] = editingDefId && savedMonitor ? savedMonitor : monitor;
 		const lib = library ?? fileLib;
-		const out = lib ? { version: 2, monitors, library: lib } : { version: 2, monitors };
+		const theme = selectedTheme || fileTheme;
+		const tokens = Object.keys(tokenOverrides).length ? tokenOverrides : fileTokens;
+		const out: Record<string, unknown> = { version: 2, monitors };
+		if (lib) out.library = lib;
+		if (theme) out.theme = theme;
+		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
 			await invoke('save_layout', { contents: JSON.stringify(out, null, 2) });
 		} catch (err) {
@@ -576,6 +636,23 @@
 			case 'patchGroup':
 				patchGroup(op.id, op.patch);
 				break;
+			case 'setDefCss':
+				if (library) {
+					library = {
+						...library,
+						defs: library.defs.map((d) =>
+							d.id === op.defId ? { ...d, css: op.css || undefined } : d
+						)
+					};
+				}
+				break;
+			case 'setToken': {
+				const next = { ...tokenOverrides };
+				if (op.value) next[op.key] = op.value;
+				else delete next[op.key];
+				tokenOverrides = next;
+				break;
+			}
 			case 'patchWidget':
 				patchUnit(op.id, op.patch);
 				break;
@@ -861,6 +938,7 @@
 <svelte:window on:keydown={onKeydown} on:resize={updateWorkArea} />
 
 <div class="canvas" class:edit={editMode} class:studio on:contextmenu={onCanvasContextMenu}>
+	<StyleLayer css={styleCss} />
 	{#each renderables as r (r.id)}
 		<WidgetHost
 			{hub}
@@ -868,6 +946,9 @@
 			rect={r.rect}
 			movable={r.movable}
 			selectId={r.selectId}
+			domId={r.id}
+			defId={r.defId}
+			groupId={r.groupId}
 			{editMode}
 			selected={r.selectId === selectedId}
 			grid={GRID}
@@ -886,6 +967,13 @@
 				<select on:change={(e) => switchMonitor(e.currentTarget.value)}>
 					{#each monitorOptions as o (o.key)}
 						<option value={o.key} selected={o.key === myMonitor}>{o.label}</option>
+					{/each}
+				</select>
+				<span class="lbl">Theme</span>
+				<select on:change={(e) => setTheme(e.currentTarget.value)}>
+					<option value="" selected={selectedTheme === ''}>(default)</option>
+					{#each themeList as t (t)}
+						<option value={t} selected={t === selectedTheme}>{t}</option>
 					{/each}
 				</select>
 			</div>
@@ -921,6 +1009,7 @@
 			groupUnit={selectedGroup}
 			def={selectedDef}
 			defs={library?.defs ?? []}
+			tokens={tokenOverrides}
 			{placement}
 			types={WIDGET_TYPES}
 			{sensors}

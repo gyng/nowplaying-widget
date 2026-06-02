@@ -19,9 +19,19 @@
 	export let groupUnit: Group | null = null;
 	export let def: WidgetDef | null = null; // the selected group's def (for params)
 	export let defs: WidgetDef[] = []; // the whole library (for insert / delete)
+	export let tokens: Record<string, string> = {}; // global token overrides (7d)
 	export let placement: 'flow' | 'floating' | null = null;
 	export let types: string[] = [];
 	export let sensors: string[] = [];
+
+	// The common tokens surfaced in the Theme panel (the rest are set via theme CSS).
+	const TOKEN_FIELDS = [
+		{ key: '--np-accent', label: 'accent', ph: 'rgb(119, 196, 211)' },
+		{ key: '--np-fg', label: 'text', ph: '#ffffff' },
+		{ key: '--np-label', label: 'label', ph: 'rgb(218, 237, 226)' },
+		{ key: '--np-track', label: 'track', ph: 'rgba(255, 255, 255, 0.15)' },
+		{ key: '--np-font-display', label: 'font', ph: "'DIN Engschrift Std', …" }
+	];
 
 	let paramKey = '';
 	let paramTarget = '';
@@ -73,6 +83,11 @@
 	const editDef = () => def && op({ op: 'editDef', defId: def.id });
 	const setDefW = (w: number) => def && op({ op: 'setDefSize', defId: def.id, w, h: def.size.h });
 	const setDefH = (h: number) => def && op({ op: 'setDefSize', defId: def.id, w: def.size.w, h });
+	const setWidgetCss = (css: string) =>
+		widget && op({ op: 'patchWidget', id: widget.id, patch: { css: css || undefined } });
+	const setGroupCss = (css: string) =>
+		groupUnit && op({ op: 'patchGroup', id: groupUnit.id, patch: { css: css || undefined } });
+	const setDefCss = (css: string) => def && op({ op: 'setDefCss', defId: def.id, css });
 	const setParam = (key: string, value: string) =>
 		groupUnit &&
 		op({
@@ -242,6 +257,15 @@
 					on:change={commitConfig}
 				/>
 			</label>
+			<label class="full">
+				css
+				<textarea
+					rows="3"
+					value={widget.css ?? ''}
+					placeholder="color: red;  .value …"
+					on:change={(e) => setWidgetCss(e.currentTarget.value)}
+				/>
+			</label>
 			<div class="actions">
 				{#if placement === 'floating'}
 					<button type="button" on:click={dockWidget}>Dock →flow</button>
@@ -300,9 +324,25 @@
 					<input placeholder="target e.g. unit.sensor" bind:value={paramTarget} />
 				</div>
 				<button type="button" on:click={addParam}>Add param</button>
+				<label class="full">
+					def css
+					<textarea
+						rows="3"
+						value={def.css ?? ''}
+						on:change={(e) => setDefCss(e.currentTarget.value)}
+					/>
+				</label>
 			{:else}
 				<div class="meta">inline group (no def)</div>
 			{/if}
+			<label class="full">
+				css
+				<textarea
+					rows="3"
+					value={groupUnit.css ?? ''}
+					on:change={(e) => setGroupCss(e.currentTarget.value)}
+				/>
+			</label>
 			<div class="actions">
 				<button type="button" on:click={ungroupGroup}>Ungroup</button>
 				<button type="button" class="remove" on:click={removeGroup}>Remove</button>
@@ -311,6 +351,20 @@
 	{:else}
 		<div class="hint">Select a widget, container, or group — or add one above.</div>
 	{/if}
+
+	<div class="fields tokens">
+		<span class="hd">Theme tokens</span>
+		{#each TOKEN_FIELDS as t (t.key)}
+			<label class="full">
+				{t.label}
+				<input
+					value={tokens[t.key] ?? ''}
+					placeholder={t.ph}
+					on:change={(e) => op({ op: 'setToken', key: t.key, value: e.currentTarget.value })}
+				/>
+			</label>
+		{/each}
+	</div>
 </div>
 
 <style>
@@ -349,6 +403,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+
+	.tokens {
+		border-top: 1px solid #333;
+		padding-top: 6px;
 	}
 
 	.row {

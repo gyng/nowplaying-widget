@@ -86,6 +86,7 @@ export type WidgetDef = {
 	size: { w: number; h: number };
 	child: LayoutNode;
 	params?: ParamSpec[];
+	css?: string; // restyles every instance of this def (scoped to [data-def], Phase 7)
 };
 
 export type Library = { version: number; defs: WidgetDef[] };

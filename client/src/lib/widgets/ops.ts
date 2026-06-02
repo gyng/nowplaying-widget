@@ -24,6 +24,8 @@ export type LayoutOp =
 	| { op: 'editDef'; defId: string } // enter the scoped def editor (6b)
 	| { op: 'endDefEdit' } // leave the def editor, saving back (6b)
 	| { op: 'setDefSize'; defId: string; w: number; h: number } // resize a def's box (6b)
-	| { op: 'patchGroup'; id: string; patch: Partial<Group> } // group name / params (6c)
+	| { op: 'patchGroup'; id: string; patch: Partial<Group> } // group name / params / css
+	| { op: 'setDefCss'; defId: string; css: string } // a def's css (7d)
+	| { op: 'setToken'; key: string; value: string } // a global token override (7d, '' clears)
 	| { op: 'patchWidget'; id: string; patch: Partial<WidgetInstance> }
 	| { op: 'patchContainer'; id: string; patch: Partial<Container> };

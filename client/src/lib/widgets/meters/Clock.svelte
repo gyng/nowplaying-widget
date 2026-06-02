@@ -1,11 +1,12 @@
 <script lang="ts">
-	// Self-sourcing meter: renders local time on a 1s tick. No sensor binding.
+	// Self-sourcing meter: renders local time on a 1s tick. No sensor binding. Themeable
+	// via tokens (--np-fg / -font); a per-instance `color` overrides --np-fg.
 	import { onMount } from 'svelte';
 	import { formatClock } from '../../core/format';
 
 	export let format = 'HH:mm';
 	export let label = '';
-	export let color = 'rgb(255, 255, 255)';
+	export let color: string | undefined = undefined;
 
 	let now = new Date();
 
@@ -17,11 +18,12 @@
 	});
 
 	$: display = formatClock(now, format);
+	$: colorCss = color ?? 'var(--np-fg, rgb(255, 255, 255))';
 </script>
 
-<div class="clock" style="color: {color}">
-	<span class="value">{display}</span>
-	{#if label}<span class="label">{label}</span>{/if}
+<div class="clock np-clock" style="color: {colorCss}">
+	<span class="value" data-part="value">{display}</span>
+	{#if label}<span class="label" data-part="label">{label}</span>{/if}
 </div>
 
 <style>
@@ -31,7 +33,7 @@
 		gap: 6px;
 		width: 100%;
 		height: 100%;
-		font-family: 'DIN Engschrift Std', 'Arial Narrow', sans-serif;
+		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
 	}
 
 	.value {

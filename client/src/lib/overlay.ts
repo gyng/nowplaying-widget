@@ -54,6 +54,27 @@ export async function setClickThrough(enabled: boolean): Promise<void> {
 	await getCurrentWindow().setIgnoreCursorEvents(enabled);
 }
 
+/** Theme names available in the config dir's `themes/` folder (Phase 7c). */
+export async function listThemes(): Promise<string[]> {
+	try {
+		return await invoke<string[]>('list_themes');
+	} catch (err) {
+		console.warn('list_themes failed', err);
+		return [];
+	}
+}
+
+/** The CSS of theme `name` (empty for '(default)' / a missing theme). */
+export async function loadThemeCss(name: string): Promise<string> {
+	if (!name) return '';
+	try {
+		return (await invoke<string | null>('load_theme', { name })) ?? '';
+	} catch (err) {
+		console.warn('load_theme failed', err);
+		return '';
+	}
+}
+
 /** True when this window is the studio (a normal app window for the designers, 5s). */
 export function isStudioWindow(): boolean {
 	try {

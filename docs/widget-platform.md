@@ -734,6 +734,78 @@ Library (widgets.lib.json)             Monitor · grid cols=8
             one definition  →  many instances, each binds core = N
 ```
 
+## Phase 7 — Plugin styling / theming (separate CSS, like NowPlaying)
+
+Make styling a **separate, pluggable layer** — themes/skins live outside the components (the
+NowPlaying `ThemeInjector` model, generalized to the whole platform), so the look is swappable
+and shareable without touching widget code. The `css?` fields on `WidgetInstance`/`Group`
+already round-trip in `widgets.json`; this phase gives them (and a theme layer) real teeth.
+
+> **✅ Implemented (gates green).** 7a meters token-driven (`var(--np-*, fallback)`, visual
+> parity) + `np-*`/`data-part`/`data-w`/`data-def`/`data-group` hooks + `core/tokens.ts`. 7b
+> `core/style.ts` `scopeCss`/`assembleStyles` (tested) + `<StyleLayer>` injecting theme→def→
+> instance css. 7c Rust `list_themes`/`load_theme`/`save_theme` + watch + seeded `amber`/`mono`
+> examples; studio theme picker + live-reload; selection persisted in the layout. 7d inspector
+> CSS editors (instance / group / def) + a global token panel (persisted under `tokens`).
+> 160 client tests + 6 Rust tests; `npm` + `cargo` gates all green.
+
+### The styling stack — four cascading layers
+
+```
+1. Tokens        CSS custom properties the meters read (--np-accent, --np-fg, --np-font, …)
+   ▲ set by
+2. Theme         a pluggable CSS bundle that sets tokens (+ optionally targets stable hooks).
+   │             A SEPARATE file: themes/<name>.css — selectable globally / per monitor.
+3. Def CSS       WidgetDef.css — restyles every instance of a composite widget (scoped to it).
+4. Instance CSS  WidgetInstance.css — a one-off per-widget override (scoped to it).
+                 cascade: theme/tokens (global) → def → instance (most specific wins)
+```
+
+### 7a — token-drive the meters (default look unchanged)
+Meters hard-code colours/fonts in Svelte-scoped `<style>`, so external CSS can't reach the
+hashed classes. Fix by reading **tokens with fallbacks** — `fill: var(--np-fg, #fff)`,
+`stroke: var(--np-accent, rgb(119,196,211))`, `font-family: var(--np-font-display, 'DIN
+Engschrift Std', 'Arial Narrow', sans-serif)`, `--np-track`, `--np-label`, … Custom properties
+**inherit through Svelte's scoping**, so just setting tokens on a parent restyles every meter —
+no unscoping needed, default look preserved (the fallbacks ARE today's palette). Starter
+vocabulary in `core/tokens.ts` (framework-agnostic data): `--np-accent / -fg / -muted / -label /
+-track / -bg`, `--np-font / -display`, `--np-size-value / -label`, `--np-radius / -gap`.
+
+### 7b — stable hooks + scoped css injection
+- Each meter exposes a **stable global hook** for structural restyles beyond tokens: a root
+  class `np-gauge` / `np-bar` / `np-text` + `data-part="value|label|track|fill"` (via `:global`
+  so it survives Svelte hashing). The `WidgetHost` wrapper carries `data-w="<id>"`,
+  `data-type="gauge"`, `data-sensor="cpu.total"` so any layer can match by id / type / sensor.
+- A `<StyleLayer>` (generalized `ThemeInjector`) injects, in cascade order: the global **theme**
+  CSS verbatim, then **def** and **instance** CSS each **auto-scoped** to their widget via native
+  CSS nesting — `[data-w="<id>"] { <user css> }` (WebView2 supports nesting), so a one-off can't
+  leak. Pure `core/style.ts` `scopeCss(css, selector)` does the wrap (tested). `@`-rules
+  (keyframes/font-face) belong in the global theme, not scoped css — documented.
+
+### 7c — themes as plugins (separate files)
+- A theme is a **file**: `themes/<name>.css` in the app config dir, with an optional manifest
+  comment (`/* @theme name; author */`). Rust `list_themes()` / `load_theme(name)` + a `notify`
+  watch → `theme_changed`, mirroring the layout commands — drop in / live-edit, Rainmeter-style.
+- Selection: a `theme` field in the layout (global default) + optional per-monitor override; the
+  studio gets a **theme picker**. The bundled default theme reproduces today's look.
+
+### 7d — authoring affordances
+- Inspector CSS editor per instance + per def (the `css` fields already persist); a small
+  **tokens panel** to set the common ones (accent / fg / font / track) without writing raw CSS.
+
+### Framework portability
+`core/tokens.ts` (token vocab + default theme as data) and `core/style.ts` (`scopeCss`) are pure
+and React-portable; only `<StyleLayer>` (injection) is Svelte. Consistent with §5's boundary.
+
+### Decisions locked (2026-06-02)
+1. **Scoping = native CSS-nesting wrapper** `[data-w="<id>"] { <user css> }` for def/instance css
+   (global theme is verbatim). Leans on WebView2's CSS nesting; `@keyframes`/`@font-face` live in
+   the theme, not scoped blocks. (Shadow DOM rejected — too heavy for Svelte 3 + the overlay.)
+2. **Themes = separate `themes/*.css` files** in the app config dir (`list_themes`/`load_theme` +
+   `notify` watch); the layout stores only the *selection*. Shareable, live-editable, Rainmeter-style.
+3. **Build the full stack 7a → 7d in order** (token-drive meters → stable hooks + scoped css
+   injection → theme files + picker → inspector css/token editors). Starter token set as listed.
+
 ## Resolved decisions (2026-06-01)
 
 1. **Z-order/input (3c, refined):** **whole-window click-through** (fully passive normally,

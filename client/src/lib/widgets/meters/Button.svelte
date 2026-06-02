@@ -1,14 +1,14 @@
 <script lang="ts">
-	// Demo interactive widget: a counter button. It only receives clicks in passive
-	// mode when the cursor watcher has turned off click-through over it — so it's the
-	// test fixture for per-widget click-through.
+	// Demo interactive widget: a counter button. It only receives clicks in passive mode
+	// when the cursor watcher has turned off click-through over it — so it's the test
+	// fixture for per-widget click-through. Themeable via --np-accent / -bg / -fg / -font.
 	export let label = 'tap';
 	let count = 0;
 </script>
 
-<button class="counter" on:click={() => (count += 1)}>
-	<span class="label">{label}</span>
-	<span class="count">{count}</span>
+<button class="counter np-button" on:click={() => (count += 1)}>
+	<span class="label" data-part="label">{label}</span>
+	<span class="count" data-part="value">{count}</span>
 </button>
 
 <style>
@@ -20,11 +20,11 @@
 		align-items: center;
 		justify-content: center;
 		gap: 2px;
-		border: 1px solid rgba(119, 196, 211, 0.8);
+		border: 1px solid var(--np-accent, rgba(119, 196, 211, 0.8));
 		border-radius: 4px;
-		background: rgba(10, 10, 12, 0.6);
-		color: #fff;
-		font-family: 'DIN Engschrift Std', 'Arial Narrow', sans-serif;
+		background: var(--np-bg, rgba(10, 10, 12, 0.6));
+		color: var(--np-fg, #fff);
+		font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
 		cursor: pointer;
 	}
 

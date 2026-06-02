@@ -46,6 +46,9 @@ async fn main() -> Result<(), ()> {
             get_initial_sessions,
             command::load_layout,
             command::save_layout,
+            command::list_themes,
+            command::load_theme,
+            command::save_theme,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area
         ])
@@ -74,6 +77,12 @@ async fn main() -> Result<(), ()> {
 
             if let Err(err) = command::watch_layout(app.handle().clone()) {
                 eprintln!("failed to start layout watcher: {err}");
+            }
+
+            // Themes (Phase 7c): seed example themes on first run + watch the folder.
+            command::seed_themes(&app.handle().clone());
+            if let Err(err) = command::watch_themes(app.handle().clone()) {
+                eprintln!("failed to start themes watcher: {err}");
             }
 
             clickthrough::run_clickthrough_watcher(app.handle().clone());

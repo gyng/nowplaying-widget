@@ -24,6 +24,11 @@
 	// What clicking selects — usually this widget, but a group's descendants select the
 	// group (the selectable unit), so the host is told explicitly.
 	export let selectId: string = instance.id;
+	// Styling hooks (Phase 7): the unique DOM id + the group/def this widget belongs to,
+	// so theme/def/instance CSS can target it (data-w / data-def / data-group / data-type).
+	export let domId: string = instance.id;
+	export let defId: string | undefined = undefined;
+	export let groupId: string | undefined = undefined;
 
 	const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 	const dispatch = createEventDispatcher<{
@@ -124,6 +129,11 @@
 	class:catch={!editMode && instance.interactive}
 	class:dragging={action === 'flow'}
 	style="left: {rect.x}px; top: {rect.y}px; width: {rect.w}px; height: {rect.h}px; transform: translate({ghostDx}px, {ghostDy}px)"
+	data-w={domId}
+	data-type={instance.type}
+	data-sensor={instance.sensor}
+	data-def={defId}
+	data-group={groupId}
 	on:contextmenu={onContextMenu}
 >
 	{#if comp}

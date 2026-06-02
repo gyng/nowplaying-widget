@@ -40,6 +40,8 @@ export type Renderable = {
 	instance: WidgetInstance;
 	rect: Rect;
 	movable: boolean; // true only for top-level floating primitives (free drag/resize)
+	groupId?: string; // the (outermost) group leaf id, for group descendants — css hook
+	defId?: string; // the (outermost) group's def id, for group descendants — css hook
 };
 
 /**
@@ -55,29 +57,42 @@ export function collectRenderables(
 ): Renderable[] {
 	const out: Renderable[] = [];
 
-	const walk = (node: LayoutNode, prefix: string, groupSel: string | null): void => {
+	const walk = (
+		node: LayoutNode,
+		prefix: string,
+		groupSel: string | null,
+		defSel: string | null
+	): void => {
 		if (isContainer(node)) {
-			for (const child of node.children) walk(child, prefix, groupSel);
+			for (const child of node.children) walk(child, prefix, groupSel, defSel);
 			return;
 		}
 		const id = prefix + node.id;
 		if (isGroup(node.unit)) {
 			const { child } = resolveGroup(node.unit, library);
-			walk(child, id + '/', groupSel ?? node.id);
+			walk(child, id + '/', groupSel ?? node.id, defSel ?? node.unit.def ?? null);
 			return;
 		}
 		const rect = solved.get(id);
 		if (rect) {
-			out.push({ id, selectId: groupSel ?? node.id, instance: node.unit, rect, movable: false });
+			out.push({
+				id,
+				selectId: groupSel ?? node.id,
+				instance: node.unit,
+				rect,
+				movable: false,
+				...(groupSel ? { groupId: groupSel } : {}),
+				...(defSel ? { defId: defSel } : {})
+			});
 		}
 	};
 
-	walk(monitor.root, '', null);
+	walk(monitor.root, '', null, null);
 
 	for (const lf of monitor.floating) {
 		if (isGroup(lf.unit)) {
 			const { child } = resolveGroup(lf.unit, library);
-			walk(child, lf.id + '/', lf.id);
+			walk(child, lf.id + '/', lf.id, lf.unit.def ?? null);
 			continue;
 		}
 		const rect = solved.get(lf.id);
