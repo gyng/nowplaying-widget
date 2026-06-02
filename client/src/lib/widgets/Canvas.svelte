@@ -376,6 +376,21 @@
 		if (!dId || !library) return null;
 		return library.defs.find((d) => d.id === dId) ?? null;
 	})();
+	// The same node as it was at the last save (manual-save baseline), so the inspector can mark
+	// changed fields (item 2). Null when nothing is saved yet, or the node is new since the save
+	// (then every field reads as dirty — the whole node is unsaved).
+	$: baseNode =
+		studio && savedBaseline && selectedId ? lookup(selectedId, savedBaseline.monitor) : null;
+	$: baseWidget =
+		baseNode && isLeaf(baseNode) && !isGroup(baseNode.unit)
+			? (baseNode.unit as WidgetInstance)
+			: null;
+	$: baseContainer = baseNode && isContainer(baseNode) ? baseNode : null;
+	$: baseGroup =
+		baseNode && isLeaf(baseNode) && isGroup(baseNode.unit) ? (baseNode.unit as Group) : null;
+	// Whether the selected node is new since the last save (no baseline counterpart) — then all
+	// its fields are dirty. Only meaningful in the studio with a selection.
+	$: nodeIsNew = !!(studio && savedBaseline && selectedId && selectedNode && !baseNode);
 	$: editingDefName =
 		editingDefId && library
 			? library.defs.find((d) => d.id === editingDefId)?.name ?? editingDefId
@@ -429,7 +444,9 @@
 		} catch (err) {
 			console.warn('load_layout failed; using default layout', err);
 		}
+		pendingExtras = []; // a fresh monitor/session drops any queued cross-monitor moves
 		resetHistory(); // re-baseline: undo starts fresh from the loaded layout
+		setBaseline(); // the loaded layout IS the saved state (manual-save dirty tracking)
 	}
 
 	async function applyTheme() {
@@ -471,6 +488,8 @@
 	// Studio: switch which monitor's layout is being edited (reload its saved layout).
 	async function switchMonitor(key: string) {
 		if (key === myMonitor) return;
+		// Prompt before abandoning an unsaved draft for this monitor (manual-save model).
+		if (dirty && !window.confirm('Discard unsaved changes to this monitor and switch?')) return;
 		myMonitor = key;
 		selectedId = null;
 		menu = null;
@@ -613,9 +632,17 @@
 		// Ctrl+Y or Ctrl+Shift+Z redoes. Ignored when a text field has focus so typing in the
 		// inspector/theme editor isn't hijacked.
 		if (!(studio || editMode)) return;
+		const k = event.key.toLowerCase();
+		// Ctrl+S saves the draft — allowed even while a field has focus (you save mid-edit).
+		if (event.ctrlKey && k === 's') {
+			event.preventDefault(); // never the browser's save dialog
+			if (studio && dirty) commitSave();
+			return;
+		}
+		// The rest are ignored when a text field has focus so typing in the inspector / theme
+		// editor isn't hijacked (undo/redo there should be the field's own).
 		const target = event.target as HTMLElement | null;
 		if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-		const k = event.key.toLowerCase();
 		if (event.ctrlKey && k === 'z' && !event.shiftKey) {
 			event.preventDefault();
 			undo();
@@ -800,8 +827,22 @@
 
 	// `extra` (move-to-monitor) appends a floating leaf to ANOTHER monitor's saved layout in
 	// the same write — used to relocate a widget to a different display from the studio.
-	async function saveLayout(extra?: { key: string; leaf: Leaf }) {
+	// Commit an edit. Always records undo history. In the STUDIO this is a draft: it updates the
+	// live preview (the reactive `monitor`) but defers the disk write — and so the desktop
+	// overlays — until Save (manual-save model). Cross-monitor moves (`extra`) are queued for the
+	// next Save. On an overlay it persists immediately (the original auto-save behaviour).
+	function saveLayout(extra?: { key: string; leaf: Leaf }) {
 		recordHistory(); // snapshot this committed edit for undo (no-op if nothing changed)
+		if (studio) {
+			if (extra) pendingExtras = [...pendingExtras, extra];
+			return; // `dirty` is derived from the baseline; persistence waits for commitSave()
+		}
+		return persistToDisk(extra ? [extra] : []);
+	}
+
+	// Write the current layout to widgets.json (the only place that touches disk). `extras` append
+	// floating leaves to OTHER monitors' saved layouts (cross-monitor moves), merged in one write.
+	async function persistToDisk(extras: { key: string; leaf: Leaf }[] = []) {
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
@@ -825,7 +866,8 @@
 		// fold the in-progress def back into the library so instances stay in sync.
 		if (editingDefId) syncEditingDef();
 		monitors[myMonitor] = editingDefId && savedMonitor ? savedMonitor : monitor;
-		if (extra && extra.key !== myMonitor) {
+		for (const extra of extras) {
+			if (extra.key === myMonitor) continue;
 			const t = monitors[extra.key] ?? { root: emptyRoot(), floating: [] };
 			monitors[extra.key] = { root: t.root, floating: [...(t.floating ?? []), extra.leaf] };
 		}
@@ -841,6 +883,57 @@
 		} catch (err) {
 			console.warn('save_layout failed', err);
 		}
+	}
+
+	// --- manual save (studio, item 3): draft / live-preview with explicit Save + Cancel ---
+
+	// The last-persisted snapshot. `dirty` is derived by comparing the live editor state to it;
+	// Cancel reverts to it. Captured on load and after every Save. (Studio-only; overlays auto-save.)
+	type Baseline = {
+		monitor: MonitorLayout;
+		library: Library | undefined;
+		theme: string;
+		tokens: Record<string, string>;
+	};
+	let savedBaseline: Baseline | null = null;
+	let pendingExtras: { key: string; leaf: Leaf }[] = [];
+	// Immutable edits reassign these to new objects, so reference inequality = unsaved change.
+	// `monitor` is skipped while editing a def (it's swapped for the scoped tree); def changes
+	// still surface as a `library` difference.
+	$: dirty =
+		studio &&
+		savedBaseline != null &&
+		((!editingDefId && monitor !== savedBaseline.monitor) ||
+			library !== savedBaseline.library ||
+			selectedTheme !== savedBaseline.theme ||
+			tokenOverrides !== savedBaseline.tokens ||
+			pendingExtras.length > 0);
+
+	function setBaseline() {
+		savedBaseline = { monitor, library, theme: selectedTheme, tokens: tokenOverrides };
+	}
+
+	async function commitSave() {
+		if (!studio) return;
+		await persistToDisk(pendingExtras);
+		pendingExtras = [];
+		setBaseline(); // the live state is now the saved state → dirty clears
+	}
+
+	function cancelEdits() {
+		if (!studio || !dirty || !savedBaseline) return;
+		if (!window.confirm('Discard all unsaved changes since the last save?')) return;
+		monitor = savedBaseline.monitor;
+		library = savedBaseline.library;
+		selectedTheme = savedBaseline.theme;
+		tokenOverrides = savedBaseline.tokens;
+		pendingExtras = [];
+		editingDefId = null; // drop out of any def edit too
+		savedMonitor = null;
+		selectedId = null;
+		selectedIds = [];
+		applyTheme();
+		resetHistory();
 	}
 
 	function onSelect(event: CustomEvent<{ id: string }>) {
@@ -953,7 +1046,10 @@
 	function onCanvasContextMenu(event: MouseEvent) {
 		if (!editMode) return;
 		event.preventDefault();
-		menu = { x: event.clientX, y: event.clientY, id: '__canvas__' };
+		// Target the deepest container under the cursor (studio) so split acts on THAT cell/pane;
+		// the root stays the '__canvas__' sentinel (handled specially by menuNode).
+		const id = studio ? containerAt(toWorld(event.clientX, event.clientY)) : monitor.root.id;
+		menu = { x: event.clientX, y: event.clientY, id: id === monitor.root.id ? '__canvas__' : id };
 	}
 	// A plugin widget asked to actuate (e.g. an HA light toggle). The target entity is the
 	// widget's sensor minus the `ha.` prefix; the token stays server-side (Phase 8c). Ignored
@@ -980,7 +1076,9 @@
 	const mFloat = () => menu && menuAct({ op: 'float', id: menu.id });
 	const mDock = () => menu && menuAct({ op: 'dock', id: menu.id });
 	const mUngroup = () => menu && menuAct({ op: 'ungroup', id: menu.id });
-	const mAdd = (kind: Container['kind']) => menuAct({ op: 'addContainer', kind });
+	// Split the targeted container (or the root, via the '__canvas__' sentinel) in two.
+	const mSplit = (dir: 'rows' | 'cols' | 'grid') =>
+		menu && menuAct({ op: 'split', id: menu.id === '__canvas__' ? monitor.root.id : menu.id, dir });
 	function mEditDef() {
 		const d = menuGroup?.def;
 		if (d) menuAct({ op: 'editDef', defId: d });
@@ -1003,6 +1101,9 @@
 				break;
 			case 'addContainer':
 				addContainer(op.kind);
+				break;
+			case 'split':
+				splitNode(op.id, op.dir);
 				break;
 			case 'remove':
 				removeById(op.id);
@@ -1154,6 +1255,66 @@
 		root = updateContainer(root, parentId, { align: 'stretch' });
 		monitor = { ...monitor, root };
 		selectedId = id;
+	}
+
+	// Split a container (cell/pane) into two regions (item 1): 'rows' → a col (stacked), 'cols' →
+	// a row (side by side), 'grid' → a 2×2 grid. Existing content is kept as the first region (so
+	// nothing is lost); an empty target becomes two empty cells. The new empty region is selected.
+	function splitNode(id: string, dir: 'rows' | 'cols' | 'grid') {
+		const node = findNode(monitor.root, id);
+		if (!node || !isContainer(node)) return;
+		const cell = () => container(`cell-${rand()}`, 'col', [], { align: 'stretch' });
+		// Wrap the node's current children into a single cell, preserving their own layout.
+		const keep = node.children.length
+			? container(`cell-${rand()}`, node.kind, node.children, {
+					align: node.align ?? 'stretch',
+					cols: node.cols,
+					rows: node.rows,
+					gap: node.gap,
+					pad: node.pad,
+					justify: node.justify
+			  })
+			: null;
+		let patch: Partial<Container>;
+		if (dir === 'grid') {
+			const cells = Array.from({ length: 4 }, () => cell());
+			if (keep) cells[0] = keep;
+			patch = { kind: 'grid', cols: 2, rows: 2, children: cells };
+		} else {
+			const kind: Container['kind'] = dir === 'rows' ? 'col' : 'row';
+			patch = {
+				kind,
+				cols: undefined,
+				rows: undefined,
+				children: keep ? [keep, cell()] : [cell(), cell()]
+			};
+		}
+		const patched: Container = {
+			...node,
+			...patch,
+			align: 'stretch',
+			basis: node.basis ?? { fr: 1 }
+		};
+		monitor = { ...monitor, root: updateNode(monitor.root, id, () => patched) };
+		const kids = patched.children;
+		selectedId = (keep ? kids[kids.length - 1] : kids[0]).id;
+	}
+
+	// The deepest (smallest-area) flow container under a WORLD point, or the root id if over open
+	// space. Lets a right-click on a specific grid cell/pane target THAT node (to split it).
+	function containerAt(world: { x: number; y: number }): string {
+		let bestId = monitor.root.id;
+		let bestArea = Infinity;
+		for (const c of containerRects) {
+			const r = c.rect;
+			if (world.x < r.x || world.x >= r.x + r.w || world.y < r.y || world.y >= r.y + r.h) continue;
+			const area = r.w * r.h;
+			if (area < bestArea) {
+				bestArea = area;
+				bestId = c.id;
+			}
+		}
+		return bestId;
 	}
 
 	function removeById(id: string) {
@@ -1556,6 +1717,21 @@
 						<option value={o.key} selected={o.key === myMonitor}>{o.label}</option>
 					{/each}
 				</select>
+				<span class="lbl">File</span>
+				<button
+					type="button"
+					class="save"
+					class:hot={dirty}
+					title="Save to disk — applies to the desktop overlays (Ctrl+S)"
+					disabled={!dirty}
+					on:click={commitSave}>{dirty ? '● Save' : 'Saved'}</button
+				>
+				<button
+					type="button"
+					title="Discard unsaved changes"
+					disabled={!dirty}
+					on:click={cancelEdits}>Cancel</button
+				>
 				<span class="lbl">Edit</span>
 				<button type="button" title="Undo (Ctrl+Z)" disabled={!canUndo} on:click={undo}
 					>↶ Undo</button
@@ -1638,6 +1814,11 @@
 			def={selectedDef}
 			defs={library?.defs ?? []}
 			tokens={tokenOverrides}
+			{baseWidget}
+			{baseContainer}
+			{baseGroup}
+			baseTokens={savedBaseline?.tokens ?? null}
+			{nodeIsNew}
 			{placement}
 			{widgetTypes}
 			{configFields}
@@ -1663,9 +1844,10 @@
 					{/if}
 					<button type="button" class="rm" on:click={mRemove}>Remove</button>
 				{:else}
-					<button type="button" on:click={() => mAdd('row')}>+ Row</button>
-					<button type="button" on:click={() => mAdd('col')}>+ Column</button>
-					<button type="button" on:click={() => mAdd('grid')}>+ Grid</button>
+					<span class="ctx-hd">Split</span>
+					<button type="button" on:click={() => mSplit('rows')}>⬍ Into rows</button>
+					<button type="button" on:click={() => mSplit('cols')}>⬌ Into columns</button>
+					<button type="button" on:click={() => mSplit('grid')}>▦ Into 2×2 grid</button>
 				{/if}
 				{#if studio && menuLeaf && monitorOptions.length > 1}
 					<div class="ctx-sep" />
@@ -1976,6 +2158,14 @@
 		opacity: 0.4;
 		cursor: default;
 		border-color: #333;
+	}
+
+	/* Save glows while there are unsaved changes; disabled (= "Saved") when clean. */
+	.studio-bar button.save.hot {
+		border-color: rgb(119, 196, 211);
+		color: rgb(170, 230, 240);
+		background: rgba(119, 196, 211, 0.18);
+		opacity: 1;
 	}
 
 	/* Item 5: the theme editor panel (a floating modal over the stage). */

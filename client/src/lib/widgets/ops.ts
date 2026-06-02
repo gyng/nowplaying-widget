@@ -8,6 +8,9 @@ export type LayoutOp =
 	| { op: 'select'; id: string }
 	| { op: 'addWidget'; widgetType: string }
 	| { op: 'addContainer'; kind: 'row' | 'col' | 'grid' }
+	// Split a container (cell/pane) in two: 'rows' stacks (a col), 'cols' is side-by-side (a row),
+	// 'grid' makes it a 2×2 grid. Existing content is preserved as the first region. (item 1)
+	| { op: 'split'; id: string; dir: 'rows' | 'cols' | 'grid' }
 	| { op: 'remove'; id: string }
 	| { op: 'moveUp'; id: string }
 	| { op: 'moveDown'; id: string }

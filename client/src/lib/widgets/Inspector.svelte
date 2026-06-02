@@ -21,6 +21,14 @@
 	export let def: WidgetDef | null = null; // the selected group's def (for params)
 	export let defs: WidgetDef[] = []; // the whole library (for insert / delete)
 	export let tokens: Record<string, string> = {}; // global token overrides (7d)
+	// Manual-save baseline (item 2): the selected node / tokens as they were at the last save, so
+	// changed fields can be flagged. `baseTokens === null` = no baseline (overlay / nothing saved);
+	// `nodeIsNew` = the selected node didn't exist at the last save → all its fields read dirty.
+	export let baseWidget: WidgetInstance | null = null;
+	export let baseContainer: Container | null = null;
+	export let baseGroup: Group | null = null;
+	export let baseTokens: Record<string, string> | null = null;
+	export let nodeIsNew = false;
 	export let placement: 'flow' | 'floating' | null = null;
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
 	export let docked = false;
@@ -46,6 +54,69 @@
 
 	const dispatch = createEventDispatcher<{ op: LayoutOp }>();
 	const op = (o: LayoutOp) => dispatch('op', o);
+
+	// --- dirty-field tracking (item 2): the set of field keys that differ from the saved baseline.
+	// A `label`/field marks itself dirty via `dirtyKeys.has('<key>')`. Keys: sensor, rect.<x|y|w|h>,
+	// config.<key>, css, kind/cols/rows/gap/pad/align/justify/basis, name, param.<key>, token.<key>.
+	const ne = (a: unknown, b: unknown): boolean =>
+		JSON.stringify(a ?? null) !== JSON.stringify(b ?? null);
+	function computeDirty(
+		w: WidgetInstance | null,
+		c: Container | null,
+		g: Group | null,
+		tk: Record<string, string>,
+		bw: WidgetInstance | null,
+		bc: Container | null,
+		bg: Group | null,
+		btk: Record<string, string> | null,
+		isNew: boolean
+	): Set<string> {
+		const d = new Set<string>();
+		if (w) {
+			const b = isNew ? null : bw;
+			if (!b || ne(w.sensor, b.sensor)) d.add('sensor');
+			for (const k of RECT_KEYS) if (!b || w.rect[k] !== b.rect[k]) d.add('rect.' + k);
+			const keys = new Set([...Object.keys(w.config ?? {}), ...Object.keys(b?.config ?? {})]);
+			for (const k of keys) if (!b || ne(w.config?.[k], b.config?.[k])) d.add('config.' + k);
+			if (!b || ne(w.css, b.css)) d.add('css');
+		}
+		if (c) {
+			const b = isNew ? null : bc;
+			if (!b || ne(c.kind, b.kind)) d.add('kind');
+			if (!b || ne(c.cols, b.cols)) d.add('cols');
+			if (!b || ne(c.rows, b.rows)) d.add('rows');
+			if (!b || ne(c.gap, b.gap)) d.add('gap');
+			if (!b || ne(c.pad, b.pad)) d.add('pad');
+			if (!b || ne(c.align, b.align)) d.add('align');
+			if (!b || ne(c.justify, b.justify)) d.add('justify');
+			if (!b || (typeof c.basis === 'object') !== (typeof b.basis === 'object')) d.add('basis');
+		}
+		if (g) {
+			const b = isNew ? null : bg;
+			if (!b || ne(g.name, b.name)) d.add('name');
+			if (!b || ne(g.css, b.css)) d.add('css');
+			const keys = new Set([...Object.keys(g.params ?? {}), ...Object.keys(b?.params ?? {})]);
+			for (const k of keys) if (!b || ne(g.params?.[k], b.params?.[k])) d.add('param.' + k);
+		}
+		if (btk) {
+			const keys = new Set([...Object.keys(tk), ...Object.keys(btk)]);
+			for (const k of keys) if ((tk[k] ?? '') !== (btk[k] ?? '')) d.add('token.' + k);
+		}
+		return d;
+	}
+	$: dirtyKeys = computeDirty(
+		widget,
+		container,
+		groupUnit,
+		tokens,
+		baseWidget,
+		baseContainer,
+		baseGroup,
+		baseTokens,
+		nodeIsNew
+	);
+	// The raw-JSON box mirrors the whole config, so it's dirty if any config field changed.
+	$: configDirty = [...dirtyKeys].some((k) => k.startsWith('config.'));
 
 	let configText = '';
 	let configError = false;
@@ -172,7 +243,7 @@
 	{#if container}
 		<div class="fields">
 			<span class="hd">{container.kind} · {container.id}</span>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('kind')}>
 				kind
 				<select value={container.kind} on:change={(e) => setKind(e.currentTarget.value)}>
 					<option value="row">row (hsplit)</option>
@@ -182,7 +253,7 @@
 			</label>
 			{#if container.kind === 'grid'}
 				<div class="row2">
-					<label>
+					<label class:dirty={dirtyKeys.has('cols')}>
 						cols
 						<input
 							type="number"
@@ -191,7 +262,7 @@
 							on:input={(e) => patchContainer({ cols: Number(e.currentTarget.value) })}
 						/>
 					</label>
-					<label>
+					<label class:dirty={dirtyKeys.has('rows')}>
 						rows
 						<input
 							type="number"
@@ -203,7 +274,7 @@
 				</div>
 			{/if}
 			<div class="row2">
-				<label>
+				<label class:dirty={dirtyKeys.has('gap')}>
 					gap
 					<input
 						type="number"
@@ -211,7 +282,7 @@
 						on:input={(e) => patchContainer({ gap: Number(e.currentTarget.value) })}
 					/>
 				</label>
-				<label>
+				<label class:dirty={dirtyKeys.has('pad')}>
 					pad
 					<input
 						type="number"
@@ -220,7 +291,7 @@
 					/>
 				</label>
 			</div>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('align')}>
 				align (cross)
 				<select
 					value={container.align ?? 'stretch'}
@@ -229,7 +300,7 @@
 					{#each ALIGNS as a (a)}<option value={a}>{a}</option>{/each}
 				</select>
 			</label>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('justify')}>
 				justify (main)
 				<select
 					value={container.justify ?? 'start'}
@@ -238,7 +309,7 @@
 					{#each JUSTIFIES as j (j)}<option value={j}>{j}</option>{/each}
 				</select>
 			</label>
-			<label class="check">
+			<label class="check" class:dirty={dirtyKeys.has('basis')}>
 				<input
 					type="checkbox"
 					checked={typeof container.basis === 'object'}
@@ -255,7 +326,7 @@
 	{:else if widget}
 		<div class="fields">
 			<span class="hd">{widget.type} · {widget.id}</span>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('sensor')}>
 				sensor
 				<input
 					list="sensor-list"
@@ -272,7 +343,7 @@
 			{#if placement === 'floating'}
 				<div class="row">
 					{#each RECT_KEYS as key (key)}
-						<label>
+						<label class:dirty={dirtyKeys.has('rect.' + key)}>
 							{key}
 							<input
 								type="number"
@@ -284,7 +355,7 @@
 				</div>
 			{/if}
 			{#each configFields as f (f.key)}
-				<label class="full">
+				<label class="full" class:dirty={dirtyKeys.has('config.' + f.key)}>
 					{f.label}
 					{#if f.kind === 'number'}
 						<input
@@ -319,7 +390,7 @@
 					{/if}
 				</label>
 			{/each}
-			<label class="full">
+			<label class="full" class:dirty={configDirty}>
 				config (JSON)
 				<textarea
 					rows="4"
@@ -328,7 +399,7 @@
 					on:change={commitConfig}
 				/>
 			</label>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('css')}>
 				css
 				<textarea
 					rows="3"
@@ -350,7 +421,7 @@
 	{:else if groupUnit}
 		<div class="fields">
 			<span class="hd">group · {groupUnit.id}</span>
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('name')}>
 				name
 				<input value={groupUnit.name ?? ''} on:input={(e) => setGroupName(e.currentTarget.value)} />
 			</label>
@@ -381,7 +452,7 @@
 				{#if def.params?.length}
 					<span class="hd">Params</span>
 					{#each def.params as p (p.key)}
-						<label class="full">
+						<label class="full" class:dirty={dirtyKeys.has('param.' + p.key)}>
 							{p.key}{#if p.target}&nbsp;→ {p.target}{/if}
 							<input
 								value={`${groupUnit.params?.[p.key] ?? ''}`}
@@ -406,7 +477,7 @@
 			{:else}
 				<div class="meta">inline group (no def)</div>
 			{/if}
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('css')}>
 				css
 				<textarea
 					rows="3"
@@ -426,7 +497,7 @@
 	<div class="fields tokens">
 		<span class="hd">Theme tokens</span>
 		{#each TOKEN_FIELDS as t (t.key)}
-			<label class="full">
+			<label class="full" class:dirty={dirtyKeys.has('token.' + t.key)}>
 				{t.label}
 				<input
 					value={tokens[t.key] ?? ''}
@@ -518,6 +589,18 @@
 		flex-direction: row;
 		align-items: center;
 		gap: 4px;
+	}
+
+	/* Dirty (unsaved) field indicator (item 2): accent the label + tint the control. */
+	label.dirty {
+		color: rgb(150, 214, 228);
+	}
+
+	label.dirty > input,
+	label.dirty > select,
+	label.dirty > textarea {
+		border-color: rgba(119, 196, 211, 0.75);
+		background: rgba(119, 196, 211, 0.07);
 	}
 
 	.actions {
