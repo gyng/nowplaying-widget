@@ -18,37 +18,60 @@ export type Bar = { x: number; y: number; w: number; h: number };
 
 /** Map a history buffer to histogram bars rising from the baseline. Unlike the line (which
  * scales between the data min and max), bars rise from `min ?? 0` so heights read absolutely;
- * `gap` (0..1) is the fractional spacing between bars. Used by the sparkline's histogram mode. */
+ * `gap` (0..1) is the fractional spacing between bars.
+ *
+ * `window > 0` fixes the x-axis to that many slots and RIGHT-ANCHORS the data: the newest sample
+ * sits at the rightmost slot and earlier (not-yet-recorded) slots are simply omitted — the chart
+ * fills in from the right as history accumulates instead of stretching a few samples full width.
+ * `window = 0` keeps the legacy behaviour (one slot per sample). */
 export function sparklineBars(
 	history: number[],
 	width: number,
 	height: number,
 	min: number | null = null,
 	max: number | null = null,
-	gap = 0.2
+	gap = 0.2,
+	window = 0
 ): Bar[] {
 	if (history.length === 0) return [];
+	const recent = window > 0 ? history.slice(-window) : history;
 	const lo = min ?? 0;
-	const hi = max ?? Math.max(...history);
+	const hi = max ?? Math.max(...recent);
 	const span = hi - lo || 1;
-	const slot = width / history.length;
+	const slots = window > 0 ? window : recent.length;
+	const offset = slots - recent.length; // blank slots on the left (no data yet)
+	const slot = width / slots;
 	const w = slot * (1 - gap);
-	return history.map((v, i) => {
+	return recent.map((v, i) => {
 		const frac = Math.max(0, Math.min(1, (v - lo) / span));
 		const barH = frac * height;
-		return { x: i * slot + (slot - w) / 2, y: height - barH, w, h: barH };
+		return { x: (offset + i) * slot + (slot - w) / 2, y: height - barH, w, h: barH };
 	});
 }
 
-/** Map a history buffer to points within [0,width] × [0,height] (y inverted). */
+/** Map a history buffer to points within [0,width] × [0,height] (y inverted). `window` behaves as
+ * in sparklineBars: > 0 right-anchors the data in a fixed number of slots (points start partway
+ * across until history fills the window); 0 stretches all samples edge-to-edge (legacy). */
 export function sparklinePoints(
 	history: number[],
 	width: number,
 	height: number,
 	min: number | null = null,
-	max: number | null = null
+	max: number | null = null,
+	window = 0
 ): Point[] {
 	if (history.length === 0) return [];
+	if (window > 0) {
+		const recent = history.slice(-window);
+		const [lo, hi] = sparklineRange(recent, min, max);
+		const span = hi - lo;
+		const slot = width / window;
+		const offset = window - recent.length;
+		return recent.map((v, i) => {
+			const frac = span === 0 ? 0.5 : (v - lo) / span;
+			return [(offset + i) * slot + slot / 2, height - frac * height];
+		});
+	}
 	const [lo, hi] = sparklineRange(history, min, max);
 	const span = hi - lo;
 	const stepX = history.length > 1 ? width / (history.length - 1) : 0;

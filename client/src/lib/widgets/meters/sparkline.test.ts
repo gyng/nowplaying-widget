@@ -30,6 +30,14 @@ describe('sparklinePoints', () => {
 			[100, 5]
 		]);
 	});
+
+	it('right-anchors within a fixed window, leaving early time blank', () => {
+		// window 4, 2 samples → they occupy slots 2 and 3 (the right half); slots 0–1 stay empty.
+		expect(sparklinePoints([10, 20], 100, 10, 0, 20, 4)).toEqual([
+			[62.5, 5], // slot 2 centre (2*25 + 12.5), 10/20 → mid height
+			[87.5, 0] // slot 3 centre, 20/20 → top
+		]);
+	});
 });
 
 describe('sparklineBars', () => {
@@ -51,5 +59,13 @@ describe('sparklineBars', () => {
 	it('clamps out-of-range values and returns empty for no history', () => {
 		expect(sparklineBars([150], 10, 10, 0, 100)[0].h).toBe(10); // clamped to 1.0
 		expect(sparklineBars([], 10, 10)).toEqual([]);
+	});
+
+	it('right-anchors to a fixed window, leaving early slots empty', () => {
+		// window 4, 1 sample → it occupies only the rightmost slot (3 of 4); no stretching.
+		const bars = sparklineBars([100], 100, 10, 0, 100, 0.2, 4);
+		expect(bars).toHaveLength(1);
+		expect(bars[0].x).toBeCloseTo(77.5); // slot 3 of 4: 3*25 + (25-20)/2
+		expect(bars[0].h).toBe(10);
 	});
 });

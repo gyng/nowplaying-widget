@@ -54,8 +54,10 @@ export interface TelemetryHub {
 	sensorIds(): string[];
 }
 
-/** Create a hub that routes samples to per-sensor state and notifies subscribers. */
-export function createTelemetryHub(historyLen = 120): TelemetryHub {
+/** Create a hub that routes samples to per-sensor state and notifies subscribers. `historyLen`
+ * is the shared ring-buffer cap (≈ seconds at the 1s base cadence); the default holds 10 minutes
+ * so each sparkline can pick a shorter window (default 1 min) and still have data to anchor. */
+export function createTelemetryHub(historyLen = 600): TelemetryHub {
 	const states = new Map<string, SensorState>();
 	const listeners = new Map<string, Set<() => void>>();
 

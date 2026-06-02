@@ -79,11 +79,12 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		label: 'Sparkline',
 		defaultSensor: 'cpu.total',
 		defaultSize: { w: 140, h: 30 },
-		defaultConfig: {},
+		defaultConfig: { seconds: 60 },
 		configFields: [
 			color('color', 'color'),
 			{ key: 'fill', label: 'fill', kind: 'toggle' },
-			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' }
+			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' },
+			num('seconds', 'history (s)', { min: 5, step: 5 })
 		]
 	},
 	{

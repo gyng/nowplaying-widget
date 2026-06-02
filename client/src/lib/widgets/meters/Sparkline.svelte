@@ -12,12 +12,17 @@
 	// Histogram mode (item): draw value bars rising from the baseline instead of a line — matches
 	// the Rainmeter Histogram meter used for network throughput / per-core load.
 	export let histogram = false;
+	// Rolling history window in SECONDS (≈ samples at the 1s base sampling cadence). The chart is
+	// right-anchored to this window: it fills in from the right and leaves not-yet-recorded time
+	// blank rather than stretching a few early samples across the whole width.
+	export let seconds = 60;
 
 	const W = 100;
 	const H = 32;
 
-	$: points = histogram ? [] : sparklinePoints(history, W, H, min, max);
-	$: bars = histogram ? sparklineBars(history, W, H, min, max) : [];
+	$: windowSlots = Math.max(1, Math.round(seconds));
+	$: points = histogram ? [] : sparklinePoints(history, W, H, min, max, windowSlots);
+	$: bars = histogram ? sparklineBars(history, W, H, min, max, 0.2, windowSlots) : [];
 	$: line = points.map(([x, y]) => `${x},${y}`).join(' ');
 	$: area = points.length ? `0,${H} ${line} ${W},${H}` : '';
 	$: colorCss = color ?? 'var(--np-accent, rgb(119, 196, 211))';
