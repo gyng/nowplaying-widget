@@ -972,20 +972,15 @@
 			return;
 		}
 		if (event.button !== 0) return;
-		// The `.canvas` and `.world` layers are the only background elements with pointer events;
-		// widgets (.widget), the tool bars/rails and menus have their own, and the frame/bounds/cells
-		// are pointer-events:none (clicks pass through them to `.world`). The scaled `.world` only
-		// covers the monitor box, so a press on the bare `.canvas` is OUTSIDE the monitor (the margin).
+		// A left drag on the empty background marquee-selects — whether inside the monitor (`.world`)
+		// or in the margin around it (the bare `.canvas`); a marquee can start in the margin and
+		// sweep into the monitor. Widgets (.widget), the bars/rails and menus have their own pointer
+		// events, and the frame/bounds/cells are pointer-events:none (clicks fall through to `.world`),
+		// so this whitelist cleanly excludes the chrome. (Panning is middle-drag or Space+drag.)
 		const t = event.target as HTMLElement | null;
 		const onWorld = !!t?.classList.contains('world');
 		const onCanvas = !!t?.classList.contains('canvas');
 		if (!onWorld && !onCanvas) return;
-		// Studio: dragging the margin (outside the monitor) pans the view; dragging inside the
-		// monitor marquee-selects. The overlay has no pan, so it always marquees.
-		if (studio && onCanvas) {
-			startPan(event);
-			return;
-		}
 		const p = toCanvas(event.clientX, event.clientY);
 		marqueeStart = p;
 		marquee = { x: p.x, y: p.y, w: 0, h: 0 };
@@ -1952,8 +1947,8 @@
 		pointer-events: auto;
 	}
 
-	/* Panning the view: margin-drag / middle-drag / Space+drag. While Space is held (panmode) the
-	   cursor shows grab and widgets are click-through, so the press lands on the stage to pan. */
+	/* Panning the view: middle-drag or Space+drag. While Space is held (panmode) the cursor shows
+	   grab and widgets are click-through, so the press lands on the stage to pan. */
 	.canvas.studio.panmode {
 		cursor: grab;
 	}
