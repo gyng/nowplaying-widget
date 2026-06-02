@@ -255,4 +255,32 @@ describe('dropTarget', () => {
 		const solved = new Map<string, Rect>([['root', { x: 0, y: 0, w: 200, h: 200 }]]);
 		expect(dropTarget(root, solved, { x: 50, y: 50 }, 'W')).toEqual({ parentId: 'root', index: 0 });
 	});
+
+	it('drops INTO an occupied grid cell interior (container → into, bare leaf → merge)', () => {
+		// grid g over [c0 (a cell-container with A), L1 (a bare-leaf cell)], 2 cols → cells at
+		// (0,0,100,100) and (100,0,100,100).
+		const c0 = container('c0', 'col', [leaf(prim('A'))], { align: 'stretch' });
+		const grid = container('g', 'grid', [c0, leaf(prim('L1'))], { cols: 2 });
+		const root = container('root', 'col', [grid], { align: 'stretch' });
+		const solved = new Map<string, Rect>([
+			['root', { x: 0, y: 0, w: 200, h: 100 }],
+			['g', { x: 0, y: 0, w: 200, h: 100 }]
+		]);
+		// interior of cell 0 (a container) → drop into it (append after A)
+		expect(dropTarget(root, solved, { x: 50, y: 50 }, 'W')).toEqual({
+			parentId: 'c0',
+			index: 1,
+			into: true
+		});
+		// interior of cell 1 (a bare leaf) → merge that leaf with the dropped node
+		expect(dropTarget(root, solved, { x: 150, y: 50 }, 'W')).toEqual({
+			parentId: 'g',
+			index: 1,
+			merge: 'L1'
+		});
+		// near the cell EDGE (outer band) → falls through to before/after (not into)
+		const edge = dropTarget(root, solved, { x: 95, y: 50 }, 'W');
+		expect(edge?.into).toBeUndefined();
+		expect(edge?.merge).toBeUndefined();
+	});
 });

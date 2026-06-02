@@ -6,7 +6,7 @@
 	// solver (solveMonitor) positions the flow tree; floating widgets are free-moved. Edit
 	// mode shows the Outline (structure) + Inspector (props) which funnel every change
 	// through `handleOp` → core/layoutEdit. (Panels relocate to the studio window in 5s.)
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, setContext } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
@@ -270,6 +270,9 @@
 	}
 
 	const hub = createTelemetryHub();
+	// Expose the hub to self-sourcing meters that read MANY sensors (e.g. the CPU widget reads
+	// cpu.total + every cpu.core.*), which a single bound sensor can't cover.
+	setContext('telemetryHub', hub);
 	let unlisten: UnlistenFn | undefined;
 	let unlistenLayout: UnlistenFn | undefined;
 	let unlistenEdit: UnlistenFn | undefined;
@@ -367,6 +370,10 @@
 	}
 	$: selectedNode = selectedId ? lookup(selectedId, monitor) : null;
 	$: selectedContainer = selectedNode && isContainer(selectedNode) ? selectedNode : null;
+	// A grid cell = a container whose parent is a grid; it can set its own column/row size (item).
+	$: isGridCell = !!(
+		selectedContainer && findParent(monitor.root, selectedContainer.id)?.kind === 'grid'
+	);
 	$: selectedWidget =
 		selectedNode && isLeaf(selectedNode) && !isGroup(selectedNode.unit)
 			? (selectedNode.unit as WidgetInstance)
@@ -495,8 +502,12 @@
 	// Studio: switch which monitor's layout is being edited (reload its saved layout).
 	async function switchMonitor(key: string) {
 		if (key === myMonitor) return;
-		// Prompt before abandoning an unsaved draft for this monitor (manual-save model).
-		if (dirty && !window.confirm('Discard unsaved changes to this monitor and switch?')) return;
+		// Prompt before abandoning an unsaved draft for this monitor; on discard, revert its live
+		// preview back to the saved baseline before leaving (it was written to disk for preview).
+		if (dirty) {
+			if (!window.confirm('Discard unsaved changes to this monitor and switch?')) return;
+			await revertDraftToDisk();
+		}
 		myMonitor = key;
 		selectedId = null;
 		menu = null;
@@ -556,6 +567,7 @@
 		unlistenEdit?.();
 		unlistenStudio?.();
 		unlistenThemes?.();
+		clearPreviewWrite();
 	});
 
 	// Edit mode: tray "Edit layout" toggles it (or Ctrl+E while the window is focused).
@@ -765,11 +777,14 @@
 			const id = draggingId;
 			const lf = monitor.floating.find((l) => l.id === id);
 			if (lf) {
-				monitor = {
-					...monitor,
-					floating: monitor.floating.filter((l) => l.id !== id),
-					root: insertChild(monitor.root, dropIndicator.parentId, lf, dropIndicator.index)
-				};
+				const floating = monitor.floating.filter((l) => l.id !== id);
+				monitor = dropIndicator.merge
+					? { ...monitor, floating, root: wrapLeafWith(monitor.root, dropIndicator.merge, id, lf) }
+					: {
+							...monitor,
+							floating,
+							root: insertChild(monitor.root, dropIndicator.parentId, lf, dropIndicator.index)
+					  };
 				selectedId = id;
 			}
 		}
@@ -819,7 +834,9 @@
 		const c = toCanvas(event.detail.x, event.detail.y); // canvas coords for the (unscaled) hint
 		draggingId = id;
 		dropIndicator = dropTarget(monitor.root, solved, w, id);
-		dropBar = computeDropBar(w, id);
+		// Dropping INTO a cell (interior / merge) highlights the cell instead of a thin bar.
+		dropBar =
+			dropIndicator && (dropIndicator.into || dropIndicator.merge) ? null : computeDropBar(w, id);
 		// Beside a leaf → thin bar; into a container's open area → highlight the target grid
 		// CELL (or the whole row/col pane).
 		dropZone = computeDropZone(dropIndicator, dropBar);
@@ -847,7 +864,11 @@
 		dropZone = null;
 		draggingId = null;
 		dragHint = null;
-		if (drop) {
+		if (drop?.merge) {
+			const dragged = findNode(monitor.root, id);
+			if (dragged)
+				monitor = { ...monitor, root: wrapLeafWith(monitor.root, drop.merge, id, dragged) };
+		} else if (drop) {
 			monitor = { ...monitor, root: moveNode(monitor.root, id, drop.parentId, drop.index) };
 		} else {
 			floatNode(id, { x, y });
@@ -856,19 +877,51 @@
 		saveLayout();
 	}
 
-	// `extra` (move-to-monitor) appends a floating leaf to ANOTHER monitor's saved layout in
-	// the same write — used to relocate a widget to a different display from the studio.
-	// Commit an edit. Always records undo history. In the STUDIO this is a draft: it updates the
-	// live preview (the reactive `monitor`) but defers the disk write — and so the desktop
-	// overlays — until Save (manual-save model). Cross-monitor moves (`extra`) are queued for the
-	// next Save. On an overlay it persists immediately (the original auto-save behaviour).
+	// Wrap the bare-leaf grid cell `targetId` and `node` into a new shared cell (overlapping by
+	// default, so dropping into an occupied cell layers them — pair of the same-cell feature).
+	// `removeId` (if in the flow tree) is pruned first so a flow widget isn't duplicated.
+	function wrapLeafWith(
+		root: Container,
+		targetId: string,
+		removeId: string,
+		node: LayoutNode
+	): Container {
+		const pruned = findNode(root, removeId) ? removeNode(root, removeId) : root;
+		return updateNode(pruned, targetId, (n) =>
+			container(`cell-${rand()}`, 'col', [n, node], { align: 'stretch', overlap: true })
+		);
+	}
+
+	// Commit an edit. Always records undo history. In the STUDIO it writes a DEBOUNCED live draft
+	// to disk so the desktop overlays preview unsaved changes (and the primary reconciles
+	// spawn/hide), while `dirty` still tracks divergence from the saved baseline — Save commits a
+	// checkpoint, Cancel reverts to it. Cross-monitor moves (`extra`) are queued for the next Save
+	// (not previewed live). On an overlay it persists immediately (the original auto-save).
 	function saveLayout(extra?: { key: string; leaf: Leaf }) {
 		recordHistory(); // snapshot this committed edit for undo (no-op if nothing changed)
 		if (studio) {
 			if (extra) pendingExtras = [...pendingExtras, extra];
-			return; // `dirty` is derived from the baseline; persistence waits for commitSave()
+			schedulePreviewWrite(); // live preview on the overlays; `dirty` still tracks the baseline
+			return;
 		}
 		return persistToDisk(extra ? [extra] : []);
+	}
+
+	// Debounced live-preview writer (studio): coalesces rapid edits (a config field typed key by
+	// key, successive drops) into one widgets.json write ~150 ms after activity settles, so the
+	// overlays update without per-keystroke disk thrash. Writes only THIS monitor (no cross-monitor
+	// extras — those wait for Save). Save/Cancel flush or clear it.
+	let previewTimer: ReturnType<typeof setTimeout> | undefined;
+	function schedulePreviewWrite() {
+		clearTimeout(previewTimer);
+		previewTimer = setTimeout(() => {
+			previewTimer = undefined;
+			persistToDisk([]);
+		}, 150);
+	}
+	function clearPreviewWrite() {
+		clearTimeout(previewTimer);
+		previewTimer = undefined;
 	}
 
 	// Write the current layout to widgets.json (the only place that touches disk). `extras` append
@@ -946,23 +999,33 @@
 
 	async function commitSave() {
 		if (!studio) return;
+		clearPreviewWrite(); // flush: write now (incl. queued cross-monitor moves)
 		await persistToDisk(pendingExtras);
 		pendingExtras = [];
 		setBaseline(); // the live state is now the saved state → dirty clears
 	}
 
-	function cancelEdits() {
-		if (!studio || !dirty || !savedBaseline) return;
-		if (!window.confirm('Discard all unsaved changes since the last save?')) return;
+	// Restore the editor AND the on-disk layout to the saved baseline, reverting the live preview so
+	// the overlays return to the last-saved state. Shared by Cancel and discard-on-monitor-switch.
+	async function revertDraftToDisk() {
+		if (!savedBaseline) return;
 		monitor = savedBaseline.monitor;
 		library = savedBaseline.library;
 		selectedTheme = savedBaseline.theme;
 		tokenOverrides = savedBaseline.tokens;
 		pendingExtras = [];
+		clearPreviewWrite();
+		await persistToDisk([]); // write the restored baseline back → overlays revert
+	}
+
+	async function cancelEdits() {
+		if (!studio || !dirty || !savedBaseline) return;
+		if (!window.confirm('Discard all unsaved changes since the last save?')) return;
 		editingDefId = null; // drop out of any def edit too
 		savedMonitor = null;
 		selectedId = null;
 		selectedIds = [];
+		await revertDraftToDisk();
 		applyTheme();
 		resetHistory();
 	}
@@ -1935,6 +1998,7 @@
 			{baseGroup}
 			baseTokens={savedBaseline?.tokens ?? null}
 			{nodeIsNew}
+			{isGridCell}
 			{placement}
 			{widgetTypes}
 			{configFields}

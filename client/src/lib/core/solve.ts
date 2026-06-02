@@ -132,25 +132,90 @@ function gridRows(c: Container): number {
 	return Math.max(c.rows ?? 1, Math.ceil(c.children.length / cols), 1);
 }
 
-// Every cell rect of a grid container (cols × rows, row-major), mirroring solveGrid. Exported
-// so the designer can outline empty cells and highlight the drop-target cell.
+// A grid cell's fixed column width / row height (its `cellW`/`cellH`), or null when flexible.
+function cellFixedW(node: LayoutNode): number | null {
+	return isContainer(node) && typeof node.cellW === 'number' && node.cellW > 0 ? node.cellW : null;
+}
+function cellFixedH(node: LayoutNode): number | null {
+	return isContainer(node) && typeof node.cellH === 'number' && node.cellH > 0 ? node.cellH : null;
+}
+
+// Column widths / row heights of a grid across the content axis. A track is FIXED to the max
+// cellW/cellH among its cells; the remaining (flexible) tracks split the leftover equally. With no
+// fixed cell the tracks are uniform — the original behaviour. Negative leftovers clamp to 0.
+function gridTracks(c: Container, available: number, count: number, horizontal: boolean): number[] {
+	const cols = Math.max(1, c.cols ?? 1);
+	const gap = c.gap ?? 0;
+	const fixed: (number | null)[] = new Array(count).fill(null);
+	c.children.forEach((child, i) => {
+		const t = horizontal ? i % cols : Math.floor(i / cols);
+		if (t >= count) return;
+		const v = horizontal ? cellFixedW(child) : cellFixedH(child);
+		if (v != null) fixed[t] = Math.max(fixed[t] ?? 0, v);
+	});
+	const fixedSum = fixed.reduce((s: number, v) => s + (v ?? 0), 0);
+	const flexCount = fixed.filter((v) => v == null).length;
+	const leftover = Math.max(0, available - gap * (count - 1) - fixedSum);
+	const flex = flexCount > 0 ? leftover / flexCount : 0;
+	return fixed.map((v) => v ?? flex);
+}
+
+function gridColWidths(c: Container, contentW: number): number[] {
+	return gridTracks(c, contentW, Math.max(1, c.cols ?? 1), true);
+}
+function gridRowHeights(c: Container, contentH: number): number[] {
+	return gridTracks(c, contentH, gridRows(c), false);
+}
+
+// Prefix offsets of each track (col/row) start, given the track sizes + gap.
+function trackOffsets(sizes: number[], gap: number, start: number): number[] {
+	const offs: number[] = [];
+	let cur = start;
+	for (const s of sizes) {
+		offs.push(cur);
+		cur += s + gap;
+	}
+	return offs;
+}
+
+// Largest w:h-ratio box fitting in `cell`, positioned by `align` (center by default). Used to
+// shape a grid cell that has an `aspect` within its (possibly fixed-size) cell box.
+function aspectFitInCell(cell: Rect, aspect: number, align: Align): Rect {
+	let w = cell.w;
+	let h = w / aspect;
+	if (h > cell.h) {
+		h = cell.h;
+		w = h * aspect;
+	}
+	let x = cell.x + (cell.w - w) / 2;
+	let y = cell.y + (cell.h - h) / 2;
+	if (align === 'start') {
+		x = cell.x;
+		y = cell.y;
+	} else if (align === 'end') {
+		x = cell.x + cell.w - w;
+		y = cell.y + cell.h - h;
+	}
+	return { x, y, w, h };
+}
+
+// Every cell rect of a grid container (cols × rows, row-major), mirroring solveGrid — now with
+// per-cell fixed widths/heights (non-uniform tracks). Exported for the designer's cell outlines
+// and drop targeting.
 export function gridCellRects(c: Container, box: Rect): Rect[] {
 	const content = insetPad(box, c.pad);
 	const cols = Math.max(1, c.cols ?? 1);
 	const rows = gridRows(c);
 	const gap = c.gap ?? 0;
-	const cellW = Math.max(0, (content.w - gap * (cols - 1)) / cols);
-	const cellH = Math.max(0, (content.h - gap * (rows - 1)) / rows);
+	const colW = gridColWidths(c, content.w);
+	const rowH = gridRowHeights(c, content.h);
+	const colX = trackOffsets(colW, gap, content.x);
+	const rowY = trackOffsets(rowH, gap, content.y);
 	const cells: Rect[] = [];
 	for (let i = 0; i < cols * rows; i++) {
 		const col = i % cols;
 		const row = Math.floor(i / cols);
-		cells.push({
-			x: content.x + col * (cellW + gap),
-			y: content.y + row * (cellH + gap),
-			w: cellW,
-			h: cellH
-		});
+		cells.push({ x: colX[col], y: rowY[row], w: colW[col], h: rowH[row] });
 	}
 	return cells;
 }
@@ -413,23 +478,24 @@ function solveGrid(
 ): void {
 	const cols = Math.max(1, c.cols ?? 1);
 	const n = c.children.length;
-	const rows = gridRows(c);
 	const gap = c.gap ?? 0;
 
-	const cellW = Math.max(0, (content.w - gap * (cols - 1)) / cols);
-	const cellH = Math.max(0, (content.h - gap * (rows - 1)) / rows);
+	const colW = gridColWidths(c, content.w);
+	const rowH = gridRowHeights(c, content.h);
+	const colX = trackOffsets(colW, gap, content.x);
+	const rowY = trackOffsets(rowH, gap, content.y);
 
 	for (let i = 0; i < n; i++) {
 		const r = Math.floor(i / cols);
 		const col = i % cols;
-		const cell: Rect = {
-			x: content.x + col * (cellW + gap),
-			y: content.y + r * (cellH + gap),
-			w: cellW,
-			h: cellH
-		};
-		const childBox = alignInCell(c.children[i], c.align ?? 'stretch', cell, library);
-		solveNode(c.children[i], childBox, prefix, library, out);
+		const cell: Rect = { x: colX[col], y: rowY[r], w: colW[col], h: rowH[r] };
+		const child = c.children[i];
+		// A cell with an `aspect` is shaped (aspect-fit) within its box; otherwise it aligns/fills.
+		const childBox =
+			isContainer(child) && typeof child.aspect === 'number' && child.aspect > 0
+				? aspectFitInCell(cell, child.aspect, c.align ?? 'stretch')
+				: alignInCell(child, c.align ?? 'stretch', cell, library);
+		solveNode(child, childBox, prefix, library, out);
 	}
 }
 
@@ -500,6 +566,21 @@ function intrinsicContainer(
 		const cols = Math.max(1, c.cols ?? 1);
 		const rows = gridRows(c);
 		const count = horizontal ? cols : rows;
+		// With per-cell fixed sizes, sum each track (its fixed size, else its largest child); with
+		// none it's the uniform cols×max-child (the original formula) so existing grids are unchanged.
+		const hasFixed = c.children.some(
+			(ch) => (horizontal ? cellFixedW(ch) : cellFixedH(ch)) != null
+		);
+		if (hasFixed) {
+			const tracks = new Array<number>(count).fill(0);
+			c.children.forEach((child, i) => {
+				const t = horizontal ? i % cols : Math.floor(i / cols);
+				if (t >= count) return;
+				const fixed = horizontal ? cellFixedW(child) : cellFixedH(child);
+				tracks[t] = Math.max(tracks[t], fixed ?? extents[i]);
+			});
+			return padAlong + tracks.reduce((s, v) => s + v, 0) + gap * (count - 1);
+		}
 		return padAlong + Math.max(...extents) * count + gap * (count - 1);
 	}
 

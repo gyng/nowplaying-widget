@@ -126,6 +126,23 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultSize: { w: 240, h: 64 },
 		defaultConfig: {},
 		configFields: [text('label', 'label (when idle)')]
+	},
+	{
+		// Self-sourcing CPU widget: reads cpu.total + cpu.core.* from the hub (binds:none). Toggles
+		// between a combined gauge and a per-core sparkline grid (the Rainmeter System skin).
+		type: 'cpu',
+		binds: 'none',
+		label: 'CPU',
+		defaultSize: { w: 160, h: 90 },
+		defaultConfig: { mode: 'cores', cols: 8 },
+		configFields: [
+			{ key: 'mode', label: 'mode', kind: 'select', options: ['cores', 'combined'] },
+			num('cols', 'cols (per-core grid)', { min: 1 }),
+			num('seconds', 'history (s)', { min: 5, step: 5 }),
+			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' },
+			text('label', 'label (combined)'),
+			color('color', 'color')
+		]
 	}
 ];
 

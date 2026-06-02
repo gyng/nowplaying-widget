@@ -15,6 +15,7 @@ import {
 	isGroup,
 	isLeaf
 } from './layoutTree';
+import { gridCellRects } from './solve';
 
 function clone<T>(node: T): T {
 	return JSON.parse(JSON.stringify(node)) as T;
@@ -188,7 +189,61 @@ export function ungroupNode(root: Container, groupId: string, library?: Library)
 	return updateNode(root, groupId, () => clone(baseChild));
 }
 
-export type Drop = { parentId: string; index: number };
+export type Drop = {
+	parentId: string;
+	index: number;
+	into?: boolean; // dropping INTO the parent container (highlight it), not beside a sibling
+	merge?: string; // a grid cell that's a bare leaf: wrap it + the dropped node into a shared cell
+};
+
+/**
+ * Dropping into an OCCUPIED grid cell's interior (the central region) targets that cell, so
+ * widgets can share it (pair with the cell's `overlap` to layer them) instead of only inserting
+ * before/after. A cell that's a container → drop into it; a cell that's a bare leaf → `merge`
+ * (the Canvas wraps it + the dropped node into a new cell). Near the cell edges this returns null
+ * and the caller falls back to before/after. Pure; needs the grid box from the solver.
+ */
+function gridCellInteriorDrop(
+	root: Container,
+	solved: Map<string, Rect>,
+	point: { x: number; y: number },
+	draggingId: string
+): Drop | null {
+	let best: Drop | null = null;
+	let bestDepth = -1;
+	const walk = (node: LayoutNode, depth: number): void => {
+		if (!isContainer(node)) return;
+		if (node.kind === 'grid') {
+			const box = solved.get(node.id);
+			if (box) {
+				const cells = gridCellRects(node, box);
+				for (let i = 0; i < node.children.length; i++) {
+					const child = node.children[i];
+					const cell = cells[i];
+					if (!cell || child.id === draggingId) continue;
+					// Central 60% of the cell only — the outer band stays "before/after" (reorder).
+					const ix = cell.x + cell.w * 0.2;
+					const iX = cell.x + cell.w * 0.8;
+					const iy = cell.y + cell.h * 0.2;
+					const iY = cell.y + cell.h * 0.8;
+					if (point.x < ix || point.x >= iX || point.y < iy || point.y >= iY) continue;
+					if (depth <= bestDepth) continue;
+					bestDepth = depth;
+					best = isContainer(child)
+						? {
+								parentId: child.id,
+								index: child.children.filter((c) => c.id !== draggingId).length,
+								into: true
+						  }
+						: { parentId: node.id, index: i, merge: child.id };
+				}
+			}
+		}
+		for (const c of node.children) walk(c, depth + 1);
+	};
+	walk(root, 0);
+	return best;
+}
 
 /**
  * Where a drag would land in the flow tree, by hit-testing the dragged point against the
@@ -204,6 +259,9 @@ export function dropTarget(
 	point: { x: number; y: number },
 	draggingId: string
 ): Drop | null {
+	// Dropping into an occupied grid cell's interior wins over before/after a leaf.
+	const cellDrop = gridCellInteriorDrop(root, solved, point, draggingId);
+	if (cellDrop) return cellDrop;
 	for (const lf of flowLeaves(root)) {
 		if (lf.id === draggingId) continue;
 		const r = solved.get(lf.id);

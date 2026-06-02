@@ -29,6 +29,7 @@
 	export let baseGroup: Group | null = null;
 	export let baseTokens: Record<string, string> | null = null;
 	export let nodeIsNew = false;
+	export let isGridCell = false; // the selected container is a grid cell → show cell sizing fields
 	export let placement: 'flow' | 'floating' | null = null;
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
 	export let docked = false;
@@ -91,6 +92,9 @@
 			if (!b || ne(c.justify, b.justify)) d.add('justify');
 			if (!b || (typeof c.basis === 'object') !== (typeof b.basis === 'object')) d.add('basis');
 			if (!b || !!c.overlap !== !!b.overlap) d.add('overlap');
+			if (!b || ne(c.cellW, b.cellW)) d.add('cellW');
+			if (!b || ne(c.cellH, b.cellH)) d.add('cellH');
+			if (!b || ne(c.aspect, b.aspect)) d.add('aspect');
 		}
 		if (g) {
 			const b = isNew ? null : bg;
@@ -327,6 +331,44 @@
 				/>
 				overlap children (same cell)
 			</label>
+			{#if isGridCell}
+				<span class="hd">Grid cell</span>
+				<div class="row2">
+					<label class:dirty={dirtyKeys.has('cellW')}>
+						width (px)
+						<input
+							type="number"
+							min="0"
+							value={container.cellW ?? ''}
+							placeholder="flex"
+							on:input={(e) =>
+								patchContainer({ cellW: Number(e.currentTarget.value) || undefined })}
+						/>
+					</label>
+					<label class:dirty={dirtyKeys.has('cellH')}>
+						height (px)
+						<input
+							type="number"
+							min="0"
+							value={container.cellH ?? ''}
+							placeholder="flex"
+							on:input={(e) =>
+								patchContainer({ cellH: Number(e.currentTarget.value) || undefined })}
+						/>
+					</label>
+				</div>
+				<label class="full" class:dirty={dirtyKeys.has('aspect')}>
+					aspect (w/h, e.g. 1 or 1.78)
+					<input
+						type="number"
+						min="0"
+						step="0.01"
+						value={container.aspect ?? ''}
+						placeholder="off"
+						on:input={(e) => patchContainer({ aspect: Number(e.currentTarget.value) || undefined })}
+					/>
+				</label>
+			{/if}
 			<div class="actions">
 				<button type="button" on:click={makeWidgetFromContainer}>Make widget</button>
 				<button type="button" class="remove" on:click={removeContainer}>Remove</button>

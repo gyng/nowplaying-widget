@@ -35,6 +35,12 @@ export type Container = {
 	justify?: Justify; // main axis (ignored when an `fr` child consumes the leftover)
 	bounds?: Rect; // explicit box; default = the contentRect passed to the solver
 	overlap?: boolean; // stack children in the SAME box (overlapping/layered) instead of flowing
+	// Grid CELL sizing (set on a cell to size its column/row): `cellW`/`cellH` fix that cell's
+	// COLUMN width / ROW height (px) — other columns/rows split the remainder (non-uniform grid).
+	// `aspect` (w/h) shapes the widget WITHIN its cell box (aspect-fit), not the grid.
+	cellW?: number;
+	cellH?: number;
+	aspect?: number;
 	children: LayoutNode[];
 };
 

@@ -14,6 +14,7 @@ import {
 	collectContainerRects,
 	collectGridPlaceholders,
 	collectRenderables,
+	gridCellRects,
 	intrinsicSize,
 	resolveGroup,
 	solveLayout,
@@ -882,5 +883,38 @@ describe('overlap container', () => {
 		const solved = solveMonitor(mon, { x: 0, y: 0, w: 200, h: 200 });
 		// max width 30, max height 40 (not 10+30 / 40+20)
 		expect(solved.get('cell')).toMatchObject({ w: 30, h: 40 });
+	});
+});
+
+describe('non-uniform grid (fixed cell width/height + aspect)', () => {
+	it('uniform when no cell fixes a size (unchanged behaviour)', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10)), leaf(prim('B', 10, 10))], {
+			cols: 2
+		});
+		const cells = gridCellRects(grid, { x: 0, y: 0, w: 200, h: 100 });
+		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 100 });
+		expect(cells[1]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
+	});
+
+	it('a fixed-width cell takes that column width; the rest split the remainder', () => {
+		const c0 = container('c0', 'col', [leaf(prim('A', 10, 10))], { cellW: 100 });
+		const grid = container('g', 'grid', [c0, leaf(prim('B', 10, 10)), leaf(prim('C', 10, 10))], {
+			cols: 3
+		});
+		const cells = gridCellRects(grid, { x: 0, y: 0, w: 300, h: 100 });
+		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 100 }); // fixed column
+		expect(cells[1]).toEqual({ x: 100, y: 0, w: 100, h: 100 }); // (300-100)/2
+		expect(cells[2]).toEqual({ x: 200, y: 0, w: 100, h: 100 });
+	});
+
+	it('a fixed-height cell sets its row height; aspect shapes the cell within its box', () => {
+		// 1 col × 2 rows over 100×200; row 0 fixed 50 → row 1 = 150. cell 0 aspect 1 → 50×50, centred.
+		const c0 = container('c0', 'col', [leaf(prim('A', 10, 10))], { cellH: 50, aspect: 1 });
+		const grid = container('g', 'grid', [c0, leaf(prim('B', 10, 10))], {
+			cols: 1,
+			align: 'center'
+		});
+		const solved = solveLayout(grid, { x: 0, y: 0, w: 100, h: 200 });
+		expect(solved.get('c0')).toEqual({ x: 25, y: 0, w: 50, h: 50 });
 	});
 });
