@@ -257,11 +257,14 @@ export function dropTarget(
 	root: Container,
 	solved: Map<string, Rect>,
 	point: { x: number; y: number },
-	draggingId: string
+	draggingId: string,
+	intoCells = true
 ): Drop | null {
-	// Dropping into an occupied grid cell's interior wins over before/after a leaf.
-	const cellDrop = gridCellInteriorDrop(root, solved, point, draggingId);
-	if (cellDrop) return cellDrop;
+	// Dropping into an occupied grid cell's interior wins over before/after a leaf (when enabled).
+	if (intoCells) {
+		const cellDrop = gridCellInteriorDrop(root, solved, point, draggingId);
+		if (cellDrop) return cellDrop;
+	}
 	for (const lf of flowLeaves(root)) {
 		if (lf.id === draggingId) continue;
 		const r = solved.get(lf.id);

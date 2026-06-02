@@ -601,6 +601,11 @@
 	const ALIGN_THRESHOLD = 6;
 	let guideXs: number[] = [];
 	let guideYs: number[] = [];
+	// Drop preferences (studio toggles): whether dragging a FLOATING widget can dock into the
+	// flow/grids (on by default; off = it stays floating), and whether dropping into an occupied
+	// grid cell's interior targets that cell (off by default = before/after only).
+	let dropIntoFlow = true;
+	let dropIntoCells = false;
 	// Drag-and-drop (5e): the pending flow drop slot + a thin insertion bar + the dragged id.
 	let dropIndicator: Drop | null = null;
 	let dropBar: Rect | null = null;
@@ -833,10 +838,13 @@
 		const w = toWorld(event.detail.x, event.detail.y); // world coords for hit-testing
 		const c = toCanvas(event.detail.x, event.detail.y); // canvas coords for the (unscaled) hint
 		draggingId = id;
-		dropIndicator = dropTarget(monitor.root, solved, w, id);
+		// A floating widget only docks when "into grids" is enabled; otherwise it stays floating
+		// (no drop target). Flow widgets always resolve a target (they live in the flow).
+		const allowDock = !monitor.floating.some((l) => l.id === id) || dropIntoFlow;
+		dropIndicator = allowDock ? dropTarget(monitor.root, solved, w, id, dropIntoCells) : null;
 		// Dropping INTO a cell (interior / merge) highlights the cell instead of a thin bar.
 		dropBar =
-			dropIndicator && (dropIndicator.into || dropIndicator.merge) ? null : computeDropBar(w, id);
+			!dropIndicator || dropIndicator.into || dropIndicator.merge ? null : computeDropBar(w, id);
 		// Beside a leaf → thin bar; into a container's open area → highlight the target grid
 		// CELL (or the whole row/col pane).
 		dropZone = computeDropZone(dropIndicator, dropBar);
@@ -858,7 +866,7 @@
 	function onDrop(event: CustomEvent<{ id: string; x: number; y: number }>) {
 		const { id } = event.detail;
 		const { x, y } = toWorld(event.detail.x, event.detail.y);
-		const drop = dropTarget(monitor.root, solved, { x, y }, id);
+		const drop = dropTarget(monitor.root, solved, { x, y }, id, dropIntoCells);
 		dropIndicator = null;
 		dropBar = null;
 		dropZone = null;
@@ -1905,6 +1913,13 @@
 				<button type="button" title="Redo (Ctrl+Y)" disabled={!canRedo} on:click={redo}
 					>↷ Redo</button
 				>
+				<span class="lbl">Drop</span>
+				<label class="chk" title="Let a dragged floating widget dock into the flow / grids">
+					<input type="checkbox" bind:checked={dropIntoFlow} /> into grids
+				</label>
+				<label class="chk" title="Drop into an occupied grid cell's interior (vs before/after)">
+					<input type="checkbox" bind:checked={dropIntoCells} /> into cells
+				</label>
 				<span class="lbl">Zoom</span>
 				<button type="button" on:click={fit}>Fit</button>
 				<span class="zlevel">{Math.round(zoom * 100)}%</span>
@@ -2324,6 +2339,15 @@
 		color: rgb(119, 196, 211);
 		text-transform: uppercase;
 		letter-spacing: 1px;
+	}
+
+	.studio-bar .chk {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: #ccc;
+		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.studio-bar .zlevel {
