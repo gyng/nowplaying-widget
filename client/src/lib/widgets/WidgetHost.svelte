@@ -79,11 +79,16 @@
 	// Visual offset while ghost-dragging an in-flow widget (the model only changes on drop).
 	let ghostDx = 0;
 	let ghostDy = 0;
+	// A press only becomes a drag past this screen-px slop; below it the press is a click that just
+	// selects. Without this, clicking an in-flow widget dispatches a `drop` = moves it to a slot.
+	const DRAG_SLOP = 3;
+	let moved = false;
 
 	function begin(kind: 'move' | ResizeHandle, event: PointerEvent) {
 		if (event.button !== 0) return; // left-button only; middle-drag is reserved for panning
 		if (!editMode) return;
 		dispatch('select', { id: selectId });
+		moved = false;
 		if (!movable) {
 			// In-flow widgets ghost-drag to reorder/reparent; the solver owns their base
 			// position, so we translate a ghost and only mutate the tree on drop (5e).
@@ -108,6 +113,15 @@
 
 	function move(event: PointerEvent) {
 		if (action === null) return;
+		// Below the slop the press is still a click-to-select: don't ghost, move, resize or preview.
+		if (!moved) {
+			if (
+				Math.abs(event.clientX - startX) <= DRAG_SLOP &&
+				Math.abs(event.clientY - startY) <= DRAG_SLOP
+			)
+				return;
+			moved = true;
+		}
 		if (action === 'flow') {
 			// World-space offset (the ghost lives inside the scaled world; screen delta / scale
 			// renders back to the same screen distance the cursor moved).
@@ -131,14 +145,17 @@
 	function end(event: PointerEvent) {
 		if (action === null) return;
 		const wasFlow = action === 'flow';
+		const didMove = moved;
 		action = null;
 		if (wasFlow) {
 			ghostDx = 0;
 			ghostDy = 0;
-			dispatch('drop', { id: selectId, x: event.clientX, y: event.clientY });
+			// A click (no real movement) just selects — only an actual drag reparents/reorders.
+			if (didMove) dispatch('drop', { id: selectId, x: event.clientX, y: event.clientY });
 			return;
 		}
-		dispatch('commit');
+		// Likewise a click on a floating widget selects without a no-op move/commit.
+		if (didMove) dispatch('commit');
 	}
 </script>
 
