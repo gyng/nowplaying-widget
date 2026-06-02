@@ -72,22 +72,52 @@ const MONTHS_SHORT = [
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// Localized month/day names (Sunday-first, matching Date.getDay()). `ddd` in 'ja' gives the
+// single-kanji weekday glyph (日月火水木金土) the Rainmeter DateTime skin used. Extend with more
+// locales as needed; an unknown locale falls back to English.
+type LocaleNames = { months: string[]; monthsShort: string[]; days: string[]; daysShort: string[] };
+const MONTHS_JA = [
+	'1月',
+	'2月',
+	'3月',
+	'4月',
+	'5月',
+	'6月',
+	'7月',
+	'8月',
+	'9月',
+	'10月',
+	'11月',
+	'12月'
+];
+const LOCALES: Record<string, LocaleNames> = {
+	en: { months: MONTHS, monthsShort: MONTHS_SHORT, days: DAYS, daysShort: DAYS_SHORT },
+	ja: {
+		months: MONTHS_JA,
+		monthsShort: MONTHS_JA,
+		days: ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'],
+		daysShort: ['日', '月', '火', '水', '木', '金', '土']
+	}
+};
+
 const pad2 = (n: number): string => n.toString().padStart(2, '0');
 
 const CLOCK_TOKEN = /\[([^\]]*)\]|YYYY|MMMM|MMM|MM|M|dddd|ddd|DD|D|HH|H|hh|h|mm|m|ss|s|A|a/g;
 
-/** Format a Date with a moment-like token string. Wrap literals in [brackets]. */
-export function formatClock(date: Date, format: string): string {
+/** Format a Date with a moment-like token string. Wrap literals in [brackets]. `locale` selects
+ * the month/day names ('en' default; 'ja' renders Japanese weekday glyphs for ddd/dddd). */
+export function formatClock(date: Date, format: string, locale = 'en'): string {
+	const names = LOCALES[locale] ?? LOCALES.en;
 	const h24 = date.getHours();
 	const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
 	const tokens: Record<string, string> = {
 		YYYY: date.getFullYear().toString(),
-		MMMM: MONTHS[date.getMonth()],
-		MMM: MONTHS_SHORT[date.getMonth()],
+		MMMM: names.months[date.getMonth()],
+		MMM: names.monthsShort[date.getMonth()],
 		MM: pad2(date.getMonth() + 1),
 		M: (date.getMonth() + 1).toString(),
-		dddd: DAYS[date.getDay()],
-		ddd: DAYS_SHORT[date.getDay()],
+		dddd: names.days[date.getDay()],
+		ddd: names.daysShort[date.getDay()],
 		DD: pad2(date.getDate()),
 		D: date.getDate().toString(),
 		HH: pad2(h24),

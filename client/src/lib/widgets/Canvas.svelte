@@ -43,6 +43,7 @@
 	} from '../core/solve';
 	import { assembleStyles } from '../core/style';
 	import { tokensToCss } from '../core/tokens';
+	import { TEMPLATES, getTemplate } from '../core/templates';
 	import {
 		dropTarget,
 		findNode,
@@ -1317,6 +1318,21 @@
 		return bestId;
 	}
 
+	// Insert a built-in template's widgets into the floating layer (a draft edit — preview, then
+	// Save or Cancel/undo). Template ids are remapped to unique ones so a preset can be inserted
+	// more than once. The inserted widgets become the selection (drag them as a group to reposition).
+	function applyTemplate(id: string) {
+		const t = getTemplate(id);
+		if (!t) return;
+		const leaves = t.widgets().map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
+		if (!leaves.length) return;
+		monitor = { ...monitor, floating: [...monitor.floating, ...leaves] };
+		selectedIds = leaves.map((l) => l.id);
+		selectedId = leaves[leaves.length - 1].id;
+		lastPrimary = selectedId; // keep the multi-selection (see syncSelectionPrimary)
+		saveLayout();
+	}
+
 	function removeById(id: string) {
 		monitor = monitor.floating.some((l) => l.id === id)
 			? { ...monitor, floating: monitor.floating.filter((l) => l.id !== id) }
@@ -1752,6 +1768,19 @@
 						{/each}
 					</select>
 				{/if}
+				<span class="lbl">Template</span>
+				<select
+					title="Insert a preset cluster of widgets (preview; Save to keep)"
+					on:change={(e) => {
+						applyTemplate(e.currentTarget.value);
+						e.currentTarget.value = '';
+					}}
+				>
+					<option value="">Insert…</option>
+					{#each TEMPLATES as t (t.id)}
+						<option value={t.id} title={t.description}>{t.name}</option>
+					{/each}
+				</select>
 				<span class="lbl">Theme</span>
 				<select on:change={(e) => setTheme(e.currentTarget.value)}>
 					<option value="" selected={selectedTheme === ''}>(default)</option>

@@ -2,18 +2,22 @@
 	// Presentational meter (molecule): renders a sensor's history ring buffer as a line,
 	// optionally filled. Themeable via --np-accent; a per-instance `color` overrides it.
 	// SVG colours are set via the `style` attribute so var() resolves.
-	import { sparklinePoints } from './sparkline';
+	import { sparklineBars, sparklinePoints } from './sparkline';
 
 	export let history: number[] = [];
 	export let min: number | null = null;
 	export let max: number | null = null;
 	export let color: string | undefined = undefined;
 	export let fill = true;
+	// Histogram mode (item): draw value bars rising from the baseline instead of a line — matches
+	// the Rainmeter Histogram meter used for network throughput / per-core load.
+	export let histogram = false;
 
 	const W = 100;
 	const H = 32;
 
-	$: points = sparklinePoints(history, W, H, min, max);
+	$: points = histogram ? [] : sparklinePoints(history, W, H, min, max);
+	$: bars = histogram ? sparklineBars(history, W, H, min, max) : [];
 	$: line = points.map(([x, y]) => `${x},${y}`).join(' ');
 	$: area = points.length ? `0,${H} ${line} ${W},${H}` : '';
 	$: colorCss = color ?? 'var(--np-accent, rgb(119, 196, 211))';
@@ -26,24 +30,30 @@
 	role="img"
 	aria-label="history"
 >
-	{#if fill && points.length}
-		<polygon
-			data-part="fill"
-			points={area}
-			style="fill: {colorCss}"
-			fill-opacity="0.18"
-			stroke="none"
-		/>
-	{/if}
-	{#if points.length}
-		<polyline
-			data-part="line"
-			points={line}
-			fill="none"
-			style="stroke: {colorCss}"
-			stroke-width="1.5"
-			vector-effect="non-scaling-stroke"
-		/>
+	{#if histogram}
+		{#each bars as b, i (i)}
+			<rect data-part="bar" x={b.x} y={b.y} width={b.w} height={b.h} style="fill: {colorCss}" />
+		{/each}
+	{:else}
+		{#if fill && points.length}
+			<polygon
+				data-part="fill"
+				points={area}
+				style="fill: {colorCss}"
+				fill-opacity="0.18"
+				stroke="none"
+			/>
+		{/if}
+		{#if points.length}
+			<polyline
+				data-part="line"
+				points={line}
+				fill="none"
+				style="stroke: {colorCss}"
+				stroke-width="1.5"
+				vector-effect="non-scaling-stroke"
+			/>
+		{/if}
 	{/if}
 </svg>
 

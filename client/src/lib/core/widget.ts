@@ -80,7 +80,11 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultSensor: 'cpu.total',
 		defaultSize: { w: 140, h: 30 },
 		defaultConfig: {},
-		configFields: [color('color', 'color'), { key: 'fill', label: 'fill', kind: 'toggle' }]
+		configFields: [
+			color('color', 'color'),
+			{ key: 'fill', label: 'fill', kind: 'toggle' },
+			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' }
+		]
 	},
 	{
 		type: 'text',
@@ -97,7 +101,12 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		label: 'Clock',
 		defaultSize: { w: 160, h: 40 },
 		defaultConfig: { format: 'HH:mm:ss' },
-		configFields: [text('format', 'format'), text('label', 'label'), color('color', 'color')]
+		configFields: [
+			text('format', 'format'),
+			{ key: 'locale', label: 'locale', kind: 'select', options: ['en', 'ja'] },
+			text('label', 'label'),
+			color('color', 'color')
+		]
 	},
 	{
 		type: 'button',

@@ -7,6 +7,8 @@
 	export let format = 'HH:mm';
 	export let label = '';
 	export let color: string | undefined = undefined;
+	// Month/day-name locale: 'en' (default) or 'ja' (ddd → 日月火水木金土 weekday glyphs).
+	export let locale = 'en';
 
 	let now = new Date();
 
@@ -17,7 +19,7 @@
 		return () => clearInterval(timer);
 	});
 
-	$: display = formatClock(now, format);
+	$: display = formatClock(now, format, locale);
 	$: colorCss = color ?? 'var(--np-fg, rgb(255, 255, 255))';
 </script>
 

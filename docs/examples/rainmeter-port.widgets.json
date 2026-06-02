@@ -1,0 +1,847 @@
+{
+  "version": 2,
+  "monitors": {
+    "default": {
+      "root": {
+        "id": "root",
+        "kind": "col",
+        "children": [],
+        "align": "stretch"
+      },
+      "floating": [
+        {
+          "id": "time",
+          "unit": {
+            "id": "time",
+            "type": "clock",
+            "rect": {
+              "x": 16,
+              "y": 12,
+              "w": 150,
+              "h": 34
+            },
+            "config": {
+              "format": "HH:mm"
+            }
+          }
+        },
+        {
+          "id": "weekday",
+          "unit": {
+            "id": "weekday",
+            "type": "clock",
+            "rect": {
+              "x": 16,
+              "y": 50,
+              "w": 56,
+              "h": 24
+            },
+            "config": {
+              "format": "ddd",
+              "locale": "ja"
+            }
+          }
+        },
+        {
+          "id": "date",
+          "unit": {
+            "id": "date",
+            "type": "clock",
+            "rect": {
+              "x": 74,
+              "y": 50,
+              "w": 40,
+              "h": 24
+            },
+            "config": {
+              "format": "D"
+            }
+          }
+        },
+        {
+          "id": "month",
+          "unit": {
+            "id": "month",
+            "type": "clock",
+            "rect": {
+              "x": 16,
+              "y": 76,
+              "w": 150,
+              "h": 22
+            },
+            "config": {
+              "format": "MMMM"
+            },
+            "css": "text-transform: uppercase;"
+          }
+        },
+        {
+          "id": "sys-cpu",
+          "unit": {
+            "id": "sys-cpu",
+            "type": "text",
+            "sensor": "cpu.total",
+            "rect": {
+              "x": 16,
+              "y": 112,
+              "w": 150,
+              "h": 18
+            },
+            "config": {
+              "format": "percent",
+              "label": "CPU"
+            }
+          }
+        },
+        {
+          "id": "sys-ram",
+          "unit": {
+            "id": "sys-ram",
+            "type": "text",
+            "sensor": "mem.used",
+            "rect": {
+              "x": 16,
+              "y": 132,
+              "w": 150,
+              "h": 18
+            },
+            "config": {
+              "format": "percent",
+              "label": "RAM"
+            }
+          }
+        },
+        {
+          "id": "sys-swap",
+          "unit": {
+            "id": "sys-swap",
+            "type": "text",
+            "sensor": "swap.used",
+            "rect": {
+              "x": 16,
+              "y": 152,
+              "w": 150,
+              "h": 18
+            },
+            "config": {
+              "format": "percent",
+              "label": "SWAP"
+            }
+          }
+        },
+        {
+          "id": "sys-gpu",
+          "unit": {
+            "id": "sys-gpu",
+            "type": "text",
+            "sensor": "gpu.util",
+            "rect": {
+              "x": 16,
+              "y": 172,
+              "w": 150,
+              "h": 18
+            },
+            "config": {
+              "format": "percent",
+              "label": "GPU"
+            }
+          }
+        },
+        {
+          "id": "sys-vram",
+          "unit": {
+            "id": "sys-vram",
+            "type": "text",
+            "sensor": "gpu.vram",
+            "rect": {
+              "x": 16,
+              "y": 192,
+              "w": 150,
+              "h": 18
+            },
+            "config": {
+              "format": "percent",
+              "label": "VRAM"
+            }
+          }
+        },
+        {
+          "id": "core-0",
+          "unit": {
+            "id": "core-0",
+            "type": "sparkline",
+            "sensor": "cpu.core.0",
+            "rect": {
+              "x": 16,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-1",
+          "unit": {
+            "id": "core-1",
+            "type": "sparkline",
+            "sensor": "cpu.core.1",
+            "rect": {
+              "x": 33,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-2",
+          "unit": {
+            "id": "core-2",
+            "type": "sparkline",
+            "sensor": "cpu.core.2",
+            "rect": {
+              "x": 50,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-3",
+          "unit": {
+            "id": "core-3",
+            "type": "sparkline",
+            "sensor": "cpu.core.3",
+            "rect": {
+              "x": 67,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-4",
+          "unit": {
+            "id": "core-4",
+            "type": "sparkline",
+            "sensor": "cpu.core.4",
+            "rect": {
+              "x": 84,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-5",
+          "unit": {
+            "id": "core-5",
+            "type": "sparkline",
+            "sensor": "cpu.core.5",
+            "rect": {
+              "x": 101,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-6",
+          "unit": {
+            "id": "core-6",
+            "type": "sparkline",
+            "sensor": "cpu.core.6",
+            "rect": {
+              "x": 118,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-7",
+          "unit": {
+            "id": "core-7",
+            "type": "sparkline",
+            "sensor": "cpu.core.7",
+            "rect": {
+              "x": 135,
+              "y": 220,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-8",
+          "unit": {
+            "id": "core-8",
+            "type": "sparkline",
+            "sensor": "cpu.core.8",
+            "rect": {
+              "x": 16,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-9",
+          "unit": {
+            "id": "core-9",
+            "type": "sparkline",
+            "sensor": "cpu.core.9",
+            "rect": {
+              "x": 33,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-10",
+          "unit": {
+            "id": "core-10",
+            "type": "sparkline",
+            "sensor": "cpu.core.10",
+            "rect": {
+              "x": 50,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-11",
+          "unit": {
+            "id": "core-11",
+            "type": "sparkline",
+            "sensor": "cpu.core.11",
+            "rect": {
+              "x": 67,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-12",
+          "unit": {
+            "id": "core-12",
+            "type": "sparkline",
+            "sensor": "cpu.core.12",
+            "rect": {
+              "x": 84,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-13",
+          "unit": {
+            "id": "core-13",
+            "type": "sparkline",
+            "sensor": "cpu.core.13",
+            "rect": {
+              "x": 101,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-14",
+          "unit": {
+            "id": "core-14",
+            "type": "sparkline",
+            "sensor": "cpu.core.14",
+            "rect": {
+              "x": 118,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-15",
+          "unit": {
+            "id": "core-15",
+            "type": "sparkline",
+            "sensor": "cpu.core.15",
+            "rect": {
+              "x": 135,
+              "y": 236,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-16",
+          "unit": {
+            "id": "core-16",
+            "type": "sparkline",
+            "sensor": "cpu.core.16",
+            "rect": {
+              "x": 16,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-17",
+          "unit": {
+            "id": "core-17",
+            "type": "sparkline",
+            "sensor": "cpu.core.17",
+            "rect": {
+              "x": 33,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-18",
+          "unit": {
+            "id": "core-18",
+            "type": "sparkline",
+            "sensor": "cpu.core.18",
+            "rect": {
+              "x": 50,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-19",
+          "unit": {
+            "id": "core-19",
+            "type": "sparkline",
+            "sensor": "cpu.core.19",
+            "rect": {
+              "x": 67,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-20",
+          "unit": {
+            "id": "core-20",
+            "type": "sparkline",
+            "sensor": "cpu.core.20",
+            "rect": {
+              "x": 84,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-21",
+          "unit": {
+            "id": "core-21",
+            "type": "sparkline",
+            "sensor": "cpu.core.21",
+            "rect": {
+              "x": 101,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-22",
+          "unit": {
+            "id": "core-22",
+            "type": "sparkline",
+            "sensor": "cpu.core.22",
+            "rect": {
+              "x": 118,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-23",
+          "unit": {
+            "id": "core-23",
+            "type": "sparkline",
+            "sensor": "cpu.core.23",
+            "rect": {
+              "x": 135,
+              "y": 252,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-24",
+          "unit": {
+            "id": "core-24",
+            "type": "sparkline",
+            "sensor": "cpu.core.24",
+            "rect": {
+              "x": 16,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-25",
+          "unit": {
+            "id": "core-25",
+            "type": "sparkline",
+            "sensor": "cpu.core.25",
+            "rect": {
+              "x": 33,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-26",
+          "unit": {
+            "id": "core-26",
+            "type": "sparkline",
+            "sensor": "cpu.core.26",
+            "rect": {
+              "x": 50,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-27",
+          "unit": {
+            "id": "core-27",
+            "type": "sparkline",
+            "sensor": "cpu.core.27",
+            "rect": {
+              "x": 67,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-28",
+          "unit": {
+            "id": "core-28",
+            "type": "sparkline",
+            "sensor": "cpu.core.28",
+            "rect": {
+              "x": 84,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-29",
+          "unit": {
+            "id": "core-29",
+            "type": "sparkline",
+            "sensor": "cpu.core.29",
+            "rect": {
+              "x": 101,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-30",
+          "unit": {
+            "id": "core-30",
+            "type": "sparkline",
+            "sensor": "cpu.core.30",
+            "rect": {
+              "x": 118,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "core-31",
+          "unit": {
+            "id": "core-31",
+            "type": "sparkline",
+            "sensor": "cpu.core.31",
+            "rect": {
+              "x": 135,
+              "y": 268,
+              "w": 15,
+              "h": 12
+            },
+            "config": {
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": "net-out-hist",
+          "unit": {
+            "id": "net-out-hist",
+            "type": "sparkline",
+            "sensor": "net.up",
+            "rect": {
+              "x": 16,
+              "y": 296,
+              "w": 150,
+              "h": 38
+            },
+            "config": {
+              "histogram": true,
+              "min": 0,
+              "color": "rgb(119, 196, 211)"
+            }
+          }
+        },
+        {
+          "id": "net-in-hist",
+          "unit": {
+            "id": "net-in-hist",
+            "type": "sparkline",
+            "sensor": "net.down",
+            "rect": {
+              "x": 16,
+              "y": 336,
+              "w": 150,
+              "h": 38
+            },
+            "config": {
+              "histogram": true,
+              "min": 0,
+              "color": "rgb(218, 237, 226)"
+            }
+          }
+        },
+        {
+          "id": "net-down-txt",
+          "unit": {
+            "id": "net-down-txt",
+            "type": "text",
+            "sensor": "net.down",
+            "rect": {
+              "x": 16,
+              "y": 376,
+              "w": 90,
+              "h": 18
+            },
+            "config": {
+              "format": "rate",
+              "label": "↓",
+              "color": "rgb(218, 237, 226)"
+            }
+          }
+        },
+        {
+          "id": "net-up-txt",
+          "unit": {
+            "id": "net-up-txt",
+            "type": "text",
+            "sensor": "net.up",
+            "rect": {
+              "x": 106,
+              "y": 376,
+              "w": 90,
+              "h": 18
+            },
+            "config": {
+              "format": "rate",
+              "label": "↑",
+              "color": "rgb(119, 196, 211)"
+            }
+          }
+        },
+        {
+          "id": "nowplaying",
+          "unit": {
+            "id": "nowplaying",
+            "type": "nowplaying",
+            "rect": {
+              "x": 16,
+              "y": 400,
+              "w": 210,
+              "h": 72
+            },
+            "config": {}
+          }
+        }
+      ]
+    }
+  },
+  "library": {
+    "version": 1,
+    "defs": []
+  },
+  "tokens": {
+    "--np-font-display": "DIN Engschrift Std",
+    "--np-accent": "rgb(119, 196, 211)",
+    "--np-label": "rgb(218, 237, 226)",
+    "--np-fg": "rgb(255, 255, 255)"
+  }
+}

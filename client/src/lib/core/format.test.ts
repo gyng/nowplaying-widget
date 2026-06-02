@@ -54,4 +54,17 @@ describe('formatClock', () => {
 	it('preserves bracketed literals', () => {
 		expect(formatClock(d, '[on] dddd')).toBe('on Monday');
 	});
+
+	it('renders Japanese weekday/month names for locale ja', () => {
+		// Monday → 月 (ddd) / 月曜日 (dddd); June → 6月
+		expect(formatClock(d, 'ddd', 'ja')).toBe('月');
+		expect(formatClock(d, 'dddd', 'ja')).toBe('月曜日');
+		expect(formatClock(d, 'MMMM', 'ja')).toBe('6月');
+		// time tokens are locale-independent
+		expect(formatClock(d, 'HH:mm ddd', 'ja')).toBe('09:05 月');
+	});
+
+	it('falls back to English for an unknown locale', () => {
+		expect(formatClock(d, 'ddd', 'xx')).toBe('Mon');
+	});
 });
