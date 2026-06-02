@@ -168,6 +168,7 @@
 	const floatWidget = () => widget && op({ op: 'float', id: widget.id });
 	const makeWidgetFromContainer = () => container && op({ op: 'makeWidget', id: container.id });
 	const makeWidgetFromWidget = () => widget && op({ op: 'makeWidget', id: widget.id });
+	const resetWidget = () => widget && op({ op: 'resetWidget', id: widget.id });
 	const ungroupGroup = () => groupUnit && op({ op: 'ungroup', id: groupUnit.id });
 	const removeGroup = () => groupUnit && op({ op: 'remove', id: groupUnit.id });
 	const setGroupName = (name: string) =>
@@ -466,6 +467,11 @@
 					<button type="button" on:click={floatWidget}>Float</button>
 				{/if}
 				<button type="button" on:click={makeWidgetFromWidget}>Make widget</button>
+				<button
+					type="button"
+					title="Restore config / css / sensor to this widget's defaults"
+					on:click={resetWidget}>Reset</button
+				>
 				<button type="button" class="remove" on:click={removeWidget}>Remove</button>
 			</div>
 		</div>

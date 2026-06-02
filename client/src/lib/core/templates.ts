@@ -4,6 +4,7 @@
 // remaps those to unique ids on insert. These recreate the author's Rainmeter `gyng\*` skins.
 
 import type { WidgetInstance } from './layout';
+import { NOWPLAYING_DEFAULT_CSS } from './widget';
 
 const widget = (
 	id: string,
@@ -97,9 +98,18 @@ function networkCluster(): WidgetInstance[] {
 	];
 }
 
-// Music skin: compact now-playing (no progress bar — foobar2000 emits no timeline).
+// Music skin: now-playing (cover above title/artist; no progress bar — fb2k emits no timeline).
+// Seeded with the default editable css so the look matches a palette-added widget.
 function musicCluster(): WidgetInstance[] {
-	return [widget('nowplaying', 'nowplaying', { x: 16, y: 400, w: 210, h: 72 }, {})];
+	return [
+		widget(
+			'nowplaying',
+			'nowplaying',
+			{ x: 16, y: 400, w: 180, h: 200 },
+			{},
+			{ css: NOWPLAYING_DEFAULT_CSS }
+		)
+	];
 }
 
 export type Template = {

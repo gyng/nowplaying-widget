@@ -54,6 +54,14 @@ pub async fn save_layout(app: tauri::AppHandle, contents: String) -> Result<(), 
     fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
+/// Open the webview devtools/inspector for the calling window (CSS development from the studio's
+/// context menu). `open_devtools` is available because tauri's `devtools` feature is enabled in
+/// Cargo.toml (it is also always available in debug builds).
+#[tauri::command]
+pub fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 // ---- themes (Phase 7c): a `themes/<name>.css` plugin folder in the app config dir ----
 
 fn themes_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {

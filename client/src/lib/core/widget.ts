@@ -24,9 +24,62 @@ export type WidgetMeta = {
 	defaultSensor?: string;
 	defaultSize?: { w: number; h: number };
 	defaultConfig?: Record<string, unknown>;
+	defaultCss?: string; // seeded into a new instance's editable `css` (the default LOOK lives here,
+	// not in the component, so it's fully restylable). The component ships structure only.
 	configFields?: ConfigField[];
 	interactive?: boolean; // catches clicks in passive mode (per-widget click-through)
 };
+
+// The Now Playing widget's ENTIRE stylesheet (layout + look), seeded into each new instance's
+// editable `css` — the component itself is pure DOM (no <style>), so this is fully restylable.
+// Scoped to the widget at injection (assembleStyles), so these selectors target the component's
+// parts. The progress bar, timers and controls are display:none here (un-hide via css).
+export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	font-family: var(--np-font-display, 'DIN Engschrift Std', 'Arial Narrow', sans-serif);
+	color: var(--np-fg, rgb(255, 255, 255));
+}
+.np-thumb {
+	flex: 1 1 0;
+	min-height: 0;
+	width: 100%;
+	object-fit: contain;
+	object-position: left;
+}
+.np-title,
+.np-artist {
+	flex: 0 0 auto;
+	font-size: 52px;
+	line-height: 1;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.np-progress,
+.np-times,
+.np-controls {
+	display: none;
+	flex: 0 0 auto;
+}
+.np-progress {
+	height: 3px;
+	background: var(--np-track, rgba(255, 255, 255, 0.15));
+}
+.np-progress-fill {
+	height: 100%;
+	background: var(--np-accent, rgb(119, 196, 211));
+}
+.np-times {
+	justify-content: space-between;
+}
+.np-controls {
+	gap: 8px;
+}`;
 
 const num = (key: string, label: string, extra: Partial<ConfigField> = {}): ConfigField =>
 	({ key, label, kind: 'number', ...extra } as ConfigField);
@@ -123,8 +176,9 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		type: 'nowplaying',
 		binds: 'none',
 		label: 'Now Playing',
-		defaultSize: { w: 240, h: 64 },
+		defaultSize: { w: 160, h: 200 },
 		defaultConfig: {},
+		defaultCss: NOWPLAYING_DEFAULT_CSS,
 		configFields: [text('label', 'label (when idle)')]
 	},
 	{
@@ -179,5 +233,6 @@ export function createWidget(type: string, id: string): WidgetInstance {
 	};
 	if (meta?.defaultSensor) inst.sensor = meta.defaultSensor;
 	if (meta?.interactive) inst.interactive = true;
+	if (meta?.defaultCss) inst.css = meta.defaultCss;
 	return inst;
 }

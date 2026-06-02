@@ -189,6 +189,27 @@ export function ungroupNode(root: Container, groupId: string, library?: Library)
 	return updateNode(root, groupId, () => clone(baseChild));
 }
 
+/** Whether a node holds a widget (a leaf) anywhere in its subtree. */
+function hasLeaf(node: LayoutNode): boolean {
+	return isLeaf(node) || (isContainer(node) && node.children.some(hasLeaf));
+}
+
+/**
+ * Collapse a split container: flatten its child sub-cells ONE level (pull their children up) and
+ * drop empty sub-cells — the inverse of the split op. A cell split into rows/columns and then
+ * filled collapses back to holding its widgets directly; empty rows/columns simply vanish. Leaf
+ * children are kept as-is; the container itself (and its grid-cell sizing) is preserved. Pure.
+ */
+export function collapseContainer(root: Container, id: string): Container {
+	return updateNode(root, id, (n) => {
+		if (!isContainer(n)) return n;
+		const flat = n.children
+			.flatMap((c) => (isContainer(c) ? c.children : [c]))
+			.filter((c) => isLeaf(c) || hasLeaf(c));
+		return { ...n, children: flat };
+	});
+}
+
 export type Drop = {
 	parentId: string;
 	index: number;

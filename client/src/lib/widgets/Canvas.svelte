@@ -47,6 +47,7 @@
 	import { tokensToCss } from '../core/tokens';
 	import { TEMPLATES, getTemplate } from '../core/templates';
 	import {
+		collapseContainer,
 		dropTarget,
 		findNode,
 		findParent,
@@ -75,6 +76,7 @@
 		saveThemeCss,
 		monitorParam,
 		monitorWorkArea,
+		openDevtools,
 		openStudio,
 		reconcileOverlays,
 		setClickThrough,
@@ -413,6 +415,12 @@
 	$: menuGroup = menuLeaf && isGroup(menuLeaf.unit) ? (menuLeaf.unit as Group) : null;
 	$: menuId = menu?.id ?? null;
 	$: menuFloating = menuId !== null && monitor.floating.some((l) => l.id === menuId);
+	// A container that was split (holds sub-cells = nested containers) can be collapsed.
+	$: menuCanCollapse =
+		menuNode !== null && isContainer(menuNode) && menuNode.children.some(isContainer);
+	// The enclosing container of the menu target (for "Select parent" — e.g. the grid above a cell).
+	$: menuParentId =
+		menuId && menuId !== '__canvas__' ? findParent(monitor.root, menuId)?.id ?? null : null;
 	// Overlapping widgets under the right-click point (topmost first, deduped by selectId) — the
 	// context-menu stack picker. Only surfaced when 2+ overlap.
 	$: menuStack = menu && studio ? widgetsAt(toWorld(menu.x, menu.y)) : [];
@@ -749,6 +757,19 @@
 					: n
 			)
 		};
+	}
+
+	// Restore a widget's config / css / sensor to its type's registered defaults (id, rect and
+	// placement are kept). undefined defaults clear the field (e.g. a self-sourcing widget's sensor).
+	function resetWidget(id: string) {
+		const node = lookup(id, monitor);
+		if (!node || !isLeaf(node) || isGroup(node.unit)) return;
+		const meta = getMeta((node.unit as WidgetInstance).type);
+		patchUnit(id, {
+			config: { ...(meta?.defaultConfig ?? {}) },
+			css: meta?.defaultCss,
+			sensor: meta?.defaultSensor
+		});
 	}
 
 	function onChange(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
@@ -1220,6 +1241,16 @@
 	// Split the targeted container (or the root, via the '__canvas__' sentinel) in two.
 	const mSplit = (dir: 'rows' | 'cols' | 'grid') =>
 		menu && menuAct({ op: 'split', id: menu.id === '__canvas__' ? monitor.root.id : menu.id, dir });
+	// Collapse a split container (flatten its sub-cells one level), the inverse of split.
+	const mCollapse = () =>
+		menu && menuAct({ op: 'collapse', id: menu.id === '__canvas__' ? monitor.root.id : menu.id });
+	// Select a container from the menu (so the inspector edits it). Right-click hits the deepest
+	// cell, so "Select parent" walks up to the enclosing grid/pane.
+	const mSelectNode = (id: string | null) => {
+		if (!id) return;
+		selectedId = id;
+		menu = null;
+	};
 	function mEditDef() {
 		const d = menuGroup?.def;
 		if (d) menuAct({ op: 'editDef', defId: d });
@@ -1245,6 +1276,10 @@
 				break;
 			case 'split':
 				splitNode(op.id, op.dir);
+				break;
+			case 'collapse':
+				monitor = { ...monitor, root: collapseContainer(monitor.root, op.id) };
+				selectedId = op.id;
 				break;
 			case 'remove':
 				removeById(op.id);
@@ -1316,6 +1351,9 @@
 			}
 			case 'patchWidget':
 				patchUnit(op.id, op.patch);
+				break;
+			case 'resetWidget':
+				resetWidget(op.id);
 				break;
 			case 'patchContainer':
 				monitor = { ...monitor, root: updateContainer(monitor.root, op.id, op.patch) };
@@ -2050,10 +2088,23 @@
 					{/if}
 					<button type="button" class="rm" on:click={mRemove}>Remove</button>
 				{:else}
+					<button
+						type="button"
+						on:click={() => mSelectNode(menuId === '__canvas__' ? monitor.root.id : menuId)}
+						>◉ Select</button
+					>
+					{#if menuParentId}
+						<button type="button" on:click={() => mSelectNode(menuParentId)}>◉ Select parent</button
+						>
+					{/if}
+					<div class="ctx-sep" />
 					<span class="ctx-hd">Split</span>
 					<button type="button" on:click={() => mSplit('rows')}>⬍ Into rows</button>
 					<button type="button" on:click={() => mSplit('cols')}>⬌ Into columns</button>
 					<button type="button" on:click={() => mSplit('grid')}>▦ Into 2×2 grid</button>
+					{#if menuCanCollapse}
+						<button type="button" on:click={mCollapse}>⊟ Collapse cells</button>
+					{/if}
 				{/if}
 				{#if studio && menuLeaf && monitorOptions.length > 1}
 					<div class="ctx-sep" />
@@ -2062,6 +2113,15 @@
 						<button type="button" on:click={() => mMoveToMonitor(o.key)}>→ {o.name}</button>
 					{/each}
 				{/if}
+				<div class="ctx-sep" />
+				<button
+					type="button"
+					title="Open the webview inspector for CSS development"
+					on:click={() => {
+						openDevtools();
+						menu = null;
+					}}>⧉ Inspect (devtools)</button
+				>
 			</div>
 		{/if}
 	{/if}

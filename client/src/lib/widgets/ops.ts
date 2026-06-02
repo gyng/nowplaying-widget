@@ -11,6 +11,8 @@ export type LayoutOp =
 	// Split a container (cell/pane) in two: 'rows' stacks (a col), 'cols' is side-by-side (a row),
 	// 'grid' makes it a 2×2 grid. Existing content is preserved as the first region. (item 1)
 	| { op: 'split'; id: string; dir: 'rows' | 'cols' | 'grid' }
+	// Collapse a split container: flatten its sub-cells one level, dropping empty ones (inverse of split).
+	| { op: 'collapse'; id: string }
 	| { op: 'remove'; id: string }
 	| { op: 'moveUp'; id: string }
 	| { op: 'moveDown'; id: string }
@@ -31,6 +33,7 @@ export type LayoutOp =
 	| { op: 'setDefCss'; defId: string; css: string } // a def's css (7d)
 	| { op: 'setToken'; key: string; value: string } // a global token override (7d, '' clears)
 	| { op: 'patchWidget'; id: string; patch: Partial<WidgetInstance> }
+	| { op: 'resetWidget'; id: string } // restore config/css/sensor to the widget type's defaults
 	| { op: 'patchContainer'; id: string; patch: Partial<Container> }
 	// Outline drag-and-drop (build the tree directly, no canvas coords):
 	| { op: 'dropWidget'; containerId: string; widgetType: string } // palette item → container

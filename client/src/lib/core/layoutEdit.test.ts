@@ -3,6 +3,7 @@ import type { WidgetInstance } from './layout';
 import { container, group, isContainer, leaf, type Container, type Library } from './layoutTree';
 import {
 	allContainers,
+	collapseContainer,
 	dropTarget,
 	findNode,
 	findParent,
@@ -51,6 +52,41 @@ describe('findNode / findParent', () => {
 		expect(findParent(t, 'C')?.id).toBe('root');
 		expect(findParent(t, 'root')).toBeNull();
 		expect(findParent(t, 'nope')).toBeNull();
+	});
+});
+
+describe('collapseContainer', () => {
+	it('flattens split sub-cells one level and drops the empty ones', () => {
+		// cell = col[ keep=col[W1], empty=col[] ]  → col[W1]
+		const cell = container('cell', 'col', [
+			container('keep', 'col', [leaf(prim('W1'))]),
+			container('empty', 'col', [])
+		]);
+		const root = container('root', 'col', [cell]);
+		const out = findNode(collapseContainer(root, 'cell'), 'cell') as Container;
+		expect(out.children.map((c) => c.id)).toEqual(['W1']);
+	});
+
+	it('pulls every filled sub-cell up, keeps the cell kind, drops empties', () => {
+		const cell = container('cell', 'row', [
+			container('a', 'col', [leaf(prim('W1'))]),
+			container('b', 'col', [leaf(prim('W2'))]),
+			container('e', 'col', [])
+		]);
+		const root = container('root', 'col', [cell]);
+		const out = findNode(collapseContainer(root, 'cell'), 'cell') as Container;
+		expect(out.children.map((c) => c.id)).toEqual(['W1', 'W2']);
+		expect(out.kind).toBe('row');
+	});
+
+	it('keeps leaf children as-is alongside flattened sub-cells', () => {
+		const cell = container('cell', 'col', [
+			leaf(prim('W1')),
+			container('sub', 'col', [leaf(prim('W2'))])
+		]);
+		const root = container('root', 'col', [cell]);
+		const out = findNode(collapseContainer(root, 'cell'), 'cell') as Container;
+		expect(out.children.map((c) => c.id)).toEqual(['W1', 'W2']);
 	});
 });
 

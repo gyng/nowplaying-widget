@@ -21,6 +21,11 @@ describe('createWidget (registry-driven)', () => {
 		expect(w.interactive).toBe(true);
 	});
 
+	it('seeds defaultCss into a new instance (now playing ships its look as editable css)', () => {
+		const w = createWidget('nowplaying', 'np1');
+		expect(w.css).toContain('.np-title');
+	});
+
 	it('falls back to a generic widget for unknown types', () => {
 		const w = createWidget('mystery', 'm1');
 		expect(w).toMatchObject({ id: 'm1', type: 'mystery', config: {} });

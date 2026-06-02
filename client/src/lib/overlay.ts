@@ -132,6 +132,16 @@ export async function saveThemeCss(name: string, contents: string): Promise<void
 	}
 }
 
+/** Open this window's webview devtools/inspector (CSS development). Backed by a Rust command
+ * since the JS API doesn't expose it; relies on the `devtools` Cargo feature. */
+export async function openDevtools(): Promise<void> {
+	try {
+		await invoke('open_devtools');
+	} catch (err) {
+		console.warn('open_devtools failed', err);
+	}
+}
+
 /** True when this window is the studio (a normal app window for the designers, 5s). */
 export function isStudioWindow(): boolean {
 	try {
