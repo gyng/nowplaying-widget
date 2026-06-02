@@ -37,12 +37,13 @@ describe('createWidget (registry-driven)', () => {
 });
 
 describe('meta registry', () => {
-	it('lists the six built-ins with labels + bind kinds', () => {
+	it('lists the built-ins with labels + bind kinds', () => {
 		const types = listMetas().map((m) => m.type);
-		expect(types).toEqual(['gauge', 'bar', 'sparkline', 'text', 'clock', 'button']);
+		expect(types).toEqual(['gauge', 'bar', 'sparkline', 'text', 'clock', 'button', 'nowplaying']);
 		expect(getMeta('gauge')).toMatchObject({ label: 'Gauge', binds: 'scalar' });
 		expect(getMeta('sparkline')?.binds).toBe('series');
 		expect(getMeta('clock')?.binds).toBe('none');
+		expect(getMeta('nowplaying')?.binds).toBe('none');
 	});
 
 	it('a registered plugin meta drives createWidget', () => {

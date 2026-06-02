@@ -216,5 +216,33 @@ export function dropTarget(
 		const ti = siblings.findIndex((c) => c.id === lf.id);
 		return { parentId: parent.id, index: ti + (after ? 1 : 0) };
 	}
-	return null;
+	// Not over a leaf: fall into the DEEPEST non-root container the point is inside (e.g. an
+	// empty grid/row/col the user just added), appending at its end. The root is excluded so a
+	// drop on bare canvas still floats. Container boxes come from the solver (it emits them).
+	// `best` is a holder object so its fields survive the closure (TS can't narrow a let here).
+	const best = { id: '', depth: -1, count: 0, found: false };
+	const walk = (node: LayoutNode, depth: number): void => {
+		if (!isContainer(node)) return;
+		const r = solved.get(node.id);
+		// The root is normally excluded (a bare-canvas drop floats) — EXCEPT a grid root, whose
+		// cells are explicit drop targets, so dropping into it should dock, not float.
+		if (
+			(node.id !== root.id || node.kind === 'grid') &&
+			node.id !== draggingId &&
+			r &&
+			point.x >= r.x &&
+			point.x < r.x + r.w &&
+			point.y >= r.y &&
+			point.y < r.y + r.h &&
+			depth > best.depth
+		) {
+			best.id = node.id;
+			best.depth = depth;
+			best.count = node.children.filter((c) => c.id !== draggingId).length;
+			best.found = true;
+		}
+		for (const c of node.children) walk(c, depth + 1);
+	};
+	walk(root, 0);
+	return best.found ? { parentId: best.id, index: best.count } : null;
 }

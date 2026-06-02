@@ -19,7 +19,12 @@ describe('migrateV1', () => {
 		};
 		const v2 = migrateV1(v1);
 		expect(v2.version).toBe(2);
-		expect(v2.monitors.default.root).toEqual({ id: 'root', kind: 'col', children: [] });
+		expect(v2.monitors.default.root).toEqual({
+			id: 'root',
+			kind: 'col',
+			children: [],
+			align: 'stretch'
+		});
 		expect(v2.monitors.default.floating).toHaveLength(2);
 		expect(v2.monitors.default.floating[0]).toEqual({
 			id: 'g',
@@ -91,7 +96,12 @@ describe('parseLayoutAny', () => {
 	it('tolerates a missing v2 root by substituting an empty root', () => {
 		const r = parseLayoutAny({ version: 2, monitors: { m: { floating: [] } } });
 		expect(r).not.toBeNull();
-		expect(r?.monitors.m.root).toEqual({ id: 'root', kind: 'col', children: [] });
+		expect(r?.monitors.m.root).toEqual({
+			id: 'root',
+			kind: 'col',
+			children: [],
+			align: 'stretch'
+		});
 	});
 
 	it('returns null on unrecoverable structural failure', () => {

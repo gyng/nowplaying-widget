@@ -233,4 +233,26 @@ describe('dropTarget', () => {
 	it('returns null when the point is over no flow leaf (→ float)', () => {
 		expect(dropTarget(rowTree(), rowSolved, { x: 999, y: 999 }, 'A')).toBeNull();
 	});
+
+	it('drops into an empty (non-root) container the point is over, appending at its end', () => {
+		const grid = container('g', 'grid', [], { cols: 2 });
+		const root = container('root', 'col', [grid]);
+		const solved = new Map<string, Rect>([
+			['root', { x: 0, y: 0, w: 200, h: 200 }],
+			['g', { x: 0, y: 0, w: 200, h: 100 }]
+		]);
+		expect(dropTarget(root, solved, { x: 50, y: 50 }, 'W')).toEqual({ parentId: 'g', index: 0 });
+	});
+
+	it('does not fall into a row/col ROOT (bare-canvas drop still floats)', () => {
+		const root = container('root', 'col', []);
+		const solved = new Map<string, Rect>([['root', { x: 0, y: 0, w: 200, h: 200 }]]);
+		expect(dropTarget(root, solved, { x: 50, y: 50 }, 'W')).toBeNull();
+	});
+
+	it('DOES fall into a grid ROOT (its cells are drop targets)', () => {
+		const root = container('root', 'grid', [], { cols: 2 });
+		const solved = new Map<string, Rect>([['root', { x: 0, y: 0, w: 200, h: 200 }]]);
+		expect(dropTarget(root, solved, { x: 50, y: 50 }, 'W')).toEqual({ parentId: 'root', index: 0 });
+	});
 });

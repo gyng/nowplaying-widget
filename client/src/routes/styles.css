@@ -2,4 +2,8 @@ html,
 body {
 	margin: 0;
 	padding: 0;
+	/* No document scrollbars: the overlay is a fullscreen transparent surface and the studio
+	   lays its UI out absolutely — a stray overflowing widget must be clipped, not scrolled
+	   (scrollbars also produced the thin line at the transparent overlay's edge). */
+	overflow: hidden;
 }

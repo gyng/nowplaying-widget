@@ -21,13 +21,13 @@ const prim = (id: string): WidgetInstance => ({
 });
 
 describe('constructors', () => {
-	it('emptyRoot is an empty col', () => {
-		expect(emptyRoot()).toEqual({ id: 'root', kind: 'col', children: [] });
+	it('emptyRoot is an empty col that stretches its children', () => {
+		expect(emptyRoot()).toEqual({ id: 'root', kind: 'col', children: [], align: 'stretch' });
 	});
 
 	it('emptyMonitorLayout pairs an empty root with no floating', () => {
 		expect(emptyMonitorLayout()).toEqual({
-			root: { id: 'root', kind: 'col', children: [] },
+			root: { id: 'root', kind: 'col', children: [], align: 'stretch' },
 			floating: []
 		});
 	});

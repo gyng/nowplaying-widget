@@ -11,6 +11,8 @@ import {
 	type MonitorLayout
 } from './layoutTree';
 import {
+	collectContainerRects,
+	collectGridPlaceholders,
 	collectRenderables,
 	intrinsicSize,
 	resolveGroup,
@@ -98,9 +100,20 @@ describe('row / col flex', () => {
 		expect(get(s, 'B')).toEqual({ x: 80, y: 0, w: 80, h: 50 });
 	});
 
-	it('empty container emits nothing', () => {
+	it('a container emits its own box even when empty (so new panes are visible)', () => {
 		const s = solveLayout(container('r', 'row', []), { x: 0, y: 0, w: 100, h: 100 });
-		expect(s.size).toBe(0);
+		expect(s.size).toBe(1);
+		expect(get(s, 'r')).toEqual({ x: 0, y: 0, w: 100, h: 100 });
+	});
+
+	it('a non-empty container emits its own box (for pane outlines)', () => {
+		const s = solveLayout(container('r', 'row', [leaf(prim('A', 40, 20))], { align: 'start' }), {
+			x: 5,
+			y: 6,
+			w: 100,
+			h: 80
+		});
+		expect(get(s, 'r')).toEqual({ x: 5, y: 6, w: 100, h: 80 });
 	});
 });
 
@@ -599,7 +612,9 @@ describe('groups', () => {
 		const g = group('g', { w: 0, h: 0 }, undefined as unknown as LayoutNode);
 		const s = solveLayout(leaf(g), { x: 0, y: 0, w: 10, h: 10 });
 		expect(get(s, 'g')).toEqual({ x: 0, y: 0, w: 10, h: 10 });
-		expect(s.size).toBe(1); // only the group box; the empty child contributes nothing
+		// The group box + its synthetic empty container child's box (containers always emit
+		// their own box now, so an empty pane is visible/selectable).
+		expect(s.size).toBe(2);
 	});
 
 	it('resolveGroup params clone the child and never mutate the def', () => {
@@ -655,14 +670,16 @@ describe('groups', () => {
 describe('solveMonitor / floating', () => {
 	const wa: Rect = { x: 0, y: 0, w: 1920, h: 1080 };
 
-	it('floating primitive placed verbatim; empty root contributes nothing', () => {
+	it('floating primitive placed verbatim; empty root still emits its own box', () => {
 		const mon: MonitorLayout = {
 			root: emptyRoot(),
 			floating: [leaf(primAt('W', 300, 50, 160, 40))]
 		};
 		const s = solveMonitor(mon, wa);
 		expect(get(s, 'W')).toEqual({ x: 300, y: 50, w: 160, h: 40 });
-		expect(s.size).toBe(1);
+		// The floating primitive + the (empty) root container's own box.
+		expect(s.size).toBe(2);
+		expect(get(s, 'root')).toEqual(wa);
 	});
 
 	it('floating leaf basis is ignored', () => {
@@ -760,5 +777,85 @@ describe('collectRenderables', () => {
 		});
 		expect(spk?.instance.type).toBe('sparkline');
 		expect(rs.find((r) => r.id === 'g0')).toBeUndefined();
+	});
+});
+
+// ---- collectContainerRects -----------------------------------------------
+
+describe('collectContainerRects', () => {
+	it('returns the root and every nested container box, with kind', () => {
+		const root = container(
+			'root',
+			'col',
+			[
+				container('row1', 'row', [leaf(prim('A', 40, 20)), leaf(prim('B', 40, 20))], {
+					align: 'stretch'
+				})
+			],
+			{ align: 'stretch' }
+		);
+		const mon: MonitorLayout = { root, floating: [] };
+		const boxes = collectContainerRects(mon, solveMonitor(mon, { x: 0, y: 0, w: 200, h: 100 }));
+		const byId = Object.fromEntries(boxes.map((b) => [b.id, b]));
+		expect(byId['root']).toMatchObject({ kind: 'col', rect: { x: 0, y: 0, w: 200, h: 100 } });
+		expect(byId['row1']?.kind).toBe('row');
+		expect(boxes).toHaveLength(2);
+	});
+
+	it('does not descend into group internals (only flow-tree containers)', () => {
+		const def = {
+			id: 'cg',
+			name: 'cg',
+			size: { w: 40, h: 26 },
+			child: container('innerDef', 'row', [leaf(prim('spk', 40, 26))], { align: 'stretch' })
+		};
+		const lib: Library = { version: 1, defs: [def] };
+		const root = container(
+			'root',
+			'col',
+			[leaf(group('g0', { w: 40, h: 26 }, leaf(prim('fb', 1, 1)), { def: 'cg' }))],
+			{
+				align: 'stretch'
+			}
+		);
+		const mon: MonitorLayout = { root, floating: [] };
+		const boxes = collectContainerRects(
+			mon,
+			solveMonitor(mon, { x: 0, y: 0, w: 100, h: 100 }, lib)
+		);
+		// Only the flow root is a container here; the group's internal 'innerDef' is not surfaced.
+		expect(boxes.map((b) => b.id)).toEqual(['root']);
+	});
+
+	it('surfaces a freshly added empty pane (fr basis) so it is visible', () => {
+		// Mirrors addContainer: an empty fr:1 grid added to the root fills the work area.
+		const grid = container('grid-x', 'grid', [], { cols: 2, basis: { fr: 1 } });
+		const root = container('root', 'col', [grid], { align: 'stretch' });
+		const mon: MonitorLayout = { root, floating: [] };
+		const boxes = collectContainerRects(mon, solveMonitor(mon, { x: 0, y: 0, w: 200, h: 120 }));
+		const gridBox = boxes.find((b) => b.id === 'grid-x');
+		expect(gridBox?.kind).toBe('grid');
+		expect(gridBox?.rect).toEqual({ x: 0, y: 0, w: 200, h: 120 }); // fills the root
+	});
+});
+
+describe('collectGridPlaceholders', () => {
+	it('an empty grid outlines one row of `cols` cells', () => {
+		const grid = container('g', 'grid', [], { cols: 2, basis: { fr: 1 } });
+		const root = container('root', 'col', [grid], { align: 'stretch' });
+		const mon: MonitorLayout = { root, floating: [] };
+		const cells = collectGridPlaceholders(mon, solveMonitor(mon, { x: 0, y: 0, w: 200, h: 100 }));
+		expect(cells).toHaveLength(2);
+		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 100 });
+		expect(cells[1]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
+	});
+
+	it('a partial grid outlines only the empty trailing cells', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10))], { cols: 2, basis: { fr: 1 } });
+		const root = container('root', 'col', [grid], { align: 'stretch' });
+		const mon: MonitorLayout = { root, floating: [] };
+		const cells = collectGridPlaceholders(mon, solveMonitor(mon, { x: 0, y: 0, w: 200, h: 100 }));
+		expect(cells).toHaveLength(1); // cell 0 filled by A, cell 1 is the placeholder
+		expect(cells[0]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
 	});
 });

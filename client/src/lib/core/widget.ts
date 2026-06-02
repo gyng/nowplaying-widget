@@ -107,6 +107,15 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultConfig: { label: 'tap' },
 		interactive: true,
 		configFields: [text('label', 'label')]
+	},
+	{
+		// Self-sourcing media widget: subscribes to the GSMTC media feed internally (binds:none).
+		type: 'nowplaying',
+		binds: 'none',
+		label: 'Now Playing',
+		defaultSize: { w: 240, h: 64 },
+		defaultConfig: {},
+		configFields: [text('label', 'label (when idle)')]
 	}
 ];
 

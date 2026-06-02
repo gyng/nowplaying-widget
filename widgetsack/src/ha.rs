@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::async_runtime::{JoinHandle, Mutex};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
+use tokio_tungstenite::{connect_async, connect_async_tls_with_config, Connector};
 
 use crate::sensors::{SensorSample, SensorValue, TELEMETRY_EVENT};
 
@@ -36,6 +36,11 @@ type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 pub struct HaConfig {
     pub url: String,
     pub token: String,
+    /// Accept self-signed / otherwise-invalid TLS certs over `wss`/`https`. Default false —
+    /// an explicit opt-in for a LAN HA behind a self-signed cert. `#[serde(default)]` keeps
+    /// existing `ha.json` files (which omit it) strict.
+    #[serde(default)]
+    pub insecure: bool,
 }
 
 /// What the webview is allowed to learn about the config: whether it exists and the URL.
@@ -111,6 +116,20 @@ fn ws_url_from(url: &str) -> String {
 /// The REST base URL (trailing slash stripped) for `/api/...` calls.
 fn rest_base(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
+}
+
+/// A reqwest client honouring the `insecure` opt-in. A normal config builds an ordinary
+/// (cert-validating) client. Under `insecure` it mirrors the WS connector EXACTLY — dropping
+/// BOTH cert and hostname verification — because a self-signed LAN cert usually also has an
+/// IP/CN-SAN mismatch, so cert-only would still fail REST hostname checks while wss streamed.
+fn ha_http_client(insecure: bool) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder();
+    if insecure {
+        builder = builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true);
+    }
+    builder.build().map_err(|e| e.to_string())
 }
 
 /// Map one HA state object (from `get_states` or a `state_changed` event) to telemetry
@@ -217,8 +236,19 @@ async fn connect_and_stream<R: Runtime>(
     app: &AppHandle<R>,
     ws_url: &str,
     token: &str,
+    insecure: bool,
 ) -> Result<(), BoxErr> {
-    let (mut ws, _resp) = connect_async(ws_url).await?;
+    // Valid certs (and plain `ws://`) are handled transparently by the native-tls backend.
+    // `insecure` swaps in a connector that accepts self-signed certs — explicit opt-in only.
+    let (mut ws, _resp) = if insecure {
+        let tls = native_tls::TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()?;
+        connect_async_tls_with_config(ws_url, None, false, Some(Connector::NativeTls(tls))).await?
+    } else {
+        connect_async(ws_url).await?
+    };
 
     // Auth phase: frames carry no id. auth_required → auth → auth_ok (auth_invalid is fatal).
     expect_type(&mut ws, "auth_required").await?;
@@ -291,7 +321,7 @@ pub async fn run_ha_client<R: Runtime>(app: AppHandle<R>, cfg: HaConfig) {
     loop {
         emit_status(&app, "connecting");
         let started = Instant::now();
-        match connect_and_stream(&app, &ws_url, &cfg.token).await {
+        match connect_and_stream(&app, &ws_url, &cfg.token, cfg.insecure).await {
             Ok(()) => emit_status(&app, "disconnected"),
             Err(err) => {
                 eprintln!("HA client error: {err}");
@@ -315,12 +345,17 @@ pub async fn save_ha_config<R: Runtime>(
     app: AppHandle<R>,
     url: String,
     token: String,
+    insecure: Option<bool>,
 ) -> Result<(), String> {
     let path = ha_config_path(&app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let cfg = HaConfig { url, token };
+    let cfg = HaConfig {
+        url,
+        token,
+        insecure: insecure.unwrap_or(false),
+    };
     let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     std::fs::write(&path, txt).map_err(|e| e.to_string())
 }
@@ -376,7 +411,7 @@ pub async fn ha_disconnect(state: State<'_, HaState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn list_ha_entities<R: Runtime>(app: AppHandle<R>) -> Result<Vec<HaEntity>, String> {
     let cfg = load_ha_config(&app)?.ok_or("HA not configured")?;
-    let client = reqwest::Client::new();
+    let client = ha_http_client(cfg.insecure)?;
     let resp = client
         .get(format!("{}/api/states", rest_base(&cfg.url)))
         .bearer_auth(&cfg.token)
@@ -405,7 +440,7 @@ pub async fn ha_call_service<R: Runtime>(
         return Err("invalid domain/service".to_string());
     }
     let cfg = load_ha_config(&app)?.ok_or("HA not configured")?;
-    let client = reqwest::Client::new();
+    let client = ha_http_client(cfg.insecure)?;
     let resp = client
         .post(format!(
             "{}/api/services/{}/{}",
@@ -501,6 +536,19 @@ mod tests {
         assert_eq!(e.state, "21.4");
         assert_eq!(e.friendly_name.as_deref(), Some("Temp"));
         assert_eq!(e.unit.as_deref(), Some("°C"));
+    }
+
+    #[test]
+    fn config_insecure_defaults_false_and_round_trips() {
+        // An existing ha.json without `insecure` must still parse (strict by default).
+        let legacy: HaConfig =
+            serde_json::from_str(r#"{ "url": "http://ha:8123", "token": "t" }"#).unwrap();
+        assert!(!legacy.insecure);
+        // And the opt-in is honoured when present.
+        let optin: HaConfig =
+            serde_json::from_str(r#"{ "url": "https://ha:8123", "token": "t", "insecure": true }"#)
+                .unwrap();
+        assert!(optin.insecure);
     }
 
     #[test]

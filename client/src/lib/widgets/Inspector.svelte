@@ -22,6 +22,8 @@
 	export let defs: WidgetDef[] = []; // the whole library (for insert / delete)
 	export let tokens: Record<string, string> = {}; // global token overrides (7d)
 	export let placement: 'flow' | 'floating' | null = null;
+	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
+	export let docked = false;
 	export let widgetTypes: { type: string; label: string }[] = []; // palette (8a)
 	export let configFields: ConfigField[] = []; // typed config schema for the selected widget (8a)
 	export let sensors: string[] = [];
@@ -133,11 +135,16 @@
 	}
 </script>
 
-<div class="inspector">
+<div class="inspector" class:docked>
 	<div class="palette">
 		<span class="hd">Add</span>
 		{#each widgetTypes as w (w.type)}
-			<button type="button" on:click={() => op({ op: 'addWidget', widgetType: w.type })}
+			<button
+				type="button"
+				draggable="true"
+				title="Click to add, or drag onto a container in the Outline"
+				on:click={() => op({ op: 'addWidget', widgetType: w.type })}
+				on:dragstart={(e) => e.dataTransfer?.setData('text/x-widget-type', w.type)}
 				>{w.label}</button
 			>
 		{/each}
@@ -174,15 +181,26 @@
 				</select>
 			</label>
 			{#if container.kind === 'grid'}
-				<label class="full">
-					cols
-					<input
-						type="number"
-						min="1"
-						value={container.cols ?? 1}
-						on:input={(e) => patchContainer({ cols: Number(e.currentTarget.value) })}
-					/>
-				</label>
+				<div class="row2">
+					<label>
+						cols
+						<input
+							type="number"
+							min="1"
+							value={container.cols ?? 1}
+							on:input={(e) => patchContainer({ cols: Number(e.currentTarget.value) })}
+						/>
+					</label>
+					<label>
+						rows
+						<input
+							type="number"
+							min="1"
+							value={container.rows ?? 1}
+							on:input={(e) => patchContainer({ rows: Number(e.currentTarget.value) })}
+						/>
+					</label>
+				</div>
 			{/if}
 			<div class="row2">
 				<label>
@@ -437,6 +455,21 @@
 		font-family: monospace;
 		font-size: 11px;
 		pointer-events: auto;
+	}
+
+	/* Studio: a full-height, scrollable right rail in the reserved margin (no stage overlap). */
+	.inspector.docked {
+		position: fixed;
+		top: var(--bar-h, 36px);
+		right: 0;
+		left: auto;
+		bottom: 0;
+		width: var(--rail-r, 264px);
+		max-height: none;
+		overflow-y: auto;
+		border-width: 0 0 0 1px;
+		border-radius: 0;
+		z-index: 6;
 	}
 
 	.hd {

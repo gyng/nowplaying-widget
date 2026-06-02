@@ -28,4 +28,7 @@ export type LayoutOp =
 	| { op: 'setDefCss'; defId: string; css: string } // a def's css (7d)
 	| { op: 'setToken'; key: string; value: string } // a global token override (7d, '' clears)
 	| { op: 'patchWidget'; id: string; patch: Partial<WidgetInstance> }
-	| { op: 'patchContainer'; id: string; patch: Partial<Container> };
+	| { op: 'patchContainer'; id: string; patch: Partial<Container> }
+	// Outline drag-and-drop (build the tree directly, no canvas coords):
+	| { op: 'dropWidget'; containerId: string; widgetType: string } // palette item → container
+	| { op: 'reparent'; id: string; containerId: string }; // move a node into a container

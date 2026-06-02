@@ -11,6 +11,7 @@ import Text from './meters/Text.svelte';
 import Clock from './meters/Clock.svelte';
 import Bar from './meters/Bar.svelte';
 import Button from './meters/Button.svelte';
+import NowPlaying from './meters/NowPlaying.svelte';
 
 export type MeterComponent = typeof SvelteComponent;
 
@@ -20,7 +21,8 @@ const components: Record<string, MeterComponent> = {
 	text: Text as unknown as MeterComponent,
 	clock: Clock as unknown as MeterComponent,
 	bar: Bar as unknown as MeterComponent,
-	button: Button as unknown as MeterComponent
+	button: Button as unknown as MeterComponent,
+	nowplaying: NowPlaying as unknown as MeterComponent
 };
 
 /** Back-compat alias used by WidgetHost (`registry[instance.type]`). */

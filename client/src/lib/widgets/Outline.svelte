@@ -12,6 +12,9 @@
 	export let root: Container;
 	export let floating: Leaf[] = [];
 	export let selectedId: string | null = null;
+	// In the studio this panel docks as the full-height left rail (vs a floating box on an
+	// overlay). The rail size + bar height come from the canvas's shared custom properties.
+	export let docked = false;
 
 	const dispatch = createEventDispatcher<{ op: LayoutOp }>();
 	const op = (o: LayoutOp) => dispatch('op', o);
@@ -22,9 +25,38 @@
 		if (isContainer(node)) return `▦ ${node.kind} · ${node.id}`;
 		return `• ${isGroup(node.unit) ? `group ${node.unit.name ?? node.id}` : node.unit.type}`;
 	}
+
+	// Drag-and-drop into the tree (no canvas coords): drag a row (or a palette widget from the
+	// inspector) onto a CONTAINER row to nest it there. Containers are the only drop targets;
+	// leaves reject (no preventDefault). `dragOverId` highlights the hovered target.
+	let dragOverId: string | null = null;
+
+	function onRowDragStart(e: DragEvent, id: string) {
+		e.dataTransfer?.setData('text/x-node-id', id);
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+	}
+	function onRowDragOver(e: DragEvent, node: LayoutNode) {
+		if (!isContainer(node)) return; // only containers accept drops
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dragOverId = node.id;
+	}
+	function onRowDrop(e: DragEvent, node: LayoutNode) {
+		if (!isContainer(node)) return;
+		e.preventDefault();
+		dragOverId = null;
+		const wt = e.dataTransfer?.getData('text/x-widget-type');
+		if (wt) {
+			op({ op: 'dropWidget', containerId: node.id, widgetType: wt });
+			return;
+		}
+		const nid = e.dataTransfer?.getData('text/x-node-id');
+		if (nid && nid !== node.id) op({ op: 'reparent', id: nid, containerId: node.id });
+	}
+	const onRowDragLeave = () => (dragOverId = null);
 </script>
 
-<div class="outline">
+<div class="outline" class:docked>
 	<div class="hd">
 		Outline
 		<span class="add">
@@ -38,14 +70,24 @@
 		type="button"
 		class="row root"
 		class:sel={selectedId === root.id}
-		on:click={() => op({ op: 'select', id: root.id })}>▦ root ({root.kind})</button
+		class:dropok={dragOverId === root.id}
+		on:click={() => op({ op: 'select', id: root.id })}
+		on:dragover={(e) => onRowDragOver(e, root)}
+		on:drop={(e) => onRowDrop(e, root)}
+		on:dragleave={onRowDragLeave}>▦ root ({root.kind})</button
 	>
 
 	{#each rows as r (r.node.id)}
 		<div
 			class="row"
 			class:sel={selectedId === r.node.id}
+			class:dropok={dragOverId === r.node.id}
 			style="padding-left: {6 + r.depth * 12}px"
+			draggable="true"
+			on:dragstart={(e) => onRowDragStart(e, r.node.id)}
+			on:dragover={(e) => onRowDragOver(e, r.node)}
+			on:drop={(e) => onRowDrop(e, r.node)}
+			on:dragleave={onRowDragLeave}
 		>
 			<button type="button" class="label" on:click={() => op({ op: 'select', id: r.node.id })}>
 				{rowLabel(r.node)}
@@ -89,7 +131,12 @@
 	{#if floating.length}
 		<div class="hd2">Floating</div>
 		{#each floating as lf (lf.id)}
-			<div class="row" class:sel={selectedId === lf.id}>
+			<div
+				class="row"
+				class:sel={selectedId === lf.id}
+				draggable="true"
+				on:dragstart={(e) => onRowDragStart(e, lf.id)}
+			>
 				<button type="button" class="label" on:click={() => op({ op: 'select', id: lf.id })}>
 					{rowLabel(lf)}
 				</button>
@@ -124,6 +171,19 @@
 		font-family: monospace;
 		font-size: 11px;
 		pointer-events: auto;
+	}
+
+	/* Studio: a full-height left rail in the reserved margin (no overlap with the stage). */
+	.outline.docked {
+		position: fixed;
+		top: var(--bar-h, 36px);
+		left: 0;
+		bottom: 0;
+		width: var(--rail-l, 250px);
+		max-height: none;
+		border-width: 0 1px 0 0;
+		border-radius: 0;
+		z-index: 6;
 	}
 
 	.hd,
@@ -170,6 +230,12 @@
 	.row.sel {
 		background: rgba(119, 196, 211, 0.18);
 		outline: 1px solid rgba(119, 196, 211, 0.6);
+	}
+
+	/* Drop target highlight while dragging a row/palette widget over a container. */
+	.row.dropok {
+		background: rgba(119, 196, 211, 0.32);
+		outline: 1px dashed rgb(119, 196, 211);
 	}
 
 	.label {

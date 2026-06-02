@@ -33,7 +33,14 @@
 		type WidgetDef
 	} from '../core/layoutTree';
 	import { parseLayoutAny } from '../core/migration';
-	import { collectRenderables, intrinsicSize, solveMonitor } from '../core/solve';
+	import {
+		collectContainerRects,
+		collectGridPlaceholders,
+		collectRenderables,
+		gridCellRects,
+		intrinsicSize,
+		solveMonitor
+	} from '../core/solve';
 	import { assembleStyles } from '../core/style';
 	import { tokensToCss } from '../core/tokens';
 	import {
@@ -58,9 +65,10 @@
 	import { snapRectToPeers } from '../core/align';
 	import { sensorCatalog } from '../core/sensors';
 	import {
-		fillCurrentMonitor,
+		fillPrimaryMonitor,
 		listThemes,
 		loadThemeCss,
+		saveThemeCss,
 		monitorParam,
 		monitorWorkArea,
 		openStudio,
@@ -81,8 +89,8 @@
 	// key on main. Widgets are filtered/saved per monitor so windows don't clobber each
 	// other. In the studio this is switchable (edit any monitor from the one window).
 	let myMonitor = monitorParam() ?? DEFAULT_MONITOR;
-	// Studio monitor switcher options (5s multi-monitor).
-	let monitorOptions: { key: string; label: string }[] = [];
+	// Studio monitor switcher options (5s multi-monitor): device name + logical size per key.
+	let monitorOptions: { key: string; label: string; name: string; w: number; h: number }[] = [];
 
 	// A small row of per-core CPU sparklines (the System skin's centrepiece). A full
 	// configurable grid arrives with the Phase 5 editor; this proves the per-core pipe.
@@ -205,13 +213,63 @@
 	// The work area this overlay lays its flow tree into (logical px; the full monitor
 	// until 5b insets the taskbar). Set on mount + window resize.
 	let workArea: Rect = { x: 0, y: 0, w: 0, h: 0 };
+	// The editor stage's measured size (the canvas inset between the tool rails).
+	let stageW = 0;
+	let stageH = 0;
+
+	// Studio zoom-to-fit (item 1): the flow tree is solved into the REAL monitor work area,
+	// then a "world" layer of that size is scaled + panned to fit the stage. `zoom`/`panX`/
+	// `panY` drive the world transform AND the drag-coordinate math; in the overlay they stay
+	// 1/0/0 (no transform), so nothing there changes.
+	let zoom = 1;
+	let panX = 0;
+	let panY = 0;
+	let lastFitKey = '';
+	// The selected monitor's logical size (the world dimensions); falls back until loaded.
+	$: monSel = monitorOptions.find((o) => o.key === myMonitor);
+	$: monSize = monSel ? { w: monSel.w, h: monSel.h } : { w: 1920, h: 1080 };
+	$: monName = monSel?.name ?? '';
+	$: worldStyle = studio
+		? `width:${monSize.w}px;height:${monSize.h}px;transform:translate(${panX}px,${panY}px) scale(${zoom})`
+		: '';
+
+	// Fit the whole monitor into the stage (with a little breathing room) and centre it.
+	function fit() {
+		if (!monSize.w || !monSize.h || !stageW || !stageH) return;
+		zoom = Math.min(stageW / monSize.w, stageH / monSize.h) * 0.95;
+		panX = (stageW - monSize.w * zoom) / 2;
+		panY = (stageH - monSize.h * zoom) / 2;
+	}
+
+	// Auto-fit on first measure and whenever the edited monitor changes (not on manual zoom).
+	$: if (studio && stageW > 0 && stageH > 0 && monSize.w > 0) {
+		const key = `${myMonitor}:${monSize.w}x${monSize.h}`;
+		if (key !== lastFitKey) {
+			lastFitKey = key;
+			fit();
+		}
+	}
+
+	// Zoom toward the cursor on wheel (studio only).
+	function onWheel(event: WheelEvent) {
+		if (!studio || !canvasEl) return;
+		event.preventDefault();
+		const r = canvasEl.getBoundingClientRect();
+		const cx = event.clientX - r.left;
+		const cy = event.clientY - r.top;
+		const wx = (cx - panX) / zoom;
+		const wy = (cy - panY) / zoom;
+		const next = Math.min(4, Math.max(0.05, zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
+		panX = cx - wx * next;
+		panY = cy - wy * next;
+		zoom = next;
+	}
+
+	// Studio lays out into the real monitor work area; the overlay uses the actual work area.
+	$: if (studio) workArea = { x: 0, y: 0, w: monSize.w, h: monSize.h };
 
 	async function updateWorkArea() {
-		if (studio) {
-			// A normal window: lay the layout into the whole window (no taskbar inset).
-			workArea = { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
-			return;
-		}
+		if (studio) return; // the reactive above owns the studio work area
 		const wa = await monitorWorkArea();
 		workArea = wa ?? { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
 	}
@@ -220,6 +278,10 @@
 	// (incl. group descendants) with its rect via the pure collectRenderables.
 	$: solved = solveMonitor(monitor, workArea, library);
 	$: renderables = collectRenderables(monitor, solved, library);
+	// Pane boundaries for the designer (root + nested containers), drawn behind the widgets.
+	$: containerRects = studio ? collectContainerRects(monitor, solved) : [];
+	// Empty grid cells (incl. the columns of a still-empty grid) outlined as drop targets.
+	$: gridPlaceholders = studio ? collectGridPlaceholders(monitor, solved) : [];
 	// The assembled stylesheet for this monitor (Phase 7): theme → token overrides →
 	// def → instance css, in cascade order.
 	$: tokenCss = Object.keys(tokenOverrides).length ? tokensToCss(tokenOverrides) : '';
@@ -231,10 +293,13 @@
 
 	// The selected node can be a container (incl. root) or a primitive leaf, in either
 	// the flow tree or the floating layer.
-	function lookup(id: string): LayoutNode | null {
-		return findNode(monitor.root, id) ?? monitor.floating.find((l) => l.id === id) ?? null;
+	// `m` is taken as a parameter (not closed over) so Svelte sees `monitor` as a syntactic
+	// dependency of the reactive below — otherwise selectedNode wouldn't recompute when the
+	// model changes mid-drag, and the inspector's rect fields would freeze (item 7).
+	function lookup(id: string, m: MonitorLayout): LayoutNode | null {
+		return findNode(m.root, id) ?? m.floating.find((l) => l.id === id) ?? null;
 	}
-	$: selectedNode = selectedId ? lookup(selectedId) : null;
+	$: selectedNode = selectedId ? lookup(selectedId, monitor) : null;
 	$: selectedContainer = selectedNode && isContainer(selectedNode) ? selectedNode : null;
 	$: selectedWidget =
 		selectedNode && isLeaf(selectedNode) && !isGroup(selectedNode.unit)
@@ -255,7 +320,7 @@
 			: '';
 
 	// Context-menu target (the canvas/root, a container, a primitive, or a group).
-	$: menuNode = menu ? (menu.id === '__canvas__' ? monitor.root : lookup(menu.id)) : null;
+	$: menuNode = menu ? (menu.id === '__canvas__' ? monitor.root : lookup(menu.id, monitor)) : null;
 	$: menuLeaf = menuNode && isLeaf(menuNode) ? menuNode : null;
 	$: menuGroup = menuLeaf && isGroup(menuLeaf.unit) ? (menuLeaf.unit as Group) : null;
 	$: menuId = menu?.id ?? null;
@@ -313,6 +378,32 @@
 		saveLayout();
 	}
 
+	// Item 5: a lightweight theme editor — edit the active theme's CSS (or start a new one)
+	// and save it to the themes/ folder, then apply it. Token-level editing also lives in the
+	// inspector (Phase 7d); this is the raw-CSS surface for fuller themes.
+	let themeEditorOpen = false;
+	let themeDraft = '';
+	let themeDraftName = '';
+
+	async function openThemeEditor() {
+		themeDraftName = selectedTheme || 'custom';
+		themeDraft = selectedTheme
+			? await loadThemeCss(selectedTheme)
+			: ':root {\n\t--np-accent: #77c4d3;\n\t--np-fg: #ffffff;\n}\n';
+		themeEditorOpen = true;
+	}
+
+	async function saveThemeEditor() {
+		const name = themeDraftName.trim();
+		if (!name) return;
+		await saveThemeCss(name, themeDraft);
+		themeList = await listThemes();
+		selectedTheme = name;
+		await applyTheme();
+		saveLayout();
+		themeEditorOpen = false;
+	}
+
 	// Studio: switch which monitor's layout is being edited (reload its saved layout).
 	async function switchMonitor(key: string) {
 		if (key === myMonitor) return;
@@ -342,9 +433,11 @@
 			monitorOptions = await studioMonitorOptions();
 			return;
 		}
-		// The primary window fills its monitor and opens overlays on the others.
+		// The main window covers the PRIMARY monitor (rendering the `default` key) and opens
+		// overlays on every other monitor — so `default` always renders on the primary, matching
+		// the studio's primary→`default` mapping (otherwise its layout lands on the wrong screen).
 		if (!monitorParam()) {
-			await fillCurrentMonitor();
+			await fillPrimaryMonitor();
 			await spawnSecondaryOverlays();
 			// The tray "Open designer" item asks the primary to open the studio window.
 			unlistenStudio = await listen('open_studio', () => openStudio());
@@ -373,7 +466,32 @@
 	// Drag-and-drop (5e): the pending flow drop slot + a thin insertion bar + the dragged id.
 	let dropIndicator: Drop | null = null;
 	let dropBar: Rect | null = null;
+	// When the drop lands INSIDE a container (e.g. an empty grid) rather than beside a leaf,
+	// highlight that container's box instead of a thin bar.
+	let dropZone: Rect | null = null;
 	let draggingId: string | null = null;
+	// A floating hint that follows the cursor mid-drag (item 2): whether the drop lands in a
+	// flow container or floats, with coordinates. Positioned in canvas-relative coords.
+	let dragHint: { x: number; y: number; text: string } | null = null;
+	// The canvas element, to convert WidgetHost's viewport drag coords into canvas-relative
+	// coords. Needed because the studio canvas is INSET behind the tool rails, so the canvas
+	// origin is no longer the viewport origin (and `solved` rects are canvas-relative).
+	let canvasEl: HTMLDivElement | undefined;
+
+	function toCanvas(x: number, y: number): { x: number; y: number } {
+		if (!canvasEl) return { x, y };
+		const r = canvasEl.getBoundingClientRect();
+		return { x: x - r.left, y: y - r.top };
+	}
+
+	// Viewport → world coords (undo the rail inset, the pan, and the zoom), for hit-testing
+	// against `solved` rects which live in world space. In the overlay (pan 0, zoom 1) this
+	// equals toCanvas.
+	function toWorld(x: number, y: number): { x: number; y: number } {
+		if (!canvasEl) return { x, y };
+		const r = canvasEl.getBoundingClientRect();
+		return { x: (x - r.left - panX) / zoom, y: (y - r.top - panY) / zoom };
+	}
 	// Right-click context menu (5d, in-editor): position + the targeted node id.
 	let menu: { x: number; y: number; id: string } | null = null;
 
@@ -446,6 +564,7 @@
 	function onCommit() {
 		guideXs = [];
 		guideYs = [];
+		dragHint = null;
 		// A floating widget released over the flow tree docks into that slot.
 		if (dropIndicator && draggingId) {
 			const id = draggingId;
@@ -461,6 +580,7 @@
 		}
 		dropIndicator = null;
 		dropBar = null;
+		dropZone = null;
 		draggingId = null;
 		saveLayout();
 	}
@@ -484,20 +604,54 @@
 		return null;
 	}
 
+	// The highlight box for a drop that lands inside a container: the specific grid cell the
+	// widget will fill, or the whole pane for a row/col. Null when docking beside a leaf (a
+	// thin bar is shown instead) or floating.
+	function computeDropZone(drop: Drop | null, bar: Rect | null): Rect | null {
+		if (!drop || bar) return null;
+		const box = solved.get(drop.parentId);
+		if (!box) return null;
+		const parent = findNode(monitor.root, drop.parentId);
+		if (parent && isContainer(parent) && parent.kind === 'grid') {
+			return gridCellRects(parent, box)[drop.index] ?? box;
+		}
+		return box;
+	}
+
 	function onDragOver(event: CustomEvent<{ id: string; x: number; y: number }>) {
-		const { id, x, y } = event.detail;
+		const { id } = event.detail;
+		const w = toWorld(event.detail.x, event.detail.y); // world coords for hit-testing
+		const c = toCanvas(event.detail.x, event.detail.y); // canvas coords for the (unscaled) hint
 		draggingId = id;
-		dropIndicator = dropTarget(monitor.root, solved, { x, y }, id);
-		dropBar = computeDropBar({ x, y }, id);
+		dropIndicator = dropTarget(monitor.root, solved, w, id);
+		dropBar = computeDropBar(w, id);
+		// Beside a leaf → thin bar; into a container's open area → highlight the target grid
+		// CELL (or the whole row/col pane).
+		dropZone = computeDropZone(dropIndicator, dropBar);
+		// Hint: docking into a flow container, or floating at (world) coordinates.
+		if (dropIndicator) {
+			const parent = findNode(monitor.root, dropIndicator.parentId);
+			const kind = parent && isContainer(parent) ? parent.kind : 'flow';
+			dragHint = { x: c.x, y: c.y, text: `▦ into ${kind}` };
+		} else {
+			const lf = monitor.floating.find((l) => l.id === id);
+			const pos = lf && !isGroup(lf.unit) ? lf.unit.rect : null;
+			const px = Math.round(pos ? pos.x : w.x);
+			const py = Math.round(pos ? pos.y : w.y);
+			dragHint = { x: c.x, y: c.y, text: `⊕ float · ${px}, ${py}` };
+		}
 	}
 
 	// Flow widget released: into a flow slot if over one, else float at the cursor.
 	function onDrop(event: CustomEvent<{ id: string; x: number; y: number }>) {
-		const { id, x, y } = event.detail;
+		const { id } = event.detail;
+		const { x, y } = toWorld(event.detail.x, event.detail.y);
 		const drop = dropTarget(monitor.root, solved, { x, y }, id);
 		dropIndicator = null;
 		dropBar = null;
+		dropZone = null;
 		draggingId = null;
+		dragHint = null;
 		if (drop) {
 			monitor = { ...monitor, root: moveNode(monitor.root, id, drop.parentId, drop.index) };
 		} else {
@@ -507,7 +661,9 @@
 		saveLayout();
 	}
 
-	async function saveLayout() {
+	// `extra` (move-to-monitor) appends a floating leaf to ANOTHER monitor's saved layout in
+	// the same write — used to relocate a widget to a different display from the studio.
+	async function saveLayout(extra?: { key: string; leaf: Leaf }) {
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
@@ -531,6 +687,10 @@
 		// fold the in-progress def back into the library so instances stay in sync.
 		if (editingDefId) syncEditingDef();
 		monitors[myMonitor] = editingDefId && savedMonitor ? savedMonitor : monitor;
+		if (extra && extra.key !== myMonitor) {
+			const t = monitors[extra.key] ?? { root: emptyRoot(), floating: [] };
+			monitors[extra.key] = { root: t.root, floating: [...(t.floating ?? []), extra.leaf] };
+		}
 		const lib = library ?? fileLib;
 		const theme = selectedTheme || fileTheme;
 		const tokens = Object.keys(tokenOverrides).length ? tokenOverrides : fileTokens;
@@ -587,6 +747,10 @@
 	function mEditDef() {
 		const d = menuGroup?.def;
 		if (d) menuAct({ op: 'editDef', defId: d });
+	}
+	function mMoveToMonitor(key: string) {
+		if (menu) moveNodeToMonitor(menu.id, key);
+		menu = null;
 	}
 
 	const rand = () => Math.random().toString(36).slice(2, 8);
@@ -677,8 +841,43 @@
 			case 'patchContainer':
 				monitor = { ...monitor, root: updateContainer(monitor.root, op.id, op.patch) };
 				break;
+			case 'dropWidget':
+				dropWidgetInto(op.containerId, op.widgetType);
+				break;
+			case 'reparent':
+				reparentNode(op.id, op.containerId);
+				break;
 		}
 		saveLayout();
+	}
+
+	// Outline DnD: a palette widget dropped onto a container row → new flow leaf inside it.
+	function dropWidgetInto(containerId: string, widgetType: string) {
+		const id = `${widgetType}-${rand()}`;
+		monitor = {
+			...monitor,
+			root: insertChild(monitor.root, containerId, leaf(createWidget(widgetType, id)))
+		};
+		selectedId = id;
+	}
+
+	// Outline DnD: move an existing node (flow or floating) into a container (at its end).
+	function reparentNode(id: string, containerId: string) {
+		if (id === containerId) return;
+		const node = findNode(monitor.root, id);
+		// Never move a container into its own descendant (would orphan the subtree).
+		if (node && isContainer(node) && findNode(node, containerId)) return;
+		const fl = monitor.floating.find((l) => l.id === id);
+		if (fl) {
+			monitor = {
+				...monitor,
+				floating: monitor.floating.filter((l) => l.id !== id),
+				root: insertChild(monitor.root, containerId, fl)
+			};
+		} else {
+			monitor = { ...monitor, root: moveNode(monitor.root, id, containerId) };
+		}
+		selectedId = id;
 	}
 
 	// A new widget goes into the selected container (flow), else the floating layer.
@@ -694,9 +893,29 @@
 	// A new container goes into the selected container (or the root) — always in the flow.
 	function addContainer(kind: Container['kind']) {
 		const id = `${kind}-${rand()}`;
-		const c = container(id, kind, [], kind === 'grid' ? { cols: 2 } : {});
+		// A new pane claims available space (basis fr:1 fills the parent's main axis; align
+		// stretch fills the cross axis) so it's immediately visible to drop into, rather than
+		// collapsing to its (zero) intrinsic size while empty. A grid is pre-populated with one
+		// container per CELL (default 2×2) so EVERY cell is an independent drop target — you can
+		// drop into any cell, in any order, not just the next dense slot.
+		let c: Container;
+		if (kind === 'grid') {
+			const cols = 2;
+			const rows = 2;
+			const cells = Array.from({ length: cols * rows }, () =>
+				container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
+			);
+			c = container(id, 'grid', cells, { cols, rows, basis: { fr: 1 }, align: 'stretch' });
+		} else {
+			c = container(id, kind, [], { basis: { fr: 1 }, align: 'stretch' });
+		}
 		const parentId = selectedContainer?.id ?? monitor.root.id;
-		monitor = { ...monitor, root: insertChild(monitor.root, parentId, c) };
+		let root = insertChild(monitor.root, parentId, c);
+		// The new pane's WIDTH is the parent's cross axis, set by the parent's `align`. A
+		// saved/older parent may be 'start' (panes left-aligned at intrinsic = 0 width), so
+		// force the parent to stretch its children — the pane then fills the available width.
+		root = updateContainer(root, parentId, { align: 'stretch' });
+		monitor = { ...monitor, root };
 		selectedId = id;
 	}
 
@@ -754,7 +973,7 @@
 	// + a group instance referencing it. The def lands in the library; the node is replaced
 	// in place by the group. (Phase 6a — the widget designer's core move.)
 	function makeWidget(id: string) {
-		const node = lookup(id);
+		const node = lookup(id, monitor);
 		if (!node) return;
 		const s = intrinsicSize(node, library);
 		const size = {
@@ -777,6 +996,33 @@
 			monitor = { ...monitor, root: updateNode(monitor.root, id, () => leaf(g)) };
 		}
 		selectedId = grpId;
+	}
+
+	// Item 4: start the widget designer on a brand-new, empty widget def. Creates the def
+	// (an empty stretchy container) + a floating instance so it persists in the layout, then
+	// enters the def editor. "Done" (def-banner) returns to the layout designer.
+	function newWidget() {
+		const defId = `def-${rand()}`;
+		const def: WidgetDef = {
+			id: defId,
+			name: `widget-${rand()}`,
+			size: { w: 200, h: 120 },
+			child: container(`${defId}__root`, 'col', [], { align: 'stretch' })
+		};
+		library = { version: library?.version ?? 1, defs: [...(library?.defs ?? []), def] };
+		const grpId = `grp-${rand()}`;
+		const g = group(grpId, def.size, clone(def.child), {
+			def: defId,
+			name: def.name,
+			config: { x: 24, y: 24 }
+		});
+		monitor = { ...monitor, floating: [...monitor.floating, leaf(g)] };
+		enterDefEdit(defId);
+	}
+
+	// Item 4: re-open the widget designer on an existing def (from the studio's Widgets menu).
+	function editExistingDef(defId: string) {
+		if (defId) handleOp({ op: 'editDef', defId });
 	}
 
 	// Inline a group back to its subtree. Flow groups expand to the def/inline child;
@@ -930,20 +1176,21 @@
 	}
 
 	// Flow leaf → floating, anchored at `at` (the drop point) or its current solved position.
+	// Build a floating leaf from a primitive/group leaf at `(x,y)`, carrying its solved size.
+	function floatingLeafFrom(node: Leaf, x: number, y: number, r?: Rect): Leaf {
+		if (!isGroup(node.unit)) {
+			const u = node.unit;
+			return leaf({ ...u, rect: { x, y, w: r?.w ?? u.rect.w, h: r?.h ?? u.rect.h } });
+		}
+		const g = node.unit;
+		return leaf({ ...g, config: { ...(g.config ?? {}), x, y } });
+	}
+
 	function floatNode(id: string, at?: { x: number; y: number }) {
 		const node = findNode(monitor.root, id);
 		if (!node || !isLeaf(node)) return;
 		const r = solved.get(id);
-		const x = at?.x ?? r?.x ?? 0;
-		const y = at?.y ?? r?.y ?? 0;
-		let lf: Leaf;
-		if (!isGroup(node.unit)) {
-			const u = node.unit;
-			lf = leaf({ ...u, rect: { x, y, w: r?.w ?? u.rect.w, h: r?.h ?? u.rect.h } });
-		} else {
-			const g = node.unit;
-			lf = leaf({ ...g, config: { ...(g.config ?? {}), x, y } });
-		}
+		const lf = floatingLeafFrom(node, at?.x ?? r?.x ?? 0, at?.y ?? r?.y ?? 0, r);
 		monitor = {
 			...monitor,
 			root: removeNode(monitor.root, id),
@@ -951,34 +1198,106 @@
 		};
 		selectedId = id;
 	}
+
+	// Move a widget/group to ANOTHER monitor's layout (studio): drop it from this monitor and
+	// append it as a floating leaf (at its current position) to the target's saved layout.
+	async function moveNodeToMonitor(id: string, targetKey: string) {
+		if (targetKey === myMonitor) return;
+		const node = lookup(id, monitor);
+		if (!node || !isLeaf(node)) return; // leaves/groups only (not whole containers)
+		const r = solved.get(id);
+		const moved = floatingLeafFrom(node, r?.x ?? 24, r?.y ?? 24, r);
+		removeById(id);
+		selectedId = null;
+		await saveLayout({ key: targetKey, leaf: moved });
+	}
 </script>
 
 <svelte:window on:keydown={onKeydown} on:resize={updateWorkArea} />
 
-<div class="canvas" class:edit={editMode} class:studio on:contextmenu={onCanvasContextMenu}>
+<div
+	class="canvas"
+	class:edit={editMode}
+	class:studio
+	bind:this={canvasEl}
+	bind:clientWidth={stageW}
+	bind:clientHeight={stageH}
+	on:contextmenu={onCanvasContextMenu}
+	on:wheel={onWheel}
+>
 	<StyleLayer css={styleCss} />
-	{#each renderables as r (r.id)}
-		<WidgetHost
-			{hub}
-			instance={r.instance}
-			rect={r.rect}
-			movable={r.movable}
-			selectId={r.selectId}
-			domId={r.id}
-			defId={r.defId}
-			groupId={r.groupId}
-			{editMode}
-			selected={r.selectId === selectedId}
-			grid={GRID}
-			on:change={onChange}
-			on:commit={onCommit}
-			on:select={onSelect}
-			on:dragover={onDragOver}
-			on:drop={onDrop}
-			on:contextmenu={onWidgetContextMenu}
-			on:control={onWidgetControl}
-		/>
-	{/each}
+	<!-- The "world" layer: in the studio it is sized to the real monitor and scaled/panned to
+	     fit the stage (zoom-to-fit); in the overlay it fills the canvas 1:1 (identity). -->
+	<div class="world" class:scaled={studio} style={worldStyle}>
+		{#if studio}
+			<!-- The monitor's work-area frame + nested pane outlines, drawn behind the widgets
+			     so the layout structure is visible in the designer. Non-interactive. -->
+			<div
+				class="monitor-frame"
+				style="left: {workArea.x}px; top: {workArea.y}px; width: {workArea.w}px; height: {workArea.h}px"
+			/>
+			{#each containerRects as c (c.id)}
+				{#if c.id !== monitor.root.id}
+					<div
+						class="cbound"
+						class:csel={c.id === selectedId}
+						style="left: {c.rect.x}px; top: {c.rect.y}px; width: {c.rect.w}px; height: {c.rect.h}px"
+					>
+						<span class="ctag">{c.kind}</span>
+					</div>
+				{/if}
+			{/each}
+			{#each gridPlaceholders as cell, i (i)}
+				<div
+					class="grid-cell"
+					style="left: {cell.x}px; top: {cell.y}px; width: {cell.w}px; height: {cell.h}px"
+				/>
+			{/each}
+		{/if}
+		{#each renderables as r (r.id)}
+			<WidgetHost
+				{hub}
+				instance={r.instance}
+				rect={r.rect}
+				movable={r.movable}
+				selectId={r.selectId}
+				domId={r.id}
+				defId={r.defId}
+				groupId={r.groupId}
+				{editMode}
+				selected={r.selectId === selectedId}
+				grid={GRID}
+				scale={studio ? zoom : 1}
+				on:change={onChange}
+				on:commit={onCommit}
+				on:select={onSelect}
+				on:dragover={onDragOver}
+				on:drop={onDrop}
+				on:contextmenu={onWidgetContextMenu}
+				on:control={onWidgetControl}
+			/>
+		{/each}
+		{#if editMode}
+			{#each guideXs as gx (gx)}
+				<div class="guide v" style="left: {gx}px" />
+			{/each}
+			{#each guideYs as gy (gy)}
+				<div class="guide h" style="top: {gy}px" />
+			{/each}
+			{#if dropBar}
+				<div
+					class="dropbar"
+					style="left: {dropBar.x}px; top: {dropBar.y}px; width: {dropBar.w}px; height: {dropBar.h}px"
+				/>
+			{/if}
+			{#if dropZone}
+				<div
+					class="dropzone"
+					style="left: {dropZone.x}px; top: {dropZone.y}px; width: {dropZone.w}px; height: {dropZone.h}px"
+				/>
+			{/if}
+		{/if}
+	</div>
 	{#if editMode}
 		{#if studio}
 			<div class="studio-bar">
@@ -988,6 +1307,19 @@
 						<option value={o.key} selected={o.key === myMonitor}>{o.label}</option>
 					{/each}
 				</select>
+				<span class="lbl">Zoom</span>
+				<button type="button" on:click={fit}>Fit</button>
+				<span class="zlevel">{Math.round(zoom * 100)}%</span>
+				<span class="lbl">Widgets</span>
+				<button type="button" on:click={newWidget}>＋ New</button>
+				{#if library?.defs.length}
+					<select on:change={(e) => editExistingDef(e.currentTarget.value)}>
+						<option value="">Edit…</option>
+						{#each library.defs as d (d.id)}
+							<option value={d.id}>{d.name}</option>
+						{/each}
+					</select>
+				{/if}
 				<span class="lbl">Theme</span>
 				<select on:change={(e) => setTheme(e.currentTarget.value)}>
 					<option value="" selected={selectedTheme === ''}>(default)</option>
@@ -995,19 +1327,37 @@
 						<option value={t} selected={t === selectedTheme}>{t}</option>
 					{/each}
 				</select>
+				<button type="button" on:click={openThemeEditor}>Edit</button>
+			</div>
+			<div class="monitor-badge">▦ {monName}</div>
+		{/if}
+		{#if themeEditorOpen}
+			<div class="theme-editor">
+				<div class="te-hd">
+					Theme editor
+					<button type="button" class="te-close" on:click={() => (themeEditorOpen = false)}
+						>✕</button
+					>
+				</div>
+				<label class="te-name">
+					name
+					<input bind:value={themeDraftName} placeholder="my-theme" />
+				</label>
+				<textarea
+					class="te-css"
+					bind:value={themeDraft}
+					spellcheck="false"
+					placeholder={':root {\n\t--np-accent: #77c4d3;\n\t--np-fg: #ffffff;\n}'}
+				/>
+				<div class="te-actions">
+					<button type="button" on:click={saveThemeEditor}>Save & apply</button>
+				</div>
 			</div>
 		{/if}
-		{#each guideXs as gx (gx)}
-			<div class="guide v" style="left: {gx}px" />
-		{/each}
-		{#each guideYs as gy (gy)}
-			<div class="guide h" style="top: {gy}px" />
-		{/each}
-		{#if dropBar}
-			<div
-				class="dropbar"
-				style="left: {dropBar.x}px; top: {dropBar.y}px; width: {dropBar.w}px; height: {dropBar.h}px"
-			/>
+		{#if dragHint}
+			<div class="drag-hint" style="left: {dragHint.x}px; top: {dragHint.y}px">
+				{dragHint.text}
+			</div>
 		{/if}
 		{#if editingDefId}
 			<div class="def-banner">
@@ -1015,11 +1365,14 @@
 				<button type="button" on:click={() => handleOp({ op: 'endDefEdit' })}>Done</button>
 			</div>
 		{/if}
-		<div class="edit-badge">EDIT — Ctrl+E to exit</div>
+		{#if !studio}
+			<div class="edit-badge">EDIT — Ctrl+E to exit</div>
+		{/if}
 		<Outline
 			root={monitor.root}
 			floating={monitor.floating}
 			{selectedId}
+			docked={studio}
 			on:op={(e) => handleOp(e.detail)}
 		/>
 		<Inspector
@@ -1033,6 +1386,7 @@
 			{widgetTypes}
 			{configFields}
 			{sensors}
+			docked={studio}
 			on:op={(e) => handleOp(e.detail)}
 		/>
 		{#if menu && menuNode}
@@ -1057,6 +1411,13 @@
 					<button type="button" on:click={() => mAdd('col')}>+ Column</button>
 					<button type="button" on:click={() => mAdd('grid')}>+ Grid</button>
 				{/if}
+				{#if studio && menuLeaf && monitorOptions.length > 1}
+					<div class="ctx-sep" />
+					<span class="ctx-hd">Move to</span>
+					{#each monitorOptions.filter((o) => o.key !== myMonitor) as o (o.key)}
+						<button type="button" on:click={() => mMoveToMonitor(o.key)}>→ {o.name}</button>
+					{/each}
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -1067,22 +1428,110 @@
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
+		overflow: hidden; /* clip stray/edge widgets instead of scrolling (overlay + studio) */
 	}
 
 	.canvas.edit {
 		pointer-events: auto;
 	}
 
-	/* Studio: a normal opaque window (not a transparent desktop overlay). */
+	/* Studio: a normal opaque window (not a transparent desktop overlay). The canvas is the
+	   inset STAGE between the tool rails — the top bar, left rail (Outline) and right rail
+	   (Inspector) live in the reserved margins (fixed), so the tools never overlap widgets.
+	   The rail/bar sizes are shared with the docked panels via these custom properties. */
 	.canvas.studio {
+		--bar-h: 36px;
+		--rail-l: 250px;
+		--rail-r: 264px;
 		background: #0b0b0e;
+		top: var(--bar-h);
+		left: var(--rail-l);
+		right: var(--rail-r);
+		bottom: 0;
+		overflow: hidden; /* clip the zoomed world to the stage (don't spill over the rails) */
+	}
+
+	/* The world layer (zoom-to-fit). Overlay: fills the canvas 1:1. Studio (.scaled): sized to
+	   the monitor, transformed from the top-left by the inline transform. */
+	.world {
+		position: absolute;
+		inset: 0;
+		transform-origin: 0 0;
+	}
+
+	.world.scaled {
+		inset: auto;
+		left: 0;
+		top: 0;
+	}
+
+	/* The monitor's work-area frame + nested pane outlines (designer only). */
+	.monitor-frame {
+		position: absolute;
+		border: 1px solid rgba(119, 196, 211, 0.55);
+		pointer-events: none;
+	}
+
+	.cbound {
+		position: absolute;
+		border: 1px dashed rgba(218, 237, 226, 0.35);
+		pointer-events: none;
+	}
+
+	.cbound.csel {
+		border-color: rgba(119, 196, 211, 0.9);
+		border-style: solid;
+	}
+
+	.cbound .ctag {
+		position: absolute;
+		top: 0;
+		left: 0;
+		padding: 0 3px;
+		font-family: monospace;
+		font-size: 9px;
+		line-height: 1.5;
+		color: rgba(218, 237, 226, 0.7);
+		background: rgba(10, 10, 12, 0.55);
+	}
+
+	/* Empty grid cells: faint dashed boxes showing where the next widgets will land. */
+	.grid-cell {
+		position: absolute;
+		box-sizing: border-box;
+		border: 1px dashed rgba(119, 196, 211, 0.25);
+		pointer-events: none;
+	}
+
+	/* Highlight a container the drag will drop INTO (e.g. an empty grid). */
+	.dropzone {
+		position: absolute;
+		box-sizing: border-box;
+		border: 1px solid rgb(119, 196, 211);
+		background: rgba(119, 196, 211, 0.12);
+		pointer-events: none;
+		z-index: 3;
 	}
 
 	.guide {
 		position: absolute;
-		background: rgba(119, 196, 211, 0.9);
+		background: rgba(119, 196, 211, 0.4);
 		pointer-events: none;
 		z-index: 2;
+	}
+
+	.drag-hint {
+		position: absolute;
+		transform: translate(12px, 12px);
+		padding: 2px 6px;
+		font-family: monospace;
+		font-size: 10px;
+		color: #0b0b0b;
+		background: rgba(218, 237, 226, 0.95);
+		border-radius: 3px;
+		pointer-events: none;
+		white-space: nowrap;
+		z-index: 8;
 	}
 
 	.guide.v {
@@ -1149,6 +1598,21 @@
 		color: rgb(230, 160, 160);
 	}
 
+	.ctx-sep {
+		height: 1px;
+		margin: 3px 4px;
+		background: #333;
+	}
+
+	.ctx-hd {
+		padding: 1px 8px;
+		font-family: monospace;
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 1px;
+		color: rgb(119, 196, 211);
+	}
+
 	.def-banner {
 		position: absolute;
 		top: 4px;
@@ -1177,23 +1641,25 @@
 		font-family: monospace;
 	}
 
+	/* The studio's full-width top bar (in the reserved margin above the stage). */
 	.studio-bar {
-		position: absolute;
-		top: 4px;
-		left: 50%;
-		transform: translateX(-50%);
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: var(--bar-h, 36px);
+		box-sizing: border-box;
 		display: flex;
 		gap: 8px;
 		align-items: center;
-		padding: 4px 8px;
-		background: rgba(10, 10, 12, 0.92);
-		border: 1px solid rgba(119, 196, 211, 0.5);
-		border-radius: 4px;
+		padding: 0 10px;
+		background: rgba(10, 10, 12, 0.95);
+		border-bottom: 1px solid rgba(119, 196, 211, 0.5);
 		color: #eee;
 		font-family: monospace;
 		font-size: 11px;
 		pointer-events: auto;
-		z-index: 5;
+		z-index: 7;
 	}
 
 	.studio-bar .lbl {
@@ -1202,13 +1668,116 @@
 		letter-spacing: 1px;
 	}
 
-	.studio-bar select {
+	.studio-bar .zlevel {
+		min-width: 34px;
+		text-align: right;
+		color: #ccc;
+	}
+
+	/* Which physical monitor this stage is editing (screen-space, top-left of the stage). */
+	.monitor-badge {
+		position: absolute;
+		top: 6px;
+		left: 6px;
+		padding: 2px 7px;
+		font-family: monospace;
+		font-size: 10px;
+		letter-spacing: 0.5px;
+		color: rgb(119, 196, 211);
+		background: rgba(10, 10, 12, 0.7);
+		border: 1px solid rgba(119, 196, 211, 0.4);
+		border-radius: 3px;
+		pointer-events: none;
+		z-index: 5;
+	}
+
+	.studio-bar select,
+	.studio-bar button {
 		background: #1a1a1e;
 		color: #eee;
 		border: 1px solid #333;
 		font-family: monospace;
 		font-size: 11px;
-		padding: 2px 4px;
+		padding: 2px 6px;
+		cursor: pointer;
+	}
+
+	.studio-bar button:hover {
+		border-color: rgb(119, 196, 211);
+	}
+
+	/* Item 5: the theme editor panel (a floating modal over the stage). */
+	.theme-editor {
+		position: fixed;
+		top: calc(var(--bar-h, 36px) + 16px);
+		right: calc(var(--rail-r, 264px) + 16px);
+		width: 320px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px;
+		background: rgba(12, 12, 16, 0.98);
+		border: 1px solid rgba(119, 196, 211, 0.6);
+		border-radius: 4px;
+		color: #eee;
+		font-family: monospace;
+		font-size: 11px;
+		pointer-events: auto;
+		z-index: 11;
+	}
+
+	.theme-editor .te-hd {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		color: rgb(119, 196, 211);
+		text-transform: uppercase;
+		letter-spacing: 1px;
+	}
+
+	.theme-editor .te-close {
+		background: transparent;
+		border: none;
+		color: #aaa;
+		cursor: pointer;
+		font-size: 12px;
+	}
+
+	.theme-editor .te-name {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.theme-editor input,
+	.theme-editor textarea {
+		background: #1a1a1e;
+		color: #eee;
+		border: 1px solid #333;
+		font-family: monospace;
+		font-size: 11px;
+		padding: 4px;
+	}
+
+	.theme-editor .te-css {
+		height: 200px;
+		resize: vertical;
+		white-space: pre;
+	}
+
+	.theme-editor .te-actions {
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	.theme-editor .te-actions button {
+		background: rgb(119, 196, 211);
+		color: #07181c;
+		border: none;
+		border-radius: 3px;
+		padding: 4px 10px;
+		cursor: pointer;
+		font-family: monospace;
 	}
 
 	.edit-badge {

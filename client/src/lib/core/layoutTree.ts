@@ -28,6 +28,7 @@ export type Container = {
 	kind: 'row' | 'col' | 'grid';
 	basis?: Length; // this container's OWN main-axis sizing inside its parent (default 'auto')
 	cols?: number; // grid only: 2 | 3 | 4 (ignored by row/col)
+	rows?: number; // grid only: minimum rows (more are added as children overflow)
 	gap?: number; // px between children (and between grid cells)
 	pad?: Pad; // content-box inset
 	align?: Align; // cross axis (row → vertical, col → horizontal)
@@ -110,9 +111,11 @@ export function isGroup(unit: WidgetInstance | Group): unit is Group {
 
 // ---- small constructors (keep call sites and tests terse, like createWidget) ----
 
-/** An empty in-flow root: a column with no children (the v2 migration target). */
+/** An empty in-flow root: a column with no children (the v2 migration target). Stretches
+ * its children to full width by default (like flexbox's own `align-items: stretch`), so a
+ * pane added to the root fills the available width rather than collapsing to 0. */
 export function emptyRoot(): Container {
-	return { id: 'root', kind: 'col', children: [] };
+	return { id: 'root', kind: 'col', children: [], align: 'stretch' };
 }
 
 export function emptyMonitorLayout(): MonitorLayout {

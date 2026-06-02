@@ -16,6 +16,10 @@
 	export let editMode = false;
 	export let selected = false;
 	export let grid = 8;
+	// The zoom factor of the surrounding world layer (studio zoom-to-fit). Pointer deltas are
+	// in screen px, so they're divided by `scale` to become world px before moving/resizing.
+	// 1 in the overlay (no zoom), so the math is unchanged there.
+	export let scale = 1;
 	// Absolute rect to render at (the solver's result). For floating widgets this equals
 	// instance.rect; for in-flow widgets the solver dictates it.
 	export let rect: Rect = instance.rect;
@@ -104,13 +108,15 @@
 	function move(event: PointerEvent) {
 		if (action === null) return;
 		if (action === 'flow') {
-			ghostDx = event.clientX - startX;
-			ghostDy = event.clientY - startY;
+			// World-space offset (the ghost lives inside the scaled world; screen delta / scale
+			// renders back to the same screen distance the cursor moved).
+			ghostDx = (event.clientX - startX) / scale;
+			ghostDy = (event.clientY - startY) / scale;
 			dispatch('dragover', { id: selectId, x: event.clientX, y: event.clientY });
 			return;
 		}
-		const dx = event.clientX - startX;
-		const dy = event.clientY - startY;
+		const dx = (event.clientX - startX) / scale;
+		const dy = (event.clientY - startY) / scale;
 		const next =
 			action === 'move'
 				? moveRect(startRect, dx, dy, grid)

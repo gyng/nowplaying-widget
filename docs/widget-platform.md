@@ -926,11 +926,15 @@ built-ins reproduce the old `createWidget` switch exactly (parity pinned by `wid
   `WidgetHost` bubbles to Canvas, which invokes `ha_call_service` (the meter stays Tauri-free,
   §6). `WidgetHost` now passes the value-shape its `binds` dictates (scalar/series byte-identical;
   json/text get the raw payload).
-- **v1 scope (HA):** **`ws://` + `http://` (LAN) only** — no TLS backend is compiled in (avoids
-  pulling `rustls`/native crypto). `ws_url_from` already maps `https→wss`, so adding TLS later is
-  a feature-flag + dependency change, not a rewrite. `ha.climate` is read-only (setpoint control
-  deferred). Runtime HA behaviour is unverified here (no live HA instance); the pure seams +
-  frontend component tests are green, and `cargo build/test/clippy` pass on Windows.
+- **TLS (HA):** `wss://`/`https://` are supported via **`native-tls` = Windows SChannel** — no
+  OpenSSL, no `aws-lc-rs`/`ring`, so no NASM/cmake build tooling. Valid certs (e.g. Nabu Casa)
+  work transparently through `connect_async`/`reqwest`. **Self-signed LAN certs** require an
+  explicit, default-off `insecure: true` in `plugins/ha.json`, which wires
+  `danger_accept_invalid_certs` into BOTH the WS connector (`connect_async_tls_with_config`) and
+  the REST client. `#[serde(default)]` keeps existing config files strict. `ha.climate` is
+  read-only (setpoint control deferred). Runtime HA behaviour is unverified here (no live HA
+  instance); the pure seams + frontend component tests are green, and `cargo build/test/clippy`
+  pass on Windows.
 
 ### Decisions locked (2026-06-02)
 1. **Packaging = build-time plugin modules first** (`lib/plugins/<id>/`, rebuild to add). Runtime

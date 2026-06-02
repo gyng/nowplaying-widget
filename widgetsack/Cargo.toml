@@ -16,19 +16,24 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 futures-util = "0.3"
+# TLS for the HA client (wss/https) via the OS-native stack: SChannel on this Windows-only
+# build — no OpenSSL, and no aws-lc-rs/ring (so no NASM/cmake build tooling). Used directly
+# only to build the self-signed-cert connector; reqwest/tungstenite use it via their features.
+native-tls = "0.2"
 notify = "6"
 nvml-wrapper = "0.10"
-# HA control + entity catalog over REST. http-only for v1 (no TLS backend pulled in — the
-# supported v1 path is a LAN ws:// + http:// HA; wss/https is a future enhancement).
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# HA control + entity catalog over REST. native-tls enables https; self-signed certs are an
+# explicit per-config opt-in (HaConfig.insecure → danger_accept_invalid_certs).
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sysinfo = "0.33"
 tauri = { version = "2", features = ["devtools", "protocol-asset", "tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tokio = { version = "1", features = ["full"] }
-# HA WebSocket stream. Default features (connect/handshake) only — no TLS (ws:// for v1).
-tokio-tungstenite = "0.24"
+# HA WebSocket stream. native-tls handles wss:// (valid certs transparently via connect_async;
+# self-signed via connect_async_tls_with_config with an explicit insecure connector).
+tokio-tungstenite = { version = "0.24", features = ["connect", "handshake", "native-tls"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }

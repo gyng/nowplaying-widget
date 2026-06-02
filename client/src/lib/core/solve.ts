@@ -104,6 +104,79 @@ export function collectRenderables(
 	return out;
 }
 
+// One container's solved box, for drawing pane boundaries in the editor.
+export type ContainerBox = { id: string; rect: Rect; kind: Container['kind'] };
+
+/**
+ * Collect every flow-tree container's solved box (the root and its nested row/col/grid
+ * panes), so the designer can outline the layout structure. Group internals (def subtrees)
+ * are intentionally NOT descended into — only the monitor's own containers are surfaced.
+ * Pure; `solved` must come from solveMonitor/solveLayout (which now emit container boxes).
+ */
+export function collectContainerRects(monitor: MonitorLayout, solved: Solved): ContainerBox[] {
+	const out: ContainerBox[] = [];
+	const walk = (node: LayoutNode): void => {
+		if (!isContainer(node)) return;
+		const rect = solved.get(node.id);
+		if (rect) out.push({ id: node.id, rect, kind: node.kind });
+		for (const child of node.children) walk(child);
+	};
+	walk(monitor.root);
+	return out;
+}
+
+// Grid row count: the explicit `rows` (a minimum) grown to fit the children, at least 1 (so an
+// EMPTY grid still shows one row of columns).
+function gridRows(c: Container): number {
+	const cols = Math.max(1, c.cols ?? 1);
+	return Math.max(c.rows ?? 1, Math.ceil(c.children.length / cols), 1);
+}
+
+// Every cell rect of a grid container (cols × rows, row-major), mirroring solveGrid. Exported
+// so the designer can outline empty cells and highlight the drop-target cell.
+export function gridCellRects(c: Container, box: Rect): Rect[] {
+	const content = insetPad(box, c.pad);
+	const cols = Math.max(1, c.cols ?? 1);
+	const rows = gridRows(c);
+	const gap = c.gap ?? 0;
+	const cellW = Math.max(0, (content.w - gap * (cols - 1)) / cols);
+	const cellH = Math.max(0, (content.h - gap * (rows - 1)) / rows);
+	const cells: Rect[] = [];
+	for (let i = 0; i < cols * rows; i++) {
+		const col = i % cols;
+		const row = Math.floor(i / cols);
+		cells.push({
+			x: content.x + col * (cellW + gap),
+			y: content.y + row * (cellH + gap),
+			w: cellW,
+			h: cellH
+		});
+	}
+	return cells;
+}
+
+/**
+ * Empty grid cells across the flow tree (the trailing cells a grid has no child for), so the
+ * designer can outline where the next widgets land — including showing the columns of a grid
+ * that's still empty. Pure; needs container boxes from solveMonitor.
+ */
+export function collectGridPlaceholders(monitor: MonitorLayout, solved: Solved): Rect[] {
+	const out: Rect[] = [];
+	const walk = (node: LayoutNode): void => {
+		if (!isContainer(node)) return;
+		if (node.kind === 'grid') {
+			const box = solved.get(node.id);
+			if (box) {
+				const cells = gridCellRects(node, box);
+				for (let i = node.children.length; i < cells.length; i++) out.push(cells[i]);
+			}
+		}
+		for (const child of node.children) walk(child);
+	};
+	walk(monitor.root);
+	return out;
+}
+
 type Size = { w: number; h: number };
 
 // ---- public entry points -------------------------------------------------
@@ -241,6 +314,10 @@ function solveContainer(
 	library: Library | undefined,
 	out: Solved
 ): void {
+	// Record the container's own (outer) box — like a group leaf does — so the editor can
+	// outline + select panes, INCLUDING empty ones: a freshly added pane has no children yet
+	// and must still be visible/selectable to drop into (collectContainerRects).
+	out.set(prefix + c.id, { ...box });
 	const content = insetPad(box, c.pad);
 	if (c.children.length === 0) return;
 	if (c.kind === 'grid') {
@@ -321,7 +398,7 @@ function solveGrid(
 ): void {
 	const cols = Math.max(1, c.cols ?? 1);
 	const n = c.children.length;
-	const rows = Math.ceil(n / cols);
+	const rows = gridRows(c);
 	const gap = c.gap ?? 0;
 
 	const cellW = Math.max(0, (content.w - gap * (cols - 1)) / cols);
@@ -403,7 +480,7 @@ function intrinsicContainer(
 
 	if (c.kind === 'grid') {
 		const cols = Math.max(1, c.cols ?? 1);
-		const rows = Math.ceil(n / cols);
+		const rows = gridRows(c);
 		const count = horizontal ? cols : rows;
 		return padAlong + Math.max(...extents) * count + gap * (count - 1);
 	}
