@@ -10,6 +10,8 @@
     "core:window:allow-set-always-on-top",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-set-shadow",
+    "core:window:allow-set-decorations",
     "core:window:allow-show",
     "core:window:allow-current-monitor",
     "core:window:allow-available-monitors"

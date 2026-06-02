@@ -63,6 +63,7 @@
 	import { paletteItems } from './registry';
 	import type { LayoutOp } from './ops';
 	import { snapRectToPeers } from '../core/align';
+	import { rectsIntersect } from '../core/geometry';
 	import { sensorCatalog } from '../core/sensors';
 	import {
 		fillPrimaryMonitor,
@@ -202,6 +203,67 @@
 	// (and thus every instance) on each save.
 	let editingDefId: string | null = null;
 	let savedMonitor: MonitorLayout | null = null;
+
+	// Undo/redo (item 2): a snapshot history of the editable {monitor, library} pair. Every
+	// edit reassigns these to NEW objects (the tree ops are immutable — old nodes are never
+	// mutated), so a snapshot is just the current references; no deep clone needed. History is
+	// recorded at the COMMIT chokepoint (saveLayout) — transient drag `onChange` mutations don't
+	// save, so a whole drag coalesces into a single undo step instead of one per mouse move.
+	type Snap = { monitor: MonitorLayout; library: Library | undefined };
+	let undoStack: Snap[] = [];
+	let redoStack: Snap[] = [];
+	// The last committed snapshot; saveLayout pushes THIS to the undo stack when the layout has
+	// changed since, then advances it. Reset on load / monitor switch / def-edit boundary so undo
+	// never crosses those (you can't undo into another monitor's or another window's tree).
+	let lastSnap: Snap | null = null;
+	let historyReady = false;
+	$: canUndo = undoStack.length > 0;
+	$: canRedo = redoStack.length > 0;
+
+	function snap(): Snap {
+		return { monitor, library };
+	}
+
+	// Re-baseline history to the current layout (no undo entries across this point).
+	function resetHistory() {
+		undoStack = [];
+		redoStack = [];
+		lastSnap = snap();
+		historyReady = true;
+	}
+
+	// Commit point: if the layout changed since the last snapshot, push the previous snapshot
+	// for undo and clear the redo branch. Called at the top of saveLayout (monitor/library are
+	// already the post-edit values there). A no-op when nothing changed (e.g. a theme-only save).
+	function recordHistory() {
+		if (!historyReady) return;
+		if (lastSnap && monitor === lastSnap.monitor && library === lastSnap.library) return;
+		undoStack = [...undoStack, lastSnap ?? snap()].slice(-100);
+		redoStack = [];
+		lastSnap = snap();
+	}
+
+	function undo() {
+		if (!undoStack.length) return;
+		redoStack = [...redoStack, snap()];
+		const prev = undoStack[undoStack.length - 1];
+		undoStack = undoStack.slice(0, -1);
+		monitor = prev.monitor;
+		library = prev.library;
+		lastSnap = prev; // so the saveLayout below records nothing
+		saveLayout();
+	}
+
+	function redo() {
+		if (!redoStack.length) return;
+		undoStack = [...undoStack, snap()];
+		const next = redoStack[redoStack.length - 1];
+		redoStack = redoStack.slice(0, -1);
+		monitor = next.monitor;
+		library = next.library;
+		lastSnap = next;
+		saveLayout();
+	}
 
 	const hub = createTelemetryHub();
 	let unlisten: UnlistenFn | undefined;
@@ -344,6 +406,7 @@
 	}
 
 	async function reloadLayout() {
+		historyReady = false; // don't record the load itself (or its interim awaits) as edits
 		try {
 			const raw = await invoke<string | null>('load_layout');
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
@@ -366,6 +429,7 @@
 		} catch (err) {
 			console.warn('load_layout failed; using default layout', err);
 		}
+		resetHistory(); // re-baseline: undo starts fresh from the loaded layout
 	}
 
 	async function applyTheme() {
@@ -458,7 +522,30 @@
 	// Edit mode: tray "Edit layout" toggles it (or Ctrl+E while the window is focused).
 	// Entering edit mode disables click-through so you can drag/resize/use the inspector.
 	let editMode = false;
+	// `selectedId` is the PRIMARY selection (drives the inspector); `selectedIds` is the full
+	// set (selectId values) for marquee multi-select (item 3). A single click keeps both in
+	// sync ([id]); the marquee adds the rest. `selectedSet` is the membership lookup for the
+	// per-widget highlight in the markup.
 	let selectedId: string | null = null;
+	let selectedIds: string[] = [];
+	$: selectedSet = new Set(selectedIds);
+	// Keep the marquee set consistent with the many ops that set `selectedId` directly (group,
+	// add, reorder, click…) WITHOUT a reactive cycle: collapse the set to just the new primary.
+	// A marquee selection updates `lastPrimary` itself (in onMarqueeUp) so this no-ops and the
+	// multi-selection survives. The reactive references ONLY selectedId — selectedIds is written
+	// inside the function, never read in the `$:` line — so there's no selectedSet↔selectedIds loop.
+	let lastPrimary: string | null = null;
+	$: syncSelectionPrimary(selectedId);
+	function syncSelectionPrimary(id: string | null) {
+		if (id === lastPrimary) return;
+		lastPrimary = id;
+		selectedIds = id ? [id] : [];
+	}
+	// Rubber-band selection rectangle in CANVAS-space px (crisp, un-zoomed) while dragging on
+	// empty canvas; null when idle. `marqueeStart` is the canvas-space anchor.
+	let marquee: Rect | null = null;
+	let marqueeStart: { x: number; y: number } | null = null;
+	let marqueeAdditive = false;
 	const GRID = 8;
 	const ALIGN_THRESHOLD = 6;
 	let guideXs: number[] = [];
@@ -522,6 +609,43 @@
 			// Broadcast so every monitor's overlay toggles together, not just this one.
 			emit('toggle_edit');
 		}
+		// Undo/redo (item 2): only while editing this window's layout. Ctrl+Z undoes;
+		// Ctrl+Y or Ctrl+Shift+Z redoes. Ignored when a text field has focus so typing in the
+		// inspector/theme editor isn't hijacked.
+		if (!(studio || editMode)) return;
+		const target = event.target as HTMLElement | null;
+		if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+		const k = event.key.toLowerCase();
+		if (event.ctrlKey && k === 'z' && !event.shiftKey) {
+			event.preventDefault();
+			undo();
+			return;
+		} else if (event.ctrlKey && (k === 'y' || (k === 'z' && event.shiftKey))) {
+			event.preventDefault();
+			redo();
+			return;
+		}
+		// Multi-select editing (item 3): Delete removes the whole selection; arrow keys nudge
+		// every selected floating widget (Shift = a coarser, grid-sized step).
+		const hasSel = selectedIds.length > 0 || selectedId !== null;
+		if (!hasSel) return;
+		if (k === 'delete' || k === 'backspace') {
+			event.preventDefault();
+			deleteSelected();
+			return;
+		}
+		const step = event.shiftKey ? GRID : 1;
+		const nudge: Record<string, [number, number]> = {
+			arrowleft: [-step, 0],
+			arrowright: [step, 0],
+			arrowup: [0, -step],
+			arrowdown: [0, step]
+		};
+		const d = nudge[k];
+		if (d) {
+			event.preventDefault();
+			if (translateSelectedFloating(d[0], d[1])) saveLayout();
+		}
 	}
 
 	// Patch one floating primitive leaf (by id) and re-publish `monitor` reactively.
@@ -554,6 +678,19 @@
 
 	function onChange(event: CustomEvent<{ id: string; rect: WidgetInstance['rect'] }>) {
 		const { id, rect } = event.detail;
+		// Group move (item 3): when the dragged widget is part of a multi-selection, translate the
+		// whole set by its per-frame delta (and skip snapping — snapping a group to peers is odd).
+		// Strictly gated on >1 selected so the single-drag path is byte-identical to before.
+		if (selectedIds.length > 1 && selectedIds.includes(id)) {
+			const cur = monitor.floating.find((l) => l.id === id);
+			const curRect = cur && !isGroup(cur.unit) ? (cur.unit as WidgetInstance).rect : null;
+			if (curRect) {
+				guideXs = [];
+				guideYs = [];
+				translateSelectedFloating(rect.x - curRect.x, rect.y - curRect.y);
+				return;
+			}
+		}
 		const peers = renderables.filter((r) => r.movable && r.id !== id).map((r) => r.rect);
 		const snapped = snapRectToPeers(rect, peers, ALIGN_THRESHOLD);
 		guideXs = snapped.guideXs;
@@ -664,6 +801,7 @@
 	// `extra` (move-to-monitor) appends a floating leaf to ANOTHER monitor's saved layout in
 	// the same write — used to relocate a widget to a different display from the studio.
 	async function saveLayout(extra?: { key: string; leaf: Leaf }) {
+		recordHistory(); // snapshot this committed edit for undo (no-op if nothing changed)
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
@@ -707,6 +845,105 @@
 
 	function onSelect(event: CustomEvent<{ id: string }>) {
 		selectedId = event.detail.id;
+		selectedIds = [event.detail.id]; // a plain click collapses any marquee selection
+	}
+
+	// --- marquee multi-select (item 3): drag on empty canvas to rubber-band a selection ---
+
+	// A canvas-space point → world-space (undo pan + zoom); world is where `solved`/renderable
+	// rects live. Mirrors toWorld() but starts from already-canvas-relative coords.
+	function canvasToWorld(cx: number, cy: number): { x: number; y: number } {
+		return { x: (cx - panX) / zoom, y: (cy - panY) / zoom };
+	}
+
+	function onCanvasMouseDown(event: MouseEvent) {
+		if (!editMode || event.button !== 0) return;
+		// Start a marquee only on the empty background. The `.canvas` and `.world` layers are the
+		// only background elements with pointer events; widgets (.widget), the tool bars/rails and
+		// menus all have their own pointer-events, and the frame/bounds/cells are pointer-events:none
+		// (clicks pass through them to `.world`). So a positive whitelist cleanly excludes the chrome.
+		const t = event.target as HTMLElement | null;
+		if (!t || !(t.classList.contains('canvas') || t.classList.contains('world'))) return;
+		const p = toCanvas(event.clientX, event.clientY);
+		marqueeStart = p;
+		marquee = { x: p.x, y: p.y, w: 0, h: 0 };
+		marqueeAdditive = event.shiftKey;
+		if (!marqueeAdditive) {
+			selectedId = null;
+			selectedIds = [];
+		}
+		window.addEventListener('mousemove', onMarqueeMove);
+		window.addEventListener('mouseup', onMarqueeUp);
+	}
+
+	function onMarqueeMove(event: MouseEvent) {
+		if (!marqueeStart) return;
+		const p = toCanvas(event.clientX, event.clientY);
+		marquee = {
+			x: Math.min(p.x, marqueeStart.x),
+			y: Math.min(p.y, marqueeStart.y),
+			w: Math.abs(p.x - marqueeStart.x),
+			h: Math.abs(p.y - marqueeStart.y)
+		};
+	}
+
+	function onMarqueeUp() {
+		window.removeEventListener('mousemove', onMarqueeMove);
+		window.removeEventListener('mouseup', onMarqueeUp);
+		const m = marquee;
+		marquee = null;
+		marqueeStart = null;
+		if (!m || (m.w < 3 && m.h < 3)) return; // a click, not a drag → leave selection as cleared
+		// Convert the canvas-space band to world space and collect every movable widget it covers
+		// (by selectId, so a group counts once even though it renders several primitives).
+		const a = canvasToWorld(m.x, m.y);
+		const b = canvasToWorld(m.x + m.w, m.y + m.h);
+		const box: Rect = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+		const hits = renderables.filter((r) => r.movable && rectsIntersect(r.rect, box));
+		const ids = new Set(marqueeAdditive ? selectedIds : []);
+		for (const r of hits) ids.add(r.selectId);
+		selectedIds = [...ids];
+		selectedId = selectedIds[selectedIds.length - 1] ?? null;
+		lastPrimary = selectedId; // mark as already-synced so the reactive keeps the multi-selection
+	}
+
+	// Translate every selected FLOATING widget by (dx, dy) in world px (flow widgets are placed
+	// by the solver and can't be freely moved). Primitives carry x/y in their rect; group leaves
+	// carry it in config.x/y (see floatingLeafFrom). Does NOT save — callers decide when to commit.
+	function translateSelectedFloating(dx: number, dy: number): boolean {
+		const ids = new Set(selectedIds.length ? selectedIds : selectedId ? [selectedId] : []);
+		if (!ids.size || (dx === 0 && dy === 0)) return false;
+		let changed = false;
+		monitor = {
+			...monitor,
+			floating: monitor.floating.map((l) => {
+				if (!ids.has(l.id)) return l;
+				changed = true;
+				if (isGroup(l.unit)) {
+					const g = l.unit;
+					const gx = typeof g.config?.x === 'number' ? g.config.x : 0;
+					const gy = typeof g.config?.y === 'number' ? g.config.y : 0;
+					return leaf({ ...g, config: { ...(g.config ?? {}), x: gx + dx, y: gy + dy } });
+				}
+				const u = l.unit as WidgetInstance;
+				return leaf({ ...u, rect: { ...u.rect, x: u.rect.x + dx, y: u.rect.y + dy } });
+			})
+		};
+		return changed;
+	}
+
+	// Delete every selected widget (multi-delete). One saveLayout → one undo step.
+	function deleteSelected() {
+		const ids = selectedIds.length ? selectedIds : selectedId ? [selectedId] : [];
+		if (!ids.length) return;
+		for (const id of ids) {
+			monitor = monitor.floating.some((l) => l.id === id)
+				? { ...monitor, floating: monitor.floating.filter((l) => l.id !== id) }
+				: { ...monitor, root: removeNode(monitor.root, id) };
+		}
+		selectedId = null;
+		selectedIds = [];
+		saveLayout();
 	}
 
 	// --- right-click context menu (5d, in-editor) ---
@@ -924,6 +1161,7 @@
 			? { ...monitor, floating: monitor.floating.filter((l) => l.id !== id) }
 			: { ...monitor, root: removeNode(monitor.root, id) };
 		if (selectedId === id) selectedId = null;
+		if (selectedIds.includes(id)) selectedIds = selectedIds.filter((s) => s !== id);
 	}
 
 	function reorder(id: string, delta: number) {
@@ -1144,6 +1382,7 @@
 		monitor = { root: scopedRoot, floating: [] };
 		editingDefId = defId;
 		selectedId = null;
+		resetHistory(); // undo within the def editor is scoped to the def tree
 	}
 
 	// Write the scoped editing tree back onto its def (propagates to every instance).
@@ -1163,6 +1402,7 @@
 		savedMonitor = null;
 		editingDefId = null;
 		selectedId = null;
+		resetHistory(); // back on the real monitor; undo doesn't reach into the def session
 		saveLayout();
 	}
 
@@ -1223,6 +1463,7 @@
 	bind:clientWidth={stageW}
 	bind:clientHeight={stageH}
 	on:contextmenu={onCanvasContextMenu}
+	on:mousedown={onCanvasMouseDown}
 	on:wheel={onWheel}
 >
 	<StyleLayer css={styleCss} />
@@ -1265,7 +1506,7 @@
 				defId={r.defId}
 				groupId={r.groupId}
 				{editMode}
-				selected={r.selectId === selectedId}
+				selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
 				grid={GRID}
 				scale={studio ? zoom : 1}
 				on:change={onChange}
@@ -1298,6 +1539,14 @@
 			{/if}
 		{/if}
 	</div>
+	<!-- Rubber-band selection rectangle (item 3), in canvas-space so its border stays 1px
+	     regardless of zoom. Drawn above the world layer. -->
+	{#if marquee}
+		<div
+			class="marquee"
+			style="left: {marquee.x}px; top: {marquee.y}px; width: {marquee.w}px; height: {marquee.h}px"
+		/>
+	{/if}
 	{#if editMode}
 		{#if studio}
 			<div class="studio-bar">
@@ -1307,6 +1556,13 @@
 						<option value={o.key} selected={o.key === myMonitor}>{o.label}</option>
 					{/each}
 				</select>
+				<span class="lbl">Edit</span>
+				<button type="button" title="Undo (Ctrl+Z)" disabled={!canUndo} on:click={undo}
+					>↶ Undo</button
+				>
+				<button type="button" title="Redo (Ctrl+Y)" disabled={!canRedo} on:click={redo}
+					>↷ Redo</button
+				>
 				<span class="lbl">Zoom</span>
 				<button type="button" on:click={fit}>Fit</button>
 				<span class="zlevel">{Math.round(zoom * 100)}%</span>
@@ -1554,6 +1810,16 @@
 		z-index: 3;
 	}
 
+	/* Rubber-band selection rectangle (item 3). Above the world/widgets, below the tool bars. */
+	.marquee {
+		position: absolute;
+		box-sizing: border-box;
+		border: 1px dashed rgb(119, 196, 211);
+		background: rgba(119, 196, 211, 0.1);
+		pointer-events: none;
+		z-index: 6;
+	}
+
 	.ctx-backdrop {
 		position: fixed;
 		inset: 0;
@@ -1704,6 +1970,12 @@
 
 	.studio-bar button:hover {
 		border-color: rgb(119, 196, 211);
+	}
+
+	.studio-bar button:disabled {
+		opacity: 0.4;
+		cursor: default;
+		border-color: #333;
 	}
 
 	/* Item 5: the theme editor panel (a floating modal over the stage). */

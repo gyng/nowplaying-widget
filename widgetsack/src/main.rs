@@ -37,7 +37,19 @@ async fn main() -> Result<(), ()> {
     let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(1);
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        // Persist window size/position, but DO NOT let the plugin manage DECORATIONS: our
+        // overlays are intentionally borderless (config `decorations:false`), and the default
+        // `StateFlags::all()` would restore a stale saved `decorations:true` at startup —
+        // re-adding a title bar/border that our JS never counters (it only re-asserts shadow).
+        // Excluding the flag makes config the single source of truth for decorations.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::DECORATIONS,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             sessions: Default::default(),

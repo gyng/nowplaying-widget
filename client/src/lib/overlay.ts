@@ -50,13 +50,16 @@ export async function fillPrimaryMonitor(): Promise<void> {
 	const win = getCurrentWindow();
 	await win.setPosition(new PhysicalPosition(monitor.position.x, monitor.position.y));
 	await win.setSize(new PhysicalSize(monitor.size.width, monitor.size.height));
-	// Re-assert no shadow AFTER the resize: on Windows an undecorated window keeps a thin
+	// Re-assert borderless AFTER the resize: on Windows an undecorated window keeps a thin
 	// accent-coloured border (tauri-apps/discussions/9469), and setSize can revive it even when
-	// the config has shadow:false. This is what leaves a line along an edge.
+	// the config has shadow:false. Also force decorations off — the window-state plugin can
+	// restore a stale saved `decorations:true` at startup, which only this (or the Rust-side
+	// StateFlags exclusion) undoes.
 	try {
+		await win.setDecorations(false);
 		await win.setShadow(false);
 	} catch (err) {
-		console.warn('setShadow failed', err);
+		console.warn('setDecorations/setShadow failed', err);
 	}
 }
 
@@ -189,7 +192,9 @@ export async function spawnSecondaryOverlays(): Promise<void> {
 			try {
 				await w.setPosition(new PhysicalPosition(m.position.x, m.position.y));
 				await w.setSize(new PhysicalSize(m.size.width, m.size.height));
-				// Re-assert after the resize (see fillPrimaryMonitor) so no border line remains.
+				// Re-assert after the resize (see fillPrimaryMonitor) so no border/title bar
+				// remains — the window-state plugin can restore a stale decorations:true.
+				await w.setDecorations(false);
 				await w.setShadow(false);
 				await w.setIgnoreCursorEvents(true);
 				await w.show();

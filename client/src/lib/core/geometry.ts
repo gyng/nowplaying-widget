@@ -13,6 +13,12 @@ export function moveRect(rect: Rect, dx: number, dy: number, grid = 1): Rect {
 	return { ...rect, x: snap(rect.x + dx, grid), y: snap(rect.y + dy, grid) };
 }
 
+/** True when rects `a` and `b` overlap. Edges merely touching do NOT count as overlap, so a
+ * zero-area marquee selects nothing. Used by the studio's rubber-band multi-select. */
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+	return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 /** Resize a rect by dragging `handle` by (dx, dy). Only the moved edges snap;
