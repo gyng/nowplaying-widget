@@ -12,6 +12,7 @@
 		WidgetDef,
 		WidgetInstance
 	} from '../core/layoutTree';
+	import type { ConfigField } from '../core/widget';
 	import type { LayoutOp } from './ops';
 
 	export let widget: WidgetInstance | null = null;
@@ -21,7 +22,8 @@
 	export let defs: WidgetDef[] = []; // the whole library (for insert / delete)
 	export let tokens: Record<string, string> = {}; // global token overrides (7d)
 	export let placement: 'flow' | 'floating' | null = null;
-	export let types: string[] = [];
+	export let widgetTypes: { type: string; label: string }[] = []; // palette (8a)
+	export let configFields: ConfigField[] = []; // typed config schema for the selected widget (8a)
 	export let sensors: string[] = [];
 
 	// The common tokens surfaced in the Theme panel (the rest are set via theme CSS).
@@ -45,11 +47,15 @@
 
 	let configText = '';
 	let configError = false;
-	let lastId: string | null = null;
+	let lastConfig: Record<string, unknown> | null = null;
 
-	// Reset the config editor only when the selected widget changes (not per edit).
-	$: if (widget && widget.id !== lastId) {
-		lastId = widget.id;
+	// Re-sync the raw-JSON box whenever the config object changes by reference — i.e. on
+	// widget switch AND on every typed-field edit (setConfig makes a new config object).
+	// This keeps the escape-hatch textarea in step with the schema fields, so committing
+	// the JSON can't silently revert a field edit. Typing in the textarea doesn't change
+	// widget.config until commit, so an in-progress edit is never clobbered.
+	$: if (widget && widget.config !== lastConfig) {
+		lastConfig = widget.config;
 		configText = JSON.stringify(widget.config, null, 2);
 		configError = false;
 	}
@@ -57,6 +63,15 @@
 	function patchWidget(patch: Partial<WidgetInstance>) {
 		if (widget) op({ op: 'patchWidget', id: widget.id, patch });
 	}
+
+	function setConfig(key: string, value: unknown) {
+		if (widget) patchWidget({ config: { ...widget.config, [key]: value } });
+	}
+
+	// String / boolean views of a config value (avoids `as` casts in the template, which
+	// Svelte's parser rejects).
+	const cfgStr = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
+	const cfgBool = (v: unknown): boolean => !!v;
 
 	function patchContainer(patch: Partial<Container>) {
 		if (container) op({ op: 'patchContainer', id: container.id, patch });
@@ -121,8 +136,10 @@
 <div class="inspector">
 	<div class="palette">
 		<span class="hd">Add</span>
-		{#each types as t (t)}
-			<button type="button" on:click={() => op({ op: 'addWidget', widgetType: t })}>{t}</button>
+		{#each widgetTypes as w (w.type)}
+			<button type="button" on:click={() => op({ op: 'addWidget', widgetType: w.type })}
+				>{w.label}</button
+			>
 		{/each}
 	</div>
 
@@ -248,6 +265,42 @@
 					{/each}
 				</div>
 			{/if}
+			{#each configFields as f (f.key)}
+				<label class="full">
+					{f.label}
+					{#if f.kind === 'number'}
+						<input
+							type="number"
+							value={cfgStr(widget.config[f.key])}
+							on:input={(e) =>
+								setConfig(
+									f.key,
+									e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)
+								)}
+						/>
+					{:else if f.kind === 'toggle'}
+						<input
+							type="checkbox"
+							checked={cfgBool(widget.config[f.key])}
+							on:change={(e) => setConfig(f.key, e.currentTarget.checked)}
+						/>
+					{:else if f.kind === 'select'}
+						<select
+							value={cfgStr(widget.config[f.key])}
+							on:change={(e) => setConfig(f.key, e.currentTarget.value)}
+						>
+							{#each f.options as o (o)}<option value={o}>{o}</option>{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={cfgStr(widget.config[f.key])}
+							placeholder={f.kind === 'color' ? 'css color' : ''}
+							on:input={(e) => setConfig(f.key, e.currentTarget.value || undefined)}
+						/>
+					{/if}
+				</label>
+			{/each}
 			<label class="full">
 				config (JSON)
 				<textarea

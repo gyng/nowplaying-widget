@@ -4,6 +4,7 @@
 
 import * as tauriEvent from '@tauri-apps/api/event';
 import type { TelemetryBatch, TelemetryHub } from '../core/telemetry';
+import { registerSource, type SensorSource } from '../core/plugin';
 
 export const TELEMETRY_EVENT = 'telemetry';
 
@@ -13,3 +14,12 @@ export function startTelemetrySource(hub: TelemetryHub): Promise<tauriEvent.Unli
 		hub.ingestBatch(ev.payload);
 	});
 }
+
+/** The built-in `system` source: the Rust `telemetry` feed as a SensorSource (Phase 8b).
+ * Importing this module registers it; plugins (e.g. Home Assistant) register their own. */
+export const systemSource: SensorSource = {
+	id: 'system',
+	start: (hub) => startTelemetrySource(hub)
+};
+
+registerSource(systemSource);

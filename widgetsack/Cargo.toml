@@ -15,14 +15,20 @@ rust-version = "1.90"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+futures-util = "0.3"
 notify = "6"
 nvml-wrapper = "0.10"
+# HA control + entity catalog over REST. http-only for v1 (no TLS backend pulled in — the
+# supported v1 path is a LAN ws:// + http:// HA; wss/https is a future enhancement).
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sysinfo = "0.33"
 tauri = { version = "2", features = ["devtools", "protocol-asset", "tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tokio = { version = "1", features = ["full"] }
+# HA WebSocket stream. Default features (connect/handshake) only — no TLS (ws:// for v1).
+tokio-tungstenite = "0.24"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }

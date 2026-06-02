@@ -20,6 +20,7 @@ use crate::state::updater;
 pub mod clickthrough;
 pub mod command;
 pub mod event;
+pub mod ha;
 pub mod listener;
 pub mod sensors;
 pub mod state;
@@ -42,6 +43,7 @@ async fn main() -> Result<(), ()> {
             sessions: Default::default(),
         })
         .manage(clickthrough::InteractiveRects::default())
+        .manage(ha::HaState::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
@@ -50,7 +52,13 @@ async fn main() -> Result<(), ()> {
             command::load_theme,
             command::save_theme,
             clickthrough::set_interactive_rects,
-            clickthrough::current_work_area
+            clickthrough::current_work_area,
+            ha::ha_connect,
+            ha::ha_disconnect,
+            ha::list_ha_entities,
+            ha::ha_call_service,
+            ha::save_ha_config,
+            ha::ha_config_status
         ])
         .setup(|app| {
             tauri::async_runtime::spawn(async move {

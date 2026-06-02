@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MONITOR, createWidget, defaultLayout, parseLayout } from './layout';
+import { DEFAULT_MONITOR, defaultLayout, parseLayout } from './layout';
 
 const widget = {
 	id: 'cpu-1',
@@ -44,28 +44,4 @@ describe('parseLayout', () => {
 	});
 });
 
-describe('createWidget', () => {
-	it('builds a sensor-bound gauge with defaults', () => {
-		const w = createWidget('gauge', 'g1');
-		expect(w).toMatchObject({ id: 'g1', type: 'gauge', sensor: 'cpu.total' });
-		expect(w.config).toMatchObject({ unit: '%', max: 100 });
-	});
-
-	it('builds a self-sourcing clock without a sensor', () => {
-		const w = createWidget('clock', 'c1');
-		expect(w.sensor).toBeUndefined();
-		expect(w.config).toHaveProperty('format');
-	});
-
-	it('falls back to a generic widget for unknown types', () => {
-		const w = createWidget('mystery', 'm1');
-		expect(w).toMatchObject({ id: 'm1', type: 'mystery', config: {} });
-		expect(w.rect.w).toBeGreaterThan(0);
-	});
-
-	it('builds an interactive button', () => {
-		const w = createWidget('button', 'b1');
-		expect(w.type).toBe('button');
-		expect(w.interactive).toBe(true);
-	});
-});
+// createWidget moved to ./widget.ts (the standard widget API, 8a) — see widget.test.ts.

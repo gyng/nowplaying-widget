@@ -7,6 +7,7 @@
 	import type { TelemetryHub } from '../core/telemetry';
 	import type { Rect, WidgetInstance } from '../core/layout';
 	import { moveRect, resizeRect, type ResizeHandle } from '../core/geometry';
+	import { getMeta } from '../core/widget';
 	import { registry } from './registry';
 	import { sensorStore } from './sensorStore';
 
@@ -38,7 +39,15 @@
 		dragover: { id: string; x: number; y: number };
 		drop: { id: string; x: number; y: number };
 		contextmenu: { id: string; x: number; y: number };
+		control: { id: string; sensor?: string; domain: string; service: string };
 	}>();
+
+	// A plugin widget (e.g. an HA light) asks to actuate; the host adds its identity and
+	// bubbles up — the side-effecting Tauri call lives in the container (Canvas), not here
+	// and not in the prop-only meter (AGENTS.md §5/§6).
+	function onControl(event: CustomEvent<{ domain: string; service: string }>) {
+		dispatch('control', { id: instance.id, sensor: instance.sensor, ...event.detail });
+	}
 
 	function onContextMenu(event: MouseEvent) {
 		if (!editMode) return;
@@ -51,7 +60,12 @@
 	// A sentinel id keeps `$store` a valid store for self-sourcing widgets (no sensor).
 	$: store = sensorStore(hub, instance.sensor ?? '__none__');
 	$: comp = registry[instance.type];
+	// How this widget type binds to its sensor drives what value-shape the meter gets
+	// (Phase 8). scalar/series stay byte-identical to before (value=number + history);
+	// json/text widgets (HA) get the raw SensorValue payload as `value`.
+	$: binds = getMeta(instance.type)?.binds ?? 'scalar';
 	$: scalar = $store.value && $store.value.kind === 'scalar' ? $store.value.value : null;
+	$: rawValue = $store.value ? $store.value.value : null;
 	$: history = $store.history;
 
 	let action: 'move' | 'flow' | ResizeHandle | null = null;
@@ -137,10 +151,18 @@
 	on:contextmenu={onContextMenu}
 >
 	{#if comp}
-		{#if instance.sensor}
-			<svelte:component this={comp} value={scalar} {history} {...instance.config} />
+		{#if !instance.sensor || binds === 'none'}
+			<svelte:component this={comp} {...instance.config} on:control={onControl} />
+		{:else if binds === 'json' || binds === 'text'}
+			<svelte:component this={comp} value={rawValue} {...instance.config} on:control={onControl} />
 		{:else}
-			<svelte:component this={comp} {...instance.config} />
+			<svelte:component
+				this={comp}
+				value={scalar}
+				{history}
+				{...instance.config}
+				on:control={onControl}
+			/>
 		{/if}
 	{:else}
 		<div class="missing">?{instance.type}</div>

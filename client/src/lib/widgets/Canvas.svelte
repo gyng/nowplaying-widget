@@ -10,14 +10,11 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { createTelemetryHub } from '../core/telemetry';
-	import { startTelemetrySource } from '../telemetry/source';
-	import {
-		DEFAULT_MONITOR,
-		WIDGET_TYPES,
-		createWidget,
-		type Rect,
-		type WidgetInstance
-	} from '../core/layout';
+	import { startAllSources, sourceCatalogIds } from '../core/plugin';
+	import '../telemetry/source'; // side-effect: registers the built-in `system` source
+	import './plugins/home-assistant'; // side-effect: registers the Home Assistant plugin
+	import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
+	import { createWidget, getMeta } from '../core/widget';
 	import {
 		container,
 		emptyRoot,
@@ -56,6 +53,7 @@
 	import Inspector from './Inspector.svelte';
 	import Outline from './Outline.svelte';
 	import StyleLayer from './StyleLayer.svelte';
+	import { paletteItems } from './registry';
 	import type { LayoutOp } from './ops';
 	import { snapRectToPeers } from '../core/align';
 	import { sensorCatalog } from '../core/sensors';
@@ -71,6 +69,9 @@
 		studioMonitorOptions,
 		syncInteractiveRects
 	} from '../overlay';
+
+	// The widget palette (built-ins + any registered plugin widgets), with labels (8a).
+	const widgetTypes = paletteItems();
 
 	// Studio mode (5s): a normal window that edits the primary monitor's layout (opaque,
 	// always in edit mode, no overlay fill/click-through). Set by the /studio route.
@@ -268,7 +269,9 @@
 			? 'flow'
 			: null
 	) as 'flow' | 'floating' | null;
-	$: sensors = sensorCatalog(selectedWidget ? hub.sensorIds() : []);
+	$: sensors = sensorCatalog(selectedWidget ? [...hub.sensorIds(), ...sourceCatalogIds()] : []);
+	// The selected widget's typed config schema (8a); the raw-JSON box stays as the fallback.
+	$: configFields = selectedWidget ? getMeta(selectedWidget.type)?.configFields ?? [] : [];
 
 	// Interactive hit rects use the SOLVED position (flow widgets aren't at unit.rect).
 	function interactiveItems(): { rect: Rect; interactive?: boolean }[] {
@@ -322,7 +325,7 @@
 
 	onMount(async () => {
 		await updateWorkArea();
-		unlisten = await startTelemetrySource(hub);
+		unlisten = await startAllSources(hub); // built-in `system` + any plugin sources
 		await reloadLayout();
 		// Live-reload external edits to widgets.json (ignored while actively editing).
 		unlistenLayout = await listen('layout_changed', () => {
@@ -554,6 +557,21 @@
 		if (!editMode) return;
 		event.preventDefault();
 		menu = { x: event.clientX, y: event.clientY, id: '__canvas__' };
+	}
+	// A plugin widget asked to actuate (e.g. an HA light toggle). The target entity is the
+	// widget's sensor minus the `ha.` prefix; the token stays server-side (Phase 8c). Ignored
+	// in edit mode — the drag overlay swallows clicks there, so this only fires when passive.
+	async function onWidgetControl(
+		event: CustomEvent<{ id: string; sensor?: string; domain: string; service: string }>
+	) {
+		const { sensor, domain, service } = event.detail;
+		if (!sensor || !sensor.startsWith('ha.')) return;
+		const entity_id = sensor.slice('ha.'.length);
+		try {
+			await invoke('ha_call_service', { domain, service, data: { entity_id } });
+		} catch {
+			// Non-fatal: the next state_changed telemetry tick reconciles the widget anyway.
+		}
 	}
 	const closeMenu = () => (menu = null);
 	function menuAct(op: LayoutOp) {
@@ -958,6 +976,7 @@
 			on:dragover={onDragOver}
 			on:drop={onDrop}
 			on:contextmenu={onWidgetContextMenu}
+			on:control={onWidgetControl}
 		/>
 	{/each}
 	{#if editMode}
@@ -1011,7 +1030,8 @@
 			defs={library?.defs ?? []}
 			tokens={tokenOverrides}
 			{placement}
-			types={WIDGET_TYPES}
+			{widgetTypes}
+			{configFields}
 			{sensors}
 			on:op={(e) => handleOp(e.detail)}
 		/>
