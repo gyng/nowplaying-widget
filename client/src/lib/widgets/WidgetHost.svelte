@@ -81,6 +81,7 @@
 	let ghostDy = 0;
 
 	function begin(kind: 'move' | ResizeHandle, event: PointerEvent) {
+		if (event.button !== 0) return; // left-button only; middle-drag is reserved for panning
 		if (!editMode) return;
 		dispatch('select', { id: selectId });
 		if (!movable) {

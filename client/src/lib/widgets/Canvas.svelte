@@ -644,6 +644,13 @@
 		// editor isn't hijacked (undo/redo there should be the field's own).
 		const target = event.target as HTMLElement | null;
 		if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+		// Hold Space to pan (studio): a left-drag then pans from anywhere. Skip when a button is
+		// focused so Space still activates it. Cleared on keyup.
+		if (studio && event.code === 'Space' && target?.tagName !== 'BUTTON') {
+			event.preventDefault();
+			spaceDown = true;
+			return;
+		}
 		if (event.ctrlKey && k === 'z' && !event.shiftKey) {
 			event.preventDefault();
 			undo();
@@ -674,6 +681,10 @@
 			event.preventDefault();
 			if (translateSelectedFloating(d[0], d[1])) saveLayout();
 		}
+	}
+
+	function onKeyup(event: KeyboardEvent) {
+		if (event.code === 'Space') spaceDown = false;
 	}
 
 	// Patch one floating primitive leaf (by id) and re-publish `monitor` reactively.
@@ -951,13 +962,30 @@
 	}
 
 	function onCanvasMouseDown(event: MouseEvent) {
-		if (!editMode || event.button !== 0) return;
-		// Start a marquee only on the empty background. The `.canvas` and `.world` layers are the
-		// only background elements with pointer events; widgets (.widget), the tool bars/rails and
-		// menus all have their own pointer-events, and the frame/bounds/cells are pointer-events:none
-		// (clicks pass through them to `.world`). So a positive whitelist cleanly excludes the chrome.
+		if (!editMode) return;
+		// Pan from ANYWHERE (studio): a middle-button drag, or a left drag while Space is held —
+		// works over widgets and when zoomed past the stage (no margin). `panmode` makes widgets
+		// click-through while Space is held so the press lands on the stage, not a widget.
+		if (studio && (event.button === 1 || (event.button === 0 && spaceDown))) {
+			event.preventDefault();
+			startPan(event);
+			return;
+		}
+		if (event.button !== 0) return;
+		// The `.canvas` and `.world` layers are the only background elements with pointer events;
+		// widgets (.widget), the tool bars/rails and menus have their own, and the frame/bounds/cells
+		// are pointer-events:none (clicks pass through them to `.world`). The scaled `.world` only
+		// covers the monitor box, so a press on the bare `.canvas` is OUTSIDE the monitor (the margin).
 		const t = event.target as HTMLElement | null;
-		if (!t || !(t.classList.contains('canvas') || t.classList.contains('world'))) return;
+		const onWorld = !!t?.classList.contains('world');
+		const onCanvas = !!t?.classList.contains('canvas');
+		if (!onWorld && !onCanvas) return;
+		// Studio: dragging the margin (outside the monitor) pans the view; dragging inside the
+		// monitor marquee-selects. The overlay has no pan, so it always marquees.
+		if (studio && onCanvas) {
+			startPan(event);
+			return;
+		}
 		const p = toCanvas(event.clientX, event.clientY);
 		marqueeStart = p;
 		marquee = { x: p.x, y: p.y, w: 0, h: 0 };
@@ -968,6 +996,26 @@
 		}
 		window.addEventListener('mousemove', onMarqueeMove);
 		window.addEventListener('mouseup', onMarqueeUp);
+	}
+
+	// Pan the view by dragging (margin-drag, middle-drag, or Space+drag). The pan offset is in
+	// canvas-space px, so it tracks the cursor 1:1.
+	let panStart: { x: number; y: number; panX: number; panY: number } | null = null;
+	let spaceDown = false; // Space held → pan mode (Figma-style)
+	function startPan(event: MouseEvent) {
+		panStart = { x: event.clientX, y: event.clientY, panX, panY };
+		window.addEventListener('mousemove', onPanMove);
+		window.addEventListener('mouseup', onPanUp);
+	}
+	function onPanMove(event: MouseEvent) {
+		if (!panStart) return;
+		panX = panStart.panX + (event.clientX - panStart.x);
+		panY = panStart.panY + (event.clientY - panStart.y);
+	}
+	function onPanUp() {
+		window.removeEventListener('mousemove', onPanMove);
+		window.removeEventListener('mouseup', onPanUp);
+		panStart = null;
 	}
 
 	function onMarqueeMove(event: MouseEvent) {
@@ -1630,12 +1678,14 @@
 	}
 </script>
 
-<svelte:window on:keydown={onKeydown} on:resize={updateWorkArea} />
+<svelte:window on:keydown={onKeydown} on:keyup={onKeyup} on:resize={updateWorkArea} />
 
 <div
 	class="canvas"
 	class:edit={editMode}
 	class:studio
+	class:panning={panStart !== null}
+	class:panmode={spaceDown}
 	bind:this={canvasEl}
 	bind:clientWidth={stageW}
 	bind:clientHeight={stageH}
@@ -1900,6 +1950,20 @@
 
 	.canvas.edit {
 		pointer-events: auto;
+	}
+
+	/* Panning the view: margin-drag / middle-drag / Space+drag. While Space is held (panmode) the
+	   cursor shows grab and widgets are click-through, so the press lands on the stage to pan. */
+	.canvas.studio.panmode {
+		cursor: grab;
+	}
+
+	.canvas.studio.panmode :global(.widget) {
+		pointer-events: none;
+	}
+
+	.canvas.studio.panning {
+		cursor: grabbing;
 	}
 
 	/* Studio: a normal opaque window (not a transparent desktop overlay). The canvas is the
