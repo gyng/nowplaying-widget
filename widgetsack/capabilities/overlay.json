@@ -13,6 +13,8 @@
     "core:window:allow-set-shadow",
     "core:window:allow-set-decorations",
     "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
     "core:window:allow-current-monitor",
     "core:window:allow-available-monitors"
   ]

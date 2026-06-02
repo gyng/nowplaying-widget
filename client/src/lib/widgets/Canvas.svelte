@@ -23,6 +23,7 @@
 		isGroup,
 		isLeaf,
 		leaf,
+		monitorHasWidgets,
 		type Container,
 		type Group,
 		type Leaf,
@@ -75,8 +76,9 @@
 		monitorParam,
 		monitorWorkArea,
 		openStudio,
+		reconcileOverlays,
 		setClickThrough,
-		spawnSecondaryOverlays,
+		setMainWindowVisible,
 		studioMonitorOptions,
 		syncInteractiveRects
 	} from '../overlay';
@@ -502,13 +504,26 @@
 		await reloadLayout();
 	}
 
+	// Primary main window only: reconcile per-monitor overlays against the saved layout (spawn for
+	// populated monitors, close emptied ones) and hide THIS window when the primary (`default`) has
+	// no widgets — so a monitor with nothing on it carries no overlay.
+	async function syncPrimaryOverlays() {
+		await reconcileOverlays();
+		await setMainWindowVisible(monitorHasWidgets(monitor));
+	}
+
 	onMount(async () => {
 		await updateWorkArea();
 		unlisten = await startAllSources(hub); // built-in `system` + any plugin sources
 		await reloadLayout();
-		// Live-reload external edits to widgets.json (ignored while actively editing).
+		// Live-reload external edits to widgets.json (ignored while actively editing). On the primary
+		// main window, also reconcile overlays + own visibility as monitors gain/lose widgets.
 		unlistenLayout = await listen('layout_changed', () => {
-			if (!editMode) reloadLayout().then(syncRects);
+			if (editMode) return;
+			reloadLayout().then(() => {
+				syncRects();
+				if (!monitorParam()) syncPrimaryOverlays();
+			});
 		});
 		// Themes (Phase 7c): list them + live-reload the active theme when the folder changes.
 		themeList = await listThemes();
@@ -526,7 +541,7 @@
 		// the studio's primary→`default` mapping (otherwise its layout lands on the wrong screen).
 		if (!monitorParam()) {
 			await fillPrimaryMonitor();
-			await spawnSecondaryOverlays();
+			await syncPrimaryOverlays(); // spawn overlays only for monitors with widgets; hide self if empty
 			// The tray "Open designer" item asks the primary to open the studio window.
 			unlistenStudio = await listen('open_studio', () => openStudio());
 		}

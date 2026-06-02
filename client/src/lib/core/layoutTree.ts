@@ -106,6 +106,16 @@ export function isLeaf(node: LayoutNode): node is Leaf {
 	return (node as Leaf).unit !== undefined;
 }
 
+/** Whether a monitor's layout holds any actual widget (a leaf) — in the floating layer or
+ * anywhere in the flow tree. Empty containers (panes/cells with no widget) don't count. Used to
+ * skip spawning an overlay on a monitor that would render nothing. */
+export function monitorHasWidgets(mon: MonitorLayout): boolean {
+	if (mon.floating.length > 0) return true;
+	const anyLeaf = (n: LayoutNode): boolean =>
+		isLeaf(n) || (isContainer(n) && n.children.some(anyLeaf));
+	return anyLeaf(mon.root);
+}
+
 export function isGroup(unit: WidgetInstance | Group): unit is Group {
 	return (unit as Group).kind === 'group';
 }

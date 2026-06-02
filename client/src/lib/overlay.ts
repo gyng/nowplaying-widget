@@ -12,6 +12,40 @@ import {
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
 import type { Rect } from './core/layout';
+import { monitorHasWidgets } from './core/layoutTree';
+import { parseLayoutAny } from './core/migration';
+
+/** The set of saved-layout monitor keys that hold at least one widget (so an overlay there would
+ * render something). Keys: 'default' (primary) or the monitor index, matching studioMonitorOptions.
+ * Empty/missing layouts and a parse error yield an empty set — nothing gets an overlay. */
+async function populatedMonitorKeys(): Promise<Set<string>> {
+	const keys = new Set<string>();
+	try {
+		const raw = await invoke<string | null>('load_layout');
+		const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+		const layout = obj ? parseLayoutAny(obj) : null;
+		if (layout) {
+			for (const [k, mon] of Object.entries(layout.monitors)) {
+				if (monitorHasWidgets(mon)) keys.add(k);
+			}
+		}
+	} catch (err) {
+		console.warn('populatedMonitorKeys: load_layout failed', err);
+	}
+	return keys;
+}
+
+/** Show or hide the primary MAIN window. Used to drop the primary overlay when its layout
+ * (`default`) is empty — an empty transparent overlay still occupies the monitor. */
+export async function setMainWindowVisible(visible: boolean): Promise<void> {
+	try {
+		const win = getCurrentWindow();
+		if (visible) await win.show();
+		else await win.hide();
+	} catch (err) {
+		console.warn('setMainWindowVisible failed', err);
+	}
+}
 
 /** This window's monitor key: the `?monitor=<i>` param on secondary overlays, or
  * null on the primary (main) window. */
@@ -155,16 +189,18 @@ export async function openStudio(): Promise<void> {
 	w.once('tauri://error', (err) => console.warn('studio window error', err));
 }
 
-/** Primary window only: open a click-through overlay on every NON-primary monitor,
- * each carrying its monitor index as `?monitor=<i>`. Idempotent. The primary monitor is
- * covered by the main window itself (the `default` key), so it is skipped here. */
-export async function spawnSecondaryOverlays(): Promise<void> {
-	const [monitors, primary, existing] = await Promise.all([
+/** Primary window only: reconcile per-monitor overlays against the saved layout. A NON-primary
+ * monitor gets a click-through overlay (carrying its index as `?monitor=<i>`) only if its layout
+ * has widgets; an overlay whose monitor became empty is closed. Idempotent — safe to re-run on
+ * every layout change. The primary monitor is the main window itself (handled separately). */
+export async function reconcileOverlays(): Promise<void> {
+	const [monitors, primary, existing, populated] = await Promise.all([
 		availableMonitors(),
 		primaryMonitor(),
-		getAllWebviewWindows()
+		getAllWebviewWindows(),
+		populatedMonitorKeys()
 	]);
-	const labels = new Set(existing.map((w) => w.label));
+	const byLabel = new Map(existing.map((w) => [w.label, w]));
 
 	for (let i = 0; i < monitors.length; i++) {
 		const m = monitors[i];
@@ -173,7 +209,14 @@ export async function spawnSecondaryOverlays(): Promise<void> {
 			continue;
 		}
 		const label = `overlay-${i}`;
-		if (labels.has(label)) continue;
+		const have = byLabel.get(label);
+		const want = populated.has(String(i));
+		// Close an overlay whose monitor no longer has any widgets.
+		if (!want) {
+			if (have) await have.close().catch((err) => console.warn('close overlay failed', label, err));
+			continue;
+		}
+		if (have) continue; // already open
 
 		const w = new WebviewWindow(label, {
 			url: `/?monitor=${i}`,
