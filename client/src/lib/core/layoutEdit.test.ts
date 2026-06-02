@@ -1,0 +1,236 @@
+import { describe, expect, it } from 'vitest';
+import type { WidgetInstance } from './layout';
+import { container, group, isContainer, leaf, type Container, type Library } from './layoutTree';
+import {
+	allContainers,
+	dropTarget,
+	findNode,
+	findParent,
+	flowLeaves,
+	insertChild,
+	moveNode,
+	outlineRows,
+	removeNode,
+	ungroupNode,
+	updateContainer,
+	updateNode
+} from './layoutEdit';
+import type { Rect } from './layout';
+
+const prim = (id: string): WidgetInstance => ({
+	id,
+	type: 'gauge',
+	rect: { x: 0, y: 0, w: 10, h: 10 },
+	config: {}
+});
+
+// root(col)
+//   ├ rowA(row)
+//   │   ├ A
+//   │   └ B
+//   └ C
+const tree = (): Container =>
+	container('root', 'col', [
+		container('rowA', 'row', [leaf(prim('A')), leaf(prim('B'))]),
+		leaf(prim('C'))
+	]);
+
+describe('findNode / findParent', () => {
+	it('finds the root, a nested container, and a nested leaf', () => {
+		const t = tree();
+		expect(findNode(t, 'root')?.id).toBe('root');
+		expect(findNode(t, 'rowA')?.id).toBe('rowA');
+		expect(findNode(t, 'A')?.id).toBe('A');
+		expect(findNode(t, 'nope')).toBeNull();
+	});
+
+	it('findParent returns the containing container, null for root/absent', () => {
+		const t = tree();
+		expect(findParent(t, 'A')?.id).toBe('rowA');
+		expect(findParent(t, 'rowA')?.id).toBe('root');
+		expect(findParent(t, 'C')?.id).toBe('root');
+		expect(findParent(t, 'root')).toBeNull();
+		expect(findParent(t, 'nope')).toBeNull();
+	});
+});
+
+describe('insertChild', () => {
+	it('appends by default and inserts at an index', () => {
+		const t = tree();
+		const appended = insertChild(t, 'rowA', leaf(prim('D')));
+		expect((findNode(appended, 'rowA') as Container).children.map((c) => c.id)).toEqual([
+			'A',
+			'B',
+			'D'
+		]);
+		const inserted = insertChild(t, 'rowA', leaf(prim('D')), 1);
+		expect((findNode(inserted, 'rowA') as Container).children.map((c) => c.id)).toEqual([
+			'A',
+			'D',
+			'B'
+		]);
+	});
+
+	it('does not mutate the original tree', () => {
+		const t = tree();
+		insertChild(t, 'rowA', leaf(prim('D')));
+		expect((findNode(t, 'rowA') as Container).children).toHaveLength(2);
+	});
+
+	it('clamps an out-of-range index', () => {
+		const t = tree();
+		const r = insertChild(t, 'rowA', leaf(prim('D')), 99);
+		expect((findNode(r, 'rowA') as Container).children.map((c) => c.id)).toEqual(['A', 'B', 'D']);
+	});
+});
+
+describe('removeNode', () => {
+	it('removes a leaf', () => {
+		const r = removeNode(tree(), 'B');
+		expect((findNode(r, 'rowA') as Container).children.map((c) => c.id)).toEqual(['A']);
+	});
+
+	it('removes a container and its subtree', () => {
+		const r = removeNode(tree(), 'rowA');
+		expect(r.children.map((c) => c.id)).toEqual(['C']);
+		expect(findNode(r, 'A')).toBeNull();
+	});
+
+	it('is a no-op for the root or an absent id, and does not mutate', () => {
+		const t = tree();
+		expect(removeNode(t, 'root').children).toHaveLength(2);
+		expect(removeNode(t, 'nope').children).toHaveLength(2);
+		expect(t.children).toHaveLength(2);
+	});
+});
+
+describe('moveNode', () => {
+	it('reorders within the same parent', () => {
+		// move A to the end of rowA
+		const r = moveNode(tree(), 'A', 'rowA', 2);
+		expect((findNode(r, 'rowA') as Container).children.map((c) => c.id)).toEqual(['B', 'A']);
+	});
+
+	it('reparents across containers at an index', () => {
+		const r = moveNode(tree(), 'C', 'rowA', 0);
+		expect((findNode(r, 'rowA') as Container).children.map((c) => c.id)).toEqual(['C', 'A', 'B']);
+		expect(r.children.map((c) => c.id)).toEqual(['rowA']);
+	});
+
+	it('refuses to move a node into its own subtree (cycle guard)', () => {
+		const r = moveNode(tree(), 'rowA', 'rowA', 0);
+		// unchanged structure
+		expect(r.children.map((c) => c.id)).toEqual(['rowA', 'C']);
+	});
+
+	it('is a no-op for an absent node', () => {
+		const r = moveNode(tree(), 'nope', 'rowA', 0);
+		expect(r.children.map((c) => c.id)).toEqual(['rowA', 'C']);
+	});
+});
+
+describe('updateNode / updateContainer', () => {
+	it('patches a container in place (immutably)', () => {
+		const t = tree();
+		const r = updateContainer(t, 'rowA', { gap: 12, align: 'center', cols: 3 });
+		expect(findNode(r, 'rowA')).toMatchObject({ gap: 12, align: 'center', cols: 3 });
+		expect(findNode(t, 'rowA')).not.toHaveProperty('gap'); // original untouched
+	});
+
+	it('updateNode replaces a matched node via fn', () => {
+		const r = updateNode(tree(), 'A', (n) => (isContainer(n) ? n : { ...n, basis: { fr: 1 } }));
+		expect(findNode(r, 'A')).toMatchObject({ basis: { fr: 1 } });
+	});
+});
+
+describe('flowLeaves / allContainers', () => {
+	it('flowLeaves collects every leaf in document order', () => {
+		expect(flowLeaves(tree()).map((l) => l.id)).toEqual(['A', 'B', 'C']);
+	});
+
+	it('allContainers lists root first, then nested containers', () => {
+		expect(allContainers(tree()).map((c) => c.id)).toEqual(['root', 'rowA']);
+	});
+
+	it('outlineRows flattens (excluding root) with depth + parent + index', () => {
+		const rows = outlineRows(tree());
+		expect(rows.map((r) => `${r.node.id}@${r.depth}`)).toEqual(['rowA@0', 'A@1', 'B@1', 'C@0']);
+		const a = rows.find((r) => r.node.id === 'A');
+		expect(a).toMatchObject({ parentId: 'rowA', index: 0, siblingCount: 2 });
+		const c = rows.find((r) => r.node.id === 'C');
+		expect(c).toMatchObject({ parentId: 'root', index: 1, siblingCount: 2 });
+	});
+});
+
+describe('ungroupNode', () => {
+	const def = {
+		id: 'd',
+		name: 'panel',
+		size: { w: 1, h: 1 },
+		child: container('inner', 'row', [leaf(prim('X')), leaf(prim('Y'))])
+	};
+	const lib: Library = { version: 1, defs: [def] };
+
+	it("replaces a def-backed group leaf with a clone of the def's child", () => {
+		const root = container('root', 'col', [
+			leaf(group('g', { w: 1, h: 1 }, leaf(prim('fallback')), { def: 'd' })),
+			leaf(prim('Z'))
+		]);
+		const r = ungroupNode(root, 'g', lib);
+		expect(r.children.map((c) => c.id)).toEqual(['inner', 'Z']);
+		expect(findNode(r, 'X')?.id).toBe('X');
+		expect(findNode(r, 'g')).toBeNull();
+		// def is untouched (clone), and the original tree is not mutated
+		expect((def.child as Container).children).toHaveLength(2);
+		expect(findNode(root, 'inner')).toBeNull();
+	});
+
+	it('falls back to the inline child when there is no def', () => {
+		const root = container('root', 'col', [leaf(group('g', { w: 1, h: 1 }, leaf(prim('only'))))]);
+		const r = ungroupNode(root, 'g');
+		expect(findNode(r, 'only')?.id).toBe('only');
+	});
+
+	it('is a no-op for a non-group id', () => {
+		const t = tree();
+		expect(ungroupNode(t, 'A').children.map((c) => c.id)).toEqual(['rowA', 'C']);
+	});
+});
+
+describe('dropTarget', () => {
+	// root(row) [A,B,C], laid out left→right, 100px wide cells.
+	const rowTree = () =>
+		container('root', 'row', [leaf(prim('A')), leaf(prim('B')), leaf(prim('C'))]);
+	const rowSolved = new Map<string, Rect>([
+		['A', { x: 0, y: 0, w: 100, h: 50 }],
+		['B', { x: 100, y: 0, w: 100, h: 50 }],
+		['C', { x: 200, y: 0, w: 100, h: 50 }]
+	]);
+
+	it('drops into the near half of the hovered leaf (row → x), excluding the dragged one', () => {
+		// hover A's right half while dragging C → between A and B (index 1 of [A,B])
+		expect(dropTarget(rowTree(), rowSolved, { x: 60, y: 25 }, 'C')).toEqual({
+			parentId: 'root',
+			index: 1
+		});
+		// hover B's left half while dragging A → before B (index 0 of [B,C])
+		expect(dropTarget(rowTree(), rowSolved, { x: 110, y: 25 }, 'A')).toEqual({
+			parentId: 'root',
+			index: 0
+		});
+	});
+
+	it('uses the y axis for a col parent', () => {
+		const col = container('root', 'col', [leaf(prim('A')), leaf(prim('B'))]);
+		const solved = new Map<string, Rect>([
+			['A', { x: 0, y: 0, w: 100, h: 50 }],
+			['B', { x: 0, y: 50, w: 100, h: 50 }]
+		]);
+		// hover B's bottom half dragging A → after B (index 1 of [B])
+		expect(dropTarget(col, solved, { x: 50, y: 90 }, 'A')).toEqual({ parentId: 'root', index: 1 });
+	});
+
+	it('returns null when the point is over no flow leaf (→ float)', () => {
+		expect(dropTarget(rowTree(), rowSolved, { x: 999, y: 999 }, 'A')).toBeNull();
+	});
+});

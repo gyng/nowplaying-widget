@@ -15,13 +15,33 @@
 	export let editMode = false;
 	export let selected = false;
 	export let grid = 8;
+	// Absolute rect to render at (the solver's result). For floating widgets this equals
+	// instance.rect; for in-flow widgets the solver dictates it.
+	export let rect: Rect = instance.rect;
+	// Floating widgets free-move/resize; in-flow widgets are positioned by the solver, so
+	// they're select-only here (reorder/reparent happens via the outline or drag — 5e).
+	export let movable = true;
+	// What clicking selects — usually this widget, but a group's descendants select the
+	// group (the selectable unit), so the host is told explicitly.
+	export let selectId: string = instance.id;
 
 	const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 	const dispatch = createEventDispatcher<{
 		change: { id: string; rect: Rect };
 		commit: void;
 		select: { id: string };
+		dragover: { id: string; x: number; y: number };
+		drop: { id: string; x: number; y: number };
+		contextmenu: { id: string; x: number; y: number };
 	}>();
+
+	function onContextMenu(event: MouseEvent) {
+		if (!editMode) return;
+		event.preventDefault();
+		event.stopPropagation();
+		dispatch('select', { id: selectId });
+		dispatch('contextmenu', { id: selectId, x: event.clientX, y: event.clientY });
+	}
 
 	// A sentinel id keeps `$store` a valid store for self-sourcing widgets (no sensor).
 	$: store = sensorStore(hub, instance.sensor ?? '__none__');
@@ -29,18 +49,34 @@
 	$: scalar = $store.value && $store.value.kind === 'scalar' ? $store.value.value : null;
 	$: history = $store.history;
 
-	let action: 'move' | ResizeHandle | null = null;
+	let action: 'move' | 'flow' | ResizeHandle | null = null;
 	let startX = 0;
 	let startY = 0;
 	let startRect: Rect = instance.rect;
+	// Visual offset while ghost-dragging an in-flow widget (the model only changes on drop).
+	let ghostDx = 0;
+	let ghostDy = 0;
 
 	function begin(kind: 'move' | ResizeHandle, event: PointerEvent) {
 		if (!editMode) return;
-		dispatch('select', { id: instance.id });
+		dispatch('select', { id: selectId });
+		if (!movable) {
+			// In-flow widgets ghost-drag to reorder/reparent; the solver owns their base
+			// position, so we translate a ghost and only mutate the tree on drop (5e).
+			action = 'flow';
+			startX = event.clientX;
+			startY = event.clientY;
+			ghostDx = 0;
+			ghostDy = 0;
+			(event.currentTarget as Element).setPointerCapture(event.pointerId);
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		action = kind;
 		startX = event.clientX;
 		startY = event.clientY;
-		startRect = instance.rect;
+		startRect = rect;
 		(event.currentTarget as Element).setPointerCapture(event.pointerId);
 		event.preventDefault();
 		event.stopPropagation();
@@ -48,18 +84,34 @@
 
 	function move(event: PointerEvent) {
 		if (action === null) return;
+		if (action === 'flow') {
+			ghostDx = event.clientX - startX;
+			ghostDy = event.clientY - startY;
+			dispatch('dragover', { id: selectId, x: event.clientX, y: event.clientY });
+			return;
+		}
 		const dx = event.clientX - startX;
 		const dy = event.clientY - startY;
-		const rect =
+		const next =
 			action === 'move'
 				? moveRect(startRect, dx, dy, grid)
 				: resizeRect(startRect, action, dx, dy, grid);
-		dispatch('change', { id: instance.id, rect });
+		dispatch('change', { id: instance.id, rect: next });
+		// A floating widget dragged over the flow tree can dock there (checked on commit).
+		if (action === 'move')
+			dispatch('dragover', { id: selectId, x: event.clientX, y: event.clientY });
 	}
 
-	function end() {
+	function end(event: PointerEvent) {
 		if (action === null) return;
+		const wasFlow = action === 'flow';
 		action = null;
+		if (wasFlow) {
+			ghostDx = 0;
+			ghostDy = 0;
+			dispatch('drop', { id: selectId, x: event.clientX, y: event.clientY });
+			return;
+		}
 		dispatch('commit');
 	}
 </script>
@@ -70,8 +122,9 @@
 	class:selected
 	class:active={action !== null}
 	class:catch={!editMode && instance.interactive}
-	style="left: {instance.rect.x}px; top: {instance.rect.y}px; width: {instance.rect
-		.w}px; height: {instance.rect.h}px"
+	class:dragging={action === 'flow'}
+	style="left: {rect.x}px; top: {rect.y}px; width: {rect.w}px; height: {rect.h}px; transform: translate({ghostDx}px, {ghostDy}px)"
+	on:contextmenu={onContextMenu}
 >
 	{#if comp}
 		{#if instance.sensor}
@@ -92,16 +145,18 @@
 			on:pointermove={move}
 			on:pointerup={end}
 		/>
-		{#each HANDLES as handle (handle)}
-			<button
-				type="button"
-				class="handle {handle}"
-				aria-label="Resize {handle}"
-				on:pointerdown={(e) => begin(handle, e)}
-				on:pointermove={move}
-				on:pointerup={end}
-			/>
-		{/each}
+		{#if movable}
+			{#each HANDLES as handle (handle)}
+				<button
+					type="button"
+					class="handle {handle}"
+					aria-label="Resize {handle}"
+					on:pointerdown={(e) => begin(handle, e)}
+					on:pointermove={move}
+					on:pointerup={end}
+				/>
+			{/each}
+		{/if}
 	{/if}
 </div>
 
@@ -138,6 +193,11 @@
 		border: none;
 		background: transparent;
 		cursor: move;
+	}
+
+	.widget.dragging {
+		z-index: 10;
+		opacity: 0.85;
 	}
 
 	.handle {

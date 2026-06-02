@@ -9,6 +9,15 @@ than hand-editing `.ini` files.
 > click-through overlay, visual editor (drag/resize/snap/align/inspector/palette), persistence
 > + live-reload, tauri 2.11 + global hotkey, renamed to `widgetsack`, all verified on hardware.
 > Remaining stretch items are deferred/skipped (see Phase 4).
+>
+> **Phases 5 & 6 implemented (gates green; pending hardware verification).** The **layout
+> designer** (containers row/col/grid, align/gap/pad/justify/grow, floating, outline, drag-and-drop
+> reorder/dock, taskbar-aware work area) and the **widget designer** (group/ungroup → reusable
+> `WidgetDef`, in-place def editor, params/sensor-remap, library insert/rename/delete-guard) both
+> run on one recursive `core/` model + one pure solver, rendered on the per-monitor **overlay**
+> and editable in a **studio** app window (model A′). 152 client tests + 6 Rust tests; `cargo
+> build`/`test`/`clippy` + `npm check`/`lint`/`test`/`build` all green. Only the native passive-mode
+> right-click menu (5d) is deferred — see Phase 5d. See "Layout tree + groups (v2)" and Phases 5–6.
 
 ## Goals
 
@@ -35,11 +44,16 @@ Source: `C:\Users\gng\Documents\Rainmeter\Skins\gyng`
 
 ## Decisions (locked)
 
-- **Window model: A — full-monitor canvas overlay.** One transparent, normally
-  click-through window **per monitor**; widgets positioned on a grid/canvas inside it.
-  One webview per monitor (not one globally) = efficient even with 32 core graphs; best
-  base for WYSIWYG layouting + a visual editor; no cross-window state sync. Built so
-  peeling a skin into its own window later (hybrid model) is additive.
+- **Window model: A′ — overlay canvas + studio window** (revised 2026-06-02 from
+  overlay-only). Two surfaces, clean split: a transparent, normally click-through **overlay
+  per monitor** is the *display + in-place layout canvas* (live widgets, selection, drag/
+  resize/align, native context menu); a normal, focusable, taskbar-present **studio window**
+  (`/studio` route, own capability label) is the *design surface* — widget designer, library,
+  params, per-monitor outline, settings. Both consume the same `widgets.json` /
+  `widgets.lib.json` (single source of truth) and the framework-agnostic core; a lightweight
+  in-memory `layout_draft` event channel keeps the two surfaces live during a drag, with the
+  file as the commit point. One webview per monitor stays efficient even with 32 core graphs.
+  Mirrors Rainmeter (skins on the desktop + a Manage window). See "Window topology" below.
 - **Editing: Both.** `widgets.json` + live reload is the foundation; an in-app visual
   editor (edit-mode toggle: drag/resize/snap, palette, inspector) is layered on top,
   reading/writing the same JSON.
@@ -91,6 +105,32 @@ Rust (np/)                          Framework-AGNOSTIC core (client/src/lib/core
                                          │      └ meters, editor      │
                                          └────────────────────────────┘
 ```
+
+### Window topology (overlay canvas + studio)
+
+```
+Studio window (normal, taskbar)          Overlay per monitor (transparent, click-through)
+  route /studio                             route /?monitor=<i>
+  ┌────────────────────────┐                ┌── Monitor 1 ──┐  ┌── Monitor 2 ──┐
+  │ widget designer        │   layout_      │  live widgets │  │  live widgets │
+  │ library · params       │   draft   ┌───▶│  + in-place   │  │  + in-place   │
+  │ outline · settings     │──events───┘    │    editing    │  │    editing    │
+  └───────────┬────────────┘                └───────┬───────┘  └───────┬───────┘
+              │  save_layout / save_library (commit)        load + listen │
+              └──────────────┬──────────────────────────────┴────────────┘
+                             ▼
+              widgets.json + widgets.lib.json   (single source of truth, notify-watched)
+```
+
+- **Overlay** (built): display + WYSIWYG layout editing. Stays transparent/click-through;
+  selection, drag/resize, alignment guides, and the native context menu live here.
+- **Studio** (new): a normal `WebviewWindow` (decorations, taskbar, focusable) on a `/studio`
+  route with its own capability label. Hosts the heavy panels and the widget designer.
+- **Sync:** the file stays the source of truth (commit + `notify` live-reload, as today). On
+  top, transient `layout_draft` Tauri events mirror in-progress edits between studio ↔ overlays
+  so dragging on the canvas updates the outline (and vice-versa) without a per-frame file round-trip.
+- **Entry:** tray "Open designer", the global hotkey, and the overlay's right-click →
+  "Open designer / Edit layout" all focus (or spawn) the studio window.
 
 ## Stable contracts (the framework-agnostic API)
 
@@ -159,6 +199,60 @@ The backend **owns the layout file**, so on load/save it derives the set of refe
 sensor ids and runs only those (no NVML/PDH spin-up when unused). Live reload is driven by
 a `notify` file-watch on `widgets.json` emitting a `layout_changed` event the frontend
 listens for.
+
+### 4. Layout tree + groups (v2 — the model both designers share)
+
+Two designers, **one recursive model**:
+
+- **Layout designer** (Phase 5) arranges **units** on a monitor with containers
+  (panes/splits), alignment, gap/padding, and a floating layer that escapes the grid.
+- **Widget designer** (Phase 6) composes primitives into a **group** ("a logical widget")
+  with its own internal layout; a group is one unit the layout designer places.
+
+A **unit** is a primitive meter (today's `gauge`/`bar`/`sparkline`/`text`/`clock`/`button`)
+or a **group**. Same node grammar at both levels — a group is a *leaf* to the layout solver
+and a *container-root* to the widget designer — so a single pure solver recurses through both.
+
+```ts
+type Length = number | 'auto' | { fr: number };          // px | intrinsic | flex share
+
+type Container = {                                        // the layout designer's panes/splits
+  id: string; kind: 'row' | 'col' | 'grid';              // hsplit=row, vsplit=col, multi-pane=grid
+  cols?: number;                                          // grid: 2 | 3 | 4
+  gap?: number; pad?: number | { t: number; r: number; b: number; l: number };
+  align?: 'start' | 'center' | 'end' | 'stretch';        // cross axis
+  justify?: 'start' | 'center' | 'end' | 'between' | 'around'; // main axis
+  bounds?: Rect;                                          // default = parent content box (root → work area)
+  children: LayoutNode[];
+};
+type Group = {                                            // built in the widget designer; one unit to layout
+  id: string; kind: 'group'; name?: string;              // "System", "Network"
+  def?: string;                                           // id of a reusable WidgetDef; inline subtree if absent
+  size: { w: number; h: number };                        // the group's own box (its intrinsic size)
+  child: LayoutNode;                                      // internal tree, local coords
+  config?: Record<string, unknown>; css?: string;
+};
+type Leaf = { id: string; unit: WidgetInstance | Group; basis?: Length };
+type LayoutNode = Container | Leaf;
+
+type MonitorLayout = { root: Container; floating: Leaf[] };       // flow tree + escape-the-grid layer
+type Layout = { version: 2; monitors: Record<string, MonitorLayout> };
+
+// reusable library (Phase 6c/d) — instantiate one def many times, rebinding params
+type WidgetDef = { id: string; name: string; size: { w: number; h: number }; child: LayoutNode; params?: ParamSpec[] };
+```
+
+**Pure solver (the heart).** `solveLayout(node, contentRect) -> Map<widgetId, Rect>` recurses:
+containers distribute the main axis by `basis`/`fr`, place the cross axis by `align`, apply
+`gap`/`pad`/`justify`; a group solves its `child` inside its own `size` box and contributes
+that box as the unit's intrinsic size; a primitive contributes its `rect.{w,h}`. **No text
+measurement** — intrinsic size is what you set in the inspector. Lives in `core/` (zero Svelte),
+unit-tested like `align.ts`. Canvas renders solved primitive rects; `WidgetHost` is unchanged.
+
+**Migration v1 → v2 (no data moves).** `widgets[]` → `floating: widgets.map(leaf)`, `root` =
+empty container. Existing/demo layouts render identically (all floating). `parseLayout` accepts
+both versions; `rect` means absolute monitor px for floating units and local/solved coords
+in-flow or inside a group.
 
 ## Framework portability (React-ready)
 
@@ -327,6 +421,318 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - 🚫 **SKIPPED — PDH GPU fallback for non-NVIDIA** (and temps/fans via HWiNFO/LHM shared
       memory). The target machine is NVIDIA (NVML covers it) and there's no non-NVIDIA
       hardware to verify against — not worth building blind. Revisit only if needed.
+
+## Phase 5 — Layout designer (arrange units: panes, align, taskbar-aware)
+
+A real designer, not just free-drag: containers (multi-pane 2/3/4, h/v split) with align +
+gap/padding, a floating layer that escapes the grid, taskbar awareness, and a right-click
+context-menu entry. **Additive** — v2 migrates v1 to all-floating, so nothing already placed
+moves. Operates on **units** (primitives or groups); groups are atomic here (authored in Phase 6).
+
+Design decisions (proposed; confirm in Open decisions):
+
+- **hsplit = `row`, vsplit = `col`, multi-pane = `grid` (`cols` 2/3/4).** "Align L/C/R" maps to
+  `justify` on a row and `align` on a column; the inspector labels them in human terms.
+- **Floating stays the default** (today's behavior); the flow `root` is opt-in.
+- **Root bounds default to the monitor work area** (taskbar-aware); floating units may sit over
+  the taskbar.
+- **Context menu = native (muda)** shown by the Rust right-click detector, so it works in
+  passive (click-through) mode without a webview round-trip.
+
+### 5a — v2 model + solver + migration (pure core, no UX change) ✅ done, 141 tests green
+- [x] `core/layoutTree.ts` (types + `Container.basis` + constructors) and `core/solve.ts`
+      (`solveLayout`/`solveMonitor`/`resolveGroup`: row/col/grid, gap/pad/align/justify,
+      fr/auto/px, group namespacing). Unit-tested hard (50 cases) — the heart of the feature.
+      Designed + adversarially test-spec'd via a 5-agent workflow; critique fixes folded in
+      (grid-cell clamp, children-derived grid intrinsic, fail-closed param setPath,
+      rect re-validation on migrate, array-monitors rejection, exact-float render = no snap seam).
+- [x] `core/migration.ts`: `parseLayoutAny` accepts v1 + v2; `migrateV1` wraps `widgets[]` into
+      floating leaves (dropping malformed rects). Tested (10 cases).
+- [x] `core/layoutEdit.ts`: pure immutable tree ops (find/parent/insert/remove/move/update +
+      flowLeaves/allContainers) — the shared editing core for 5c/5e/6a. Tested (16 cases).
+- [x] Canvas migrated to the v2 `MonitorLayout` + v2 file format; renders/edits the **floating**
+      layer identically (root round-trips). Flow rendering of the `root` tree → 5c.
+
+### 5b — taskbar / work-area awareness ✅ done — cargo build/test/clippy green
+- [x] Rust `current_work_area(window) -> ScreenRect` via `MonitorFromPoint` + `GetMonitorInfoW`
+      `.rcWork` (`windows` 0.61 crate, matched to Tauri's; no HWND so no version mismatch).
+      Returns physical px.
+- [x] Frontend `monitorWorkArea()` rebases to the monitor origin + descales → local logical px;
+      the Canvas solves the flow tree into the **work area** (taskbar excluded), falling back to
+      the full window. (Work-area snap-guide line is a small follow-up.)
+
+### 5s — studio window ✅ done — cargo green; runtime to verify on hardware
+- [x] A normal, decorated, taskbar-present `studio` `WebviewWindow` (980×680) spawned from the
+      tray **"Open designer"** item (Rust emits `open_studio`; the primary overlay spawns/focuses
+      it via JS — reuses the working `WebviewWindow` path). Detected by window **label** (not a
+      route/query — sidesteps dev/prod URL + prerender pitfalls). Capability `overlay.json` now
+      covers `"studio"`.
+- [x] Studio runs the same `Canvas` in **studio mode**: opaque window, always in edit mode, no
+      overlay fill/click-through; lays the layout into the whole window. It edits the primary
+      monitor and **syncs to the overlays via `widgets.json` + the existing `layout_changed`
+      watch** (the file is the source of truth — a transient `layout_draft` live channel is a
+      follow-up if the file-watch lag ever shows).
+- [~] Panels currently live in **both** the overlay edit mode and the studio (the overlay editor
+      still works). Fully relocating them off the overlay is optional polish.
+
+### 5c — container editing (no DnD yet) ✅ done — built in overlay edit mode (relocates to studio in 5s)
+- [x] Container panel (Inspector): kind, cols, gap, pad, align, justify, grow(fr) — live-editing
+      the selected container. Widget panel gains dock/float; add-widget palette retained.
+- [x] Palette "+Row / +Col / +Grid" (Outline header) — adds into the selected container or root.
+- [x] Tree-outline (`Outline.svelte` + pure `outlineRows`): select / reorder (↑↓) / reparent
+      (⟸ out, ⟹ in) / dock (⤒) / float (⤓) / remove (✕). All edits funnel through one `op`
+      union → `handleOp` → `core/layoutEdit`. Overlay solves + renders the flow tree
+      (`collectRenderables`, group-aware); the reusable `library` round-trips in `widgets.json`.
+
+### 5d — right-click context menu ✅ done (in-editor); passive-mode variant deferred
+- [x] **In-editor context menu**: right-click any widget → `Make widget` · `Float`/`Dock →flow` ·
+      (group) `Edit def…`/`Ungroup` · `Remove`; right-click empty canvas → `+ Row`/`+ Column`/
+      `+ Grid`. Pure Svelte (`WidgetHost` emits `contextmenu`, Canvas renders a positioned menu +
+      backdrop; Esc / click-away closes). Gate-verified.
+- 🚫 **Passive-mode (right-click while NOT editing) deferred** — to fire over a click-through
+      overlay without hijacking/duplicating the Windows desktop menu it needs a global
+      `WH_MOUSE_LL` hook that **swallows** right-clicks over widget rects (invasive: global input,
+      threading/deadlock risk) and can't be runtime-verified without an interactive display. The
+      editor already opens three robust ways (tray "Edit layout", tray "Open designer", Ctrl+Alt+E),
+      so this is an optional follow-up — best done in a session where it can be tested on hardware.
+
+### 5e — direct manipulation (drag-and-drop) — CORE ✅ done (overlay), 152 tests green
+- [x] Overlay: in-flow widgets **ghost-drag** to reorder/reparent with a live teal **insertion
+      bar**; pure `dropTarget(root, solved, point, draggingId)` (leaf-hit-test → `{parentId,index}`)
+      feeds straight into `moveNode`. Tested.
+- [x] Overlay: **dock** a floating widget by releasing it over the flow tree; **float** a flow
+      widget by dragging it onto empty canvas (re-anchored at the cursor). Floating free-move +
+      snap/guides retained.
+- [ ] Studio outline drag-reorder — deferred to 5s (the outline already reorders via buttons;
+      HTML5 DnD doesn't cross OS windows, so studio→overlay placement stays click-to-add-then-drag).
+
+## Phase 6 — Widget designer (compose primitives into a reusable widget)
+
+Group a bunch of labels/meters into one composite — "a widget" — that's **reusable from the
+start**: grouping creates a named `WidgetDef` in a first-class library, and the layout holds
+**instances** (`Group` with `def`) that reference it. A **separate view in the studio window**
+(its own tab, not the overlay), but it reuses the same containers / solver / inspector scoped to
+the def's box. The
+headline payoff: System's 32 per-core graphs become **one def × 32 instances**, each binding a
+different `cpu.core.N` via params (6c) — not 32 hand-placed sparklines.
+
+The solver gains a pure `resolveGroup(group, library)` (look up `def`, apply param overrides,
+solve its `child` inside `size`); kept in `core/` and tested. The library is its own file
+(`widgets.lib.json`), watched + reloaded like `widgets.json`.
+
+### 6a — defs + library + group/ungroup (foundational) ✅ done, 149 tests green
+- [x] `Library` (`WidgetDef[]`) **embedded in `widgets.json`** under a `library` key (loaded/saved
+      with the layout, round-tripped read-modify-write across monitors) — avoids new Rust commands;
+      can split into `widgets.lib.json` later if sharing defs warrants it.
+- [x] **Make widget**: select a flow container/widget (or a floating widget) → wraps it into a new
+      `WidgetDef` (`size` = `intrinsicSize`, `child` = cloned subtree) + a `Group` instance
+      referencing it. **Ungroup** inlines the def's child back (`ungroupNode`, pure + tested;
+      floating single-primitive groups handled in the Canvas). Group inspector panel added.
+- [x] `resolveGroup` + `collectRenderables` (group-aware, id-namespaced) render instances on the
+      canvas — one def × N instances never collide. Tested.
+
+### 6b — group editor (the widget designer proper) ✅ done — in-place, reuses the overlay editor
+- [x] "Edit def…" (group inspector) swaps the overlay into a **scoped def editor**: `monitor` is
+      replaced by the def's child tree, the real monitor stashed; a teal "Editing widget: <name>
+      [Done]" banner shows. All the existing tooling (outline / inspector / add / containers /
+      drag) operates on the def; edits fold back into the library on every save, so **every
+      instance re-renders live**. Def `size` (w/h) editable from any instance's inspector. Save is
+      guarded so the scoped tree never overwrites the real layout. (Full studio-tab scoping → 5s.)
+
+### 6c — params / sensor remap (the reuse power — needed for the 32-core case) ✅ done
+- [x] A def declares overridable bindings (`ParamSpec`: `key` + dotted `target`, e.g. `unit.sensor`)
+      via the group inspector's "Add param"; each instance sets values in the inspector and
+      `resolveGroup`/`applyParams` rebinds them on a cloned child (fail-closed setPath). The
+      "one core-graph def × N instances, each binding `cpu.core.N`" workflow works end-to-end.
+
+### 6d — library management ✅ done (detach/duplicate are follow-ups)
+- [x] Inspector "Library" palette: insert a def as a new group; rename a def (propagates to
+      instances); delete a def **guarded** (refused while any instance references it). Ungroup is
+      the current "detach"; duplicate-def is a small follow-up.
+
+### Phase 5–6 risks
+- **Solver scope creep.** Constrain v1: single-line row/col (no wrap), uniform grid cells,
+  `basis ∈ {auto, px, fr}`. Each rule lands as a unit test before any UI wiring. Recursion (group
+  in container in group) must be covered by tests, not eyeballed.
+- **Dual drag semantics** (free-move floating vs reorder-in-flow vs dock/undock) is the top UX
+  risk and now a **core** interaction (5e). Mitigate with pure, tested `hitInsertionIndex` /
+  `dropInto` helpers and clear affordances (insertion line + drop-zone highlight); 5c's
+  inspector/outline path stays the precision fallback.
+- **Native menu in passive mode.** Right-click must be caught while click-through is on; extend
+  the cursor watcher to mouse buttons (or a `WH_MOUSE_LL` hook if polling misses fast clicks).
+  Fallback: menu only in edit mode if detection proves flaky.
+- **Work area is dynamic** (auto-hide taskbar, DPI, monitor hotplug). Re-query on
+  `display-changed`; treat insets as hints recomputed on focus / `layout_changed`.
+- **Two coordinate spaces.** Floating = absolute monitor px; in-flow / in-group = local/solved.
+  Group/ungroup and float/unfloat must rebase rects correctly — pure, tested helpers only.
+- **Migration & React.** v2 types, the solver, and all tree mutations are pure `core/` → the
+  React port reuses them verbatim; only the editors (tree / DnD / group canvas) get reimplemented.
+
+### Decisions locked (2026-06-02)
+1. **Context-menu tech: native `muda` menu.** A Rust right-click detector pops an OS-native menu;
+   works in passive (click-through) mode with no webview round-trip. (In-app HTML rejected — not
+   worth the cursor-events plumbing / first-click-miss risk.)
+2. **Build order: layout designer first, then the widget designer.** Phase 5 (5a–5e) → Phase 6
+   (6a–6d); grouping rides on tooling Phase 5 already builds. **5e (drag-and-drop) is core, not a
+   stretch** — mouse-dragging is the primary way to build a layout (decided 2026-06-02).
+3. **Groups are reusable from the start.** Grouping creates a `WidgetDef` in a first-class library
+   plus an instance referencing it; params / sensor-remap (6c) are **in scope, not deferred** —
+   "one core-graph def × 32 instances" is a first-class goal. (One-off-inline-first rejected.)
+
+## Wireframes (Phases 5–6)
+
+Schematic, not final visuals — they pin down the model and the two designers' UX.
+
+**How the model nests** — one recursive tree; a `Group` is a leaf to the layout solver and a
+container-root to the widget designer:
+
+```
+MonitorLayout
+├─ root .............. Container(col)
+│  ├─ Container(row)   gap 8 · align center
+│  │  ├─ Leaf ─ gauge  cpu.total
+│  │  ├─ Leaf ─ gauge  mem.used
+│  │  └─ Leaf ─ Group "GPU panel"          ← a widget (built in Phase 6)
+│  │            └─ child: Container(col) ─ [gauge, bar, text]
+│  └─ Container(grid cols=8)
+│     └─ Leaf ×32 ─ Group "core-graph"     ← ONE def, each instance binds core=N
+└─ floating ......... [ Leaf ─ Clock,  Leaf ─ NowPlaying ]   ← absolute, escapes the grid
+```
+
+**Layout designer** (Phase 5) — monitor overlay in edit mode: containers arrange units, a
+floating layer escapes the grid, inspector + outline drive the tree, work-area edge is snappable:
+
+```
+Layout designer · Monitor 1 (overlay)                       [ EDIT · Ctrl+E ]
+............................................................................
+  ┌ row · gap 8 · align center ─────────────────────┐     ┌ floating ┐
+  │  ┌──────┐   ┌──────┐   ┌──────┐                  │     │  12:04   │
+  │  │ CPU  │   │ RAM  │   │ GPU  │                  │     └──────────┘
+  │  └──────┘   └──────┘   └──────┘                  │
+  └──────────────────────────────────────────────────┘
+  ┌ grid cols=8 · per-core ──────────────────────────┐
+  │  ▂▃▅ ▃▅▂ ▅▂▁ ▁▂▃ ▂▃▅ ▃▅▂ ▅▂▁ ▁▂▃    (32 cores)   │
+  └──────────────────────────────────────────────────┘
+
+  ┌ Inspector ──────────────┐   ┌ Outline ──────────┐
+  │ Add ▸ gauge  bar  text  │   │ ▾ root (col)       │
+  │     ▸ Row  Col  Grid…   │   │   ▾ row            │
+  │ ─────────────────────── │   │     · CPU          │
+  │ row    gap [8] pad [0]  │   │     · RAM          │
+  │ align   [ center ▾ ]    │   │     · GPU          │
+  │ justify [ start  ▾ ]    │   │   ▾ grid 8         │
+  └─────────────────────────┘   └────────────────────┘
+═══════════════════════ taskbar · work-area edge ═══════════════════════════
+```
+
+**Container kinds** — `row` = hsplit, `col` = vsplit, `grid` = multi-pane (`cols` 2/3/4):
+
+```
+row (hsplit)          col (vsplit)        grid cols=3
+┌───┬───┬───┐         ┌─────────┐         ┌───┬───┬───┐
+│ A │ B │ C │         │    A    │         │ A │ B │ C │
+└───┴───┴───┘         ├─────────┤         ├───┼───┼───┤
+   ← gap →            │    B    │         │ D │ E │ F │
+                      ├─────────┤         └───┴───┴───┘
+                      │    C    │
+                      └─────────┘
+```
+
+**Align vs justify** (a `row`; the inspector labels these "vertical" / "horizontal"):
+
+```
+justify · main-axis (horizontal →)        align · cross-axis (vertical ↓)
+ start       center      end               start      center     stretch
+┌─────────┐ ┌─────────┐ ┌─────────┐       ┌───────┐  ┌───────┐  ┌───────┐
+│■■■      │ │  ■■■    │ │      ■■■│       │■ ■ ■  │  │       │  │█ █ █  │
+└─────────┘ └─────────┘ └─────────┘       │       │  │■ ■ ■  │  │█ █ █  │
+                                          │       │  │       │  │█ █ █  │
+                                          └───────┘  └───────┘  └───────┘
+```
+
+**Drag-and-drop** (Phase 5e, core) — drop a unit into a pane (insertion line shows the slot);
+drag a unit out of a pane to float it again:
+
+```
+Dragging "GPU" into a row — the insertion line shows where it lands:
+
+   ┌ row · gap 8 ──────────────────────────┐
+   │  ┌─CPU─┐     ┃     ┌─RAM─┐             │     ┃ = insertion line
+   │  └─────┘     ┃     └─────┘             │     drop → row reflows to
+   └──────────────┃────────────────────────┘     CPU · GPU · RAM
+                  ┗━ lands between CPU and RAM
+        ┌─GPU─┐
+        └drag─┘  ← the unit being dragged
+
+Drag a unit OUT of a pane → it leaves the flow and floats (free move again).
+```
+
+**Native right-click menu** (Phase 5d) — popped by the Rust cursor watcher, so it works while
+the overlay is click-through (passive):
+
+```
+right-click a unit / the canvas
+   ┌────────────────────────────┐
+   │  Edit layout               │
+   │ ─────────────────────────  │
+   │  Float / Unfloat           │
+   │  Wrap in           ▸  Row  │
+   │  Align             ▸  Col  │
+   │  Send to layer     ▸  Grid │
+   │ ─────────────────────────  │
+   │  Group selection           │   ← Phase 6: make a widget
+   │  Remove                    │
+   │  Settings…                 │
+   └────────────────────────────┘
+```
+
+**Studio window** (Phase 5s) — a normal app window (chrome, taskbar, alt-tab): the design home.
+Selecting on the overlay or in the outline drives the same selection here:
+
+```
+WidgetSack · Studio                                              [ – □ × ]
+┌ Tabs ──────────────────────────────────────────────────────────────┐
+│ [ Layout ]   Widgets    Sensors    Settings                         │
+├──────────────────┬──────────────────────────────────────────────────┤
+│ Outline          │ Inspector · row (selected)                       │
+│ ▾ Monitor 1      │   kind  [ row ▾ ]    cols [ – ]                   │
+│   ▾ root (col)   │   gap   [ 8 ]   pad  [ 0 ]                        │
+│     ▾ row    ◀── │   align    [ center ▾ ]                          │
+│       · CPU      │   justify  [ start  ▾ ]                          │
+│       · RAM      │ ─────────────────────────────────────────────────│
+│       · GPU      │ Add ▸ gauge bar spark text   ·   + Row Col Grid   │
+│     ▸ grid 8     │ Insert widget ▸ core-graph  net-panel  clock      │
+│ ▸ Monitor 2      │                                                  │
+└──────────────────┴──────────────────────────────────────────────────┘
+```
+
+**Widget designer** (Phase 6) — a studio tab: a scoped canvas over one def's local box; same
+arrange/inspector tooling, edits propagate to every instance:
+
+```
+Widget designer · editing def "core-graph"           [ ‹ back to monitor ]
+size [ 40 × 26 ]   params:  core = cpu.core.{i}
+............................................................................
+  ┌ col · gap 2 ───────────────────────┐
+  │  CPU  78%   ████████░░              │     labels + meters laid out in
+  │  ┌ sparkline ────────────────────┐ │     the def's OWN local coords
+  │  │ ▂▃▅▇▅▃▂▁▂▃▅                    │ │
+  │  └─────────────────────────────────┘ │
+  └──────────────────────────────────────┘
+  Add ▸ gauge  bar  sparkline  text        [ Save as widget ]
+```
+
+**Reuse** (Phase 6c) — one def, many instances, each rebinding a param:
+
+```
+Library (widgets.lib.json)             Monitor · grid cols=8
+┌──────────────────────┐               ┌──┬──┬──┬──┬──┬──┬──┬──┐
+│ def "core-graph"     │   instance    │0 │1 │2 │3 │4 │5 │6 │7 │
+│  params: core        │ ────────────▶ ├──┼──┼──┼──┼──┼──┼──┼──┤
+│  size 40×26          │     × 32      │8 │9 │10│11│..│  │  │  │
+└──────────────────────┘               └──┴──┴──┴──┴──┴──┴──┴──┘
+            one definition  →  many instances, each binds core = N
+```
 
 ## Resolved decisions (2026-06-01)
 

@@ -46,7 +46,8 @@ async fn main() -> Result<(), ()> {
             get_initial_sessions,
             command::load_layout,
             command::save_layout,
-            clickthrough::set_interactive_rects
+            clickthrough::set_interactive_rects,
+            clickthrough::current_work_area
         ])
         .setup(|app| {
             tauri::async_runtime::spawn(async move {
@@ -80,8 +81,13 @@ async fn main() -> Result<(), ()> {
             // Tray menu: the only reliable way to toggle edit mode while the overlay
             // is click-through (a passive window receives no in-app keys).
             let edit_item = MenuItemBuilder::with_id("edit", "Edit layout").build(app)?;
+            let designer_item = MenuItemBuilder::with_id("designer", "Open designer").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let tray_menu = MenuBuilder::new(app).item(&edit_item).item(&quit_item).build()?;
+            let tray_menu = MenuBuilder::new(app)
+                .item(&edit_item)
+                .item(&designer_item)
+                .item(&quit_item)
+                .build()?;
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Widget overlay — right-click for menu")
@@ -89,6 +95,10 @@ async fn main() -> Result<(), ()> {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "edit" => {
                         let _ = app.emit("toggle_edit", ());
+                    }
+                    "designer" => {
+                        // The primary overlay listens and opens the studio window (5s).
+                        let _ = app.emit("open_studio", ());
                     }
                     "quit" => app.exit(0),
                     _ => {}

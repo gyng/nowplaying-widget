@@ -2,7 +2,7 @@
   "identifier": "overlay",
   "description": "Overlay windows (primary + per-monitor): event/command access, window creation, click-through, always-on-top, and sizing",
   "local": true,
-  "windows": ["main", "overlay-*"],
+  "windows": ["main", "overlay-*", "studio"],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",

@@ -29,6 +29,7 @@ tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-works
 
 [target.'cfg(target_os = "windows")'.dependencies]
 win-gsmtc = { version = "0.1.0", features = ["serde"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
 [features]
 # by default Tauri runs in production mode

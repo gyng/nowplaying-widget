@@ -1,15 +1,20 @@
 <script lang="ts">
 	import NowPlaying from '../lib/components/NowPlaying/NowPlaying.svelte';
 	import Canvas from '../lib/widgets/Canvas.svelte';
-	import { monitorParam } from '../lib/overlay';
+	import { isStudioWindow, monitorParam } from '../lib/overlay';
 
-	// NowPlaying renders only on the primary overlay; secondary monitors show widgets only.
-	const isPrimary = monitorParam() === null;
+	const studio = isStudioWindow();
+	// NowPlaying only on the primary overlay (not secondaries, not the studio window).
+	const isPrimary = monitorParam() === null && !studio;
 </script>
 
 <section>
-	{#if isPrimary}
-		<NowPlaying />
+	{#if studio}
+		<Canvas studio />
+	{:else}
+		{#if isPrimary}
+			<NowPlaying />
+		{/if}
+		<Canvas />
 	{/if}
-	<Canvas />
 </section>

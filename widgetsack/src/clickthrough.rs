@@ -8,11 +8,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 
 /// A widget's hit rect in physical screen pixels (computed and sent by the frontend).
-#[derive(Clone, Copy, Debug, Deserialize)]
+/// Also reused for the work-area query (backend → frontend), hence Serialize.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ScreenRect {
     pub x: f64,
     pub y: f64,
@@ -82,6 +83,54 @@ pub fn run_clickthrough_watcher<R: Runtime>(app: AppHandle<R>) {
             }
         }
     });
+}
+
+/// The work area (the monitor minus the taskbar) for the calling window's monitor, in
+/// PHYSICAL screen pixels. The frontend converts to local logical px for the flow root
+/// bounds (Phase 5b — taskbar awareness). Windows-only; errors elsewhere.
+#[tauri::command]
+pub fn current_work_area(window: tauri::WebviewWindow) -> Result<ScreenRect, String> {
+    work_area_for(&window)
+}
+
+#[cfg(target_os = "windows")]
+fn work_area_for(window: &tauri::WebviewWindow) -> Result<ScreenRect, String> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no current monitor".to_string())?;
+    let pos = monitor.position();
+    // A point safely inside the monitor selects the right HMONITOR without needing the HWND.
+    let pt = POINT {
+        x: pos.x + 1,
+        y: pos.y + 1,
+    };
+    let hmon = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+    let mut mi = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let ok = unsafe { GetMonitorInfoW(hmon, &mut mi) };
+    if !ok.as_bool() {
+        return Err("GetMonitorInfoW failed".to_string());
+    }
+    let rc = mi.rcWork;
+    Ok(ScreenRect {
+        x: rc.left as f64,
+        y: rc.top as f64,
+        w: (rc.right - rc.left) as f64,
+        h: (rc.bottom - rc.top) as f64,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn work_area_for(_window: &tauri::WebviewWindow) -> Result<ScreenRect, String> {
+    Err("work area is only available on Windows".to_string())
 }
 
 #[cfg(test)]
