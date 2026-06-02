@@ -859,3 +859,28 @@ describe('collectGridPlaceholders', () => {
 		expect(cells[0]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
 	});
 });
+
+describe('overlap container', () => {
+	it('places every child in the same content box (stretch = fill, layered by order)', () => {
+		const cell = container('cell', 'col', [leaf(prim('A', 10, 10)), leaf(prim('B', 20, 20))], {
+			overlap: true,
+			align: 'stretch'
+		});
+		const solved = solveLayout(cell, { x: 0, y: 0, w: 100, h: 50 });
+		expect(solved.get('A')).toEqual({ x: 0, y: 0, w: 100, h: 50 });
+		expect(solved.get('B')).toEqual({ x: 0, y: 0, w: 100, h: 50 }); // overlaps A exactly
+	});
+
+	it("an overlap container's intrinsic size is its largest child, not the sum", () => {
+		const cell = container('cell', 'col', [leaf(prim('A', 10, 40)), leaf(prim('B', 30, 20))], {
+			overlap: true,
+			align: 'center'
+		});
+		// inside a fitting root so the cell takes its intrinsic box
+		const root = container('root', 'col', [cell], {});
+		const mon: MonitorLayout = { root, floating: [] };
+		const solved = solveMonitor(mon, { x: 0, y: 0, w: 200, h: 200 });
+		// max width 30, max height 40 (not 10+30 / 40+20)
+		expect(solved.get('cell')).toMatchObject({ w: 30, h: 40 });
+	});
+});

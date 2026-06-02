@@ -90,6 +90,7 @@
 			if (!b || ne(c.align, b.align)) d.add('align');
 			if (!b || ne(c.justify, b.justify)) d.add('justify');
 			if (!b || (typeof c.basis === 'object') !== (typeof b.basis === 'object')) d.add('basis');
+			if (!b || !!c.overlap !== !!b.overlap) d.add('overlap');
 		}
 		if (g) {
 			const b = isNew ? null : bg;
@@ -317,6 +318,14 @@
 						patchContainer({ basis: e.currentTarget.checked ? { fr: 1 } : undefined })}
 				/>
 				grow to fill (fr)
+			</label>
+			<label class="check" class:dirty={dirtyKeys.has('overlap')}>
+				<input
+					type="checkbox"
+					checked={!!container.overlap}
+					on:change={(e) => patchContainer({ overlap: e.currentTarget.checked || undefined })}
+				/>
+				overlap children (same cell)
 			</label>
 			<div class="actions">
 				<button type="button" on:click={makeWidgetFromContainer}>Make widget</button>

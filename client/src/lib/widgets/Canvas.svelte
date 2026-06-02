@@ -39,6 +39,7 @@
 		collectRenderables,
 		gridCellRects,
 		intrinsicSize,
+		type Renderable,
 		solveMonitor
 	} from '../core/solve';
 	import { assembleStyles } from '../core/style';
@@ -403,6 +404,9 @@
 	$: menuGroup = menuLeaf && isGroup(menuLeaf.unit) ? (menuLeaf.unit as Group) : null;
 	$: menuId = menu?.id ?? null;
 	$: menuFloating = menuId !== null && monitor.floating.some((l) => l.id === menuId);
+	// Overlapping widgets under the right-click point (topmost first, deduped by selectId) — the
+	// context-menu stack picker. Only surfaced when 2+ overlap.
+	$: menuStack = menu && studio ? widgetsAt(toWorld(menu.x, menu.y)) : [];
 	$: placement = (
 		selectedId === null
 			? null
@@ -1115,6 +1119,13 @@
 		handleOp(op);
 		menu = null;
 	}
+	// Stack picker: select one of the overlapping widgets under the cursor and re-target the menu
+	// to it (so its actions below apply), keeping the menu open.
+	function mPick(selectId: string) {
+		selectedId = selectId;
+		selectedIds = [selectId];
+		if (menu) menu = { ...menu, id: selectId };
+	}
 	const mMakeWidget = () => menu && menuAct({ op: 'makeWidget', id: menu.id });
 	const mRemove = () => menu && menuAct({ op: 'remove', id: menu.id });
 	const mFloat = () => menu && menuAct({ op: 'float', id: menu.id });
@@ -1359,6 +1370,22 @@
 			}
 		}
 		return bestId;
+	}
+
+	// All distinct selectable widgets under a WORLD point, topmost first (deduped by selectId, so a
+	// group counts once) — the context-menu stack picker for overlapping widgets.
+	function widgetsAt(world: { x: number; y: number }): Renderable[] {
+		const seen = new Set<string>();
+		const out: Renderable[] = [];
+		for (let i = renderables.length - 1; i >= 0; i--) {
+			const r = renderables[i];
+			const b = r.rect;
+			if (world.x < b.x || world.x >= b.x + b.w || world.y < b.y || world.y >= b.y + b.h) continue;
+			if (seen.has(r.selectId)) continue;
+			seen.add(r.selectId);
+			out.push(r);
+		}
+		return out;
 	}
 
 	// Insert a built-in template's widgets into the floating layer (a draft edit — preview, then
@@ -1903,6 +1930,17 @@
 		{#if menu && menuNode}
 			<button type="button" class="ctx-backdrop" aria-label="Close menu" on:click={closeMenu} />
 			<div class="ctx" style="left: {menu.x}px; top: {menu.y}px">
+				{#if menuStack.length > 1}
+					<span class="ctx-hd">Select ({menuStack.length})</span>
+					{#each menuStack as s (s.selectId)}
+						<button
+							type="button"
+							class:cur={s.selectId === menu.id}
+							on:click={() => mPick(s.selectId)}>{s.instance.type} · {s.selectId}</button
+						>
+					{/each}
+					<div class="ctx-sep" />
+				{/if}
 				{#if menuGroup}
 					{#if menuGroup.def}
 						<button type="button" on:click={mEditDef}>Edit def…</button>
@@ -2132,6 +2170,11 @@
 
 	.ctx button.rm {
 		color: rgb(230, 160, 160);
+	}
+
+	/* The currently-targeted item in the overlap stack picker. */
+	.ctx button.cur {
+		color: rgb(150, 214, 228);
 	}
 
 	.ctx-sep {

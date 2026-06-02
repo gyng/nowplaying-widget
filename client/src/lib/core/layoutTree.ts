@@ -34,6 +34,7 @@ export type Container = {
 	align?: Align; // cross axis (row → vertical, col → horizontal)
 	justify?: Justify; // main axis (ignored when an `fr` child consumes the leftover)
 	bounds?: Rect; // explicit box; default = the contentRect passed to the solver
+	overlap?: boolean; // stack children in the SAME box (overlapping/layered) instead of flowing
 	children: LayoutNode[];
 };
 

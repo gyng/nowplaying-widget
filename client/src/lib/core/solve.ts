@@ -320,6 +320,21 @@ function solveContainer(
 	out.set(prefix + c.id, { ...box });
 	const content = insetPad(box, c.pad);
 	if (c.children.length === 0) return;
+	// Overlap (layer) mode: every child occupies the SAME content box (z-ordered by array order),
+	// so widgets can share a grid cell / pane. `align` controls each child within the box
+	// (stretch = fill the cell, else intrinsic-sized + positioned). Item: same-cell overlap.
+	if (c.overlap) {
+		for (const child of c.children) {
+			solveNode(
+				child,
+				alignInCell(child, c.align ?? 'stretch', content, library),
+				prefix,
+				library,
+				out
+			);
+		}
+		return;
+	}
 	if (c.kind === 'grid') {
 		solveGrid(c, content, prefix, library, out);
 	} else {
@@ -477,6 +492,9 @@ function intrinsicContainer(
 
 	const gap = c.gap ?? 0;
 	const extents = c.children.map((ch) => intrinsicMain(ch, horizontal, library));
+
+	// Overlapping children share one box, so the container is only as big as its largest child.
+	if (c.overlap) return padAlong + Math.max(...extents);
 
 	if (c.kind === 'grid') {
 		const cols = Math.max(1, c.cols ?? 1);
