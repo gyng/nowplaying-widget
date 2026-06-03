@@ -33,6 +33,7 @@ type Props = {
 	library?: Library;
 	prefix?: string; // id namespace from enclosing group leaves (matches the solver's keying)
 	parentOverlap?: boolean; // parent is an overlap (stacking) container → occupy the shared cell
+	fill?: boolean; // the top-level node fills its parent (.world) instead of being content-sized
 };
 
 const merge = (...parts: Record<string, string | number>[]): CSSProperties =>
@@ -44,18 +45,20 @@ export default function FlowNode({
 	renderLeaf,
 	library,
 	prefix = '',
-	parentOverlap = false
+	parentOverlap = false,
+	fill = false
 }: Props) {
 	const id = prefix + node.id;
 	const self = itemStyle(node, parentKind);
 	const overlap = parentOverlap ? overlapChildStyle() : {};
+	const fillStyle: Record<string, string | number> = fill ? { width: '100%', height: '100%' } : {};
 
 	if (isContainer(node)) {
 		return (
 			<div
 				data-id={id}
 				data-kind={node.kind}
-				style={merge(self, overlap, containerStyle(node), { boxSizing: 'border-box' })}
+				style={merge(self, overlap, containerStyle(node), fillStyle, { boxSizing: 'border-box' })}
 			>
 				{node.children.map((child) => (
 					<FlowNode

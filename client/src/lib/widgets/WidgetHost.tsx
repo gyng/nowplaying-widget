@@ -34,6 +34,9 @@ type Props = {
 	rect?: Rect;
 	// Floating widgets free-move/resize; in-flow widgets are solver-positioned (select-only here).
 	movable?: boolean;
+	// CSS-layout (flow) mode: the widget fills its FlowNode slot (the parent owns position/size)
+	// instead of absolutely positioning itself at `rect`. Used by the native-CSS render path.
+	flow?: boolean;
 	// What clicking selects (a group's descendants select the group), defaults to this widget.
 	selectId?: string;
 	// Styling hooks: the unique DOM id + the group/def this widget belongs to (data-w/def/group).
@@ -84,6 +87,7 @@ export default function WidgetHost({
 	scale = 1,
 	rect: rectProp,
 	movable = true,
+	flow = false,
 	selectId: selectIdProp,
 	domId: domIdProp,
 	defId,
@@ -285,6 +289,7 @@ export default function WidgetHost({
 	}
 
 	const cls = ['widget'];
+	if (flow) cls.push('flow');
 	if (editMode) cls.push('editable');
 	if (selected) cls.push('selected');
 	if (highlighted) cls.push('hl');
@@ -296,15 +301,21 @@ export default function WidgetHost({
 		<div
 			ref={boxRef}
 			className={cls.join(' ')}
-			style={{
-				left: `${rect.x}px`,
-				top: `${rect.y}px`,
-				// Content-fit: let the box shrink-wrap its content (and report that size); otherwise use
-				// the solved rect. The solved rect for a 'content' leaf already equals the measured size.
-				width: contentSize ? 'max-content' : `${rect.w}px`,
-				height: contentSize ? 'max-content' : `${rect.h}px`,
-				transform: `translate(${ghost.dx}px, ${ghost.dy}px)`
-			}}
+			style={
+				flow
+					? // Slot mode (CSS layout): fill the FlowNode slot that owns position/size; only the
+					  // live drag ghost is applied here.
+					  { width: '100%', height: '100%', transform: `translate(${ghost.dx}px, ${ghost.dy}px)` }
+					: {
+							left: `${rect.x}px`,
+							top: `${rect.y}px`,
+							// Content-fit: let the box shrink-wrap its content (and report that size); otherwise
+							// use the solved rect (which for a 'content' leaf already equals the measured size).
+							width: contentSize ? 'max-content' : `${rect.w}px`,
+							height: contentSize ? 'max-content' : `${rect.h}px`,
+							transform: `translate(${ghost.dx}px, ${ghost.dy}px)`
+					  }
+			}
 			data-w={domId}
 			data-type={instance.type}
 			data-sensor={instance.sensor}

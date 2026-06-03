@@ -60,6 +60,8 @@ import {
 	type Drop
 } from '../core/layoutEdit';
 import WidgetHost from './WidgetHost';
+import FlowNode, { type RenderLeaf } from './FlowNode';
+import { useMeasuredRects } from './canvas/useMeasuredRects';
 import Inspector from './Inspector';
 import ControlsPanel from './ControlsPanel';
 import Outline from './Outline';
@@ -383,6 +385,31 @@ export default function Canvas({ studio = false }: Props) {
 		[studio, monitor, solved]
 	);
 
+	// --- CSS-layout render path (pivot) ---
+	// The overlay renders its flow tree as native CSS (FlowNode) and reads rects back by measuring
+	// the DOM (useMeasuredRects → a Solved map mirroring the solver's keys). The studio still uses
+	// the solver for now (enabled:!studio). The floating layer stays absolutely positioned either way.
+	const worldRef = useRef<HTMLDivElement | null>(null);
+	const { measured: measuredDom, measuredRef } = useMeasuredRects({
+		worldRef,
+		zoom: studio ? zoom : 1,
+		deps: [monitor, workArea],
+		enabled: !studio
+	});
+	const floatingRenderables = useMemo(
+		() =>
+			renderables.filter((r) =>
+				monitor.floating.some((l) => r.id === l.id || r.id.startsWith(`${l.id}/`))
+			),
+		[renderables, monitor.floating]
+	);
+	const renderFlowLeaf = useCallback<RenderLeaf>(
+		(lf, id) => (
+			<WidgetHost flow hub={hub} instance={lf.unit as WidgetInstance} domId={id} selectId={id} />
+		),
+		[hub]
+	);
+
 	const tokenCss = useMemo(
 		() => (Object.keys(tokenOverrides).length ? tokensToCss(tokenOverrides) : ''),
 		[tokenOverrides]
@@ -554,10 +581,12 @@ export default function Canvas({ studio = false }: Props) {
 	const interactiveItems = useCallback(
 		(): { rect: Rect; interactive?: boolean }[] =>
 			renderables.map((r) => ({
-				rect: r.rect,
+				// Overlay flow widgets are CSS-laid-out → take their MEASURED rect (falls back to the
+				// solved rect for floating widgets, which have no data-id, and for the studio role).
+				rect: (studio ? undefined : measuredRef.current?.get(r.id)) ?? r.rect,
 				interactive: r.instance.interactive || getMeta(r.instance.type)?.interactive
 			})),
-		[renderables]
+		[renderables, studio, measuredRef]
 	);
 	// Latest values for callbacks that run outside the render (listeners / async).
 	const interactiveItemsRef = useRef(interactiveItems);
@@ -570,6 +599,13 @@ export default function Canvas({ studio = false }: Props) {
 			console.warn('set_interactive_rects failed', err)
 		);
 	}, []);
+
+	// Overlay (CSS layout): the interactive rects come from the measured DOM, so re-sync whenever the
+	// measured map changes (not just on save). Gated on a non-empty map so the first paint doesn't
+	// blank the rects before measurement lands.
+	useEffect(() => {
+		if (!studio && measuredDom.size > 0) syncRects();
+	}, [studio, measuredDom, syncRects]);
 
 	// --- theme ---
 	const applyTheme = useCallback(async () => {
@@ -1644,6 +1680,40 @@ export default function Canvas({ studio = false }: Props) {
 	if (spaceDown) canvasCls.push('panmode');
 	if (designing) canvasCls.push('designing');
 
+	// One WidgetHost per renderable — shared by the studio (absolute, solver-positioned) and the
+	// overlay's floating layer. `flow` slot-mode hosts come from renderFlowLeaf via FlowNode instead.
+	const renderHost = (r: (typeof renderables)[number], flow: boolean) => (
+		<WidgetHost
+			key={r.id}
+			flow={flow}
+			hub={hub}
+			instance={r.instance}
+			rect={r.rect}
+			movable={r.movable}
+			selectId={r.selectId}
+			domId={r.id}
+			defId={r.defId}
+			groupId={r.groupId}
+			contentSize={contentLeaves.has(r.id)}
+			onMeasure={onMeasure}
+			editMode={editMode && !previewing}
+			selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
+			highlighted={hoverId !== null && r.selectId === hoverId}
+			grid={GRID}
+			scale={studio ? zoom : 1}
+			onChange={onChange}
+			onCommit={onCommit}
+			onSelect={onSelect}
+			onDragOver={onDragOver}
+			onDrop={onDrop}
+			onContextMenu={onWidgetContextMenu}
+			onControl={onWidgetControl}
+			onHover={editMode ? setHoverId : undefined}
+			onSuppressContextMenu={armSuppressCtx}
+			suppressContextMenu={consumeSuppressCtx}
+		/>
+	);
+
 	return (
 		<TelemetryHubContext.Provider value={hub}>
 			<div
@@ -1656,7 +1726,7 @@ export default function Canvas({ studio = false }: Props) {
 				onDrop={onCanvasDrop}
 			>
 				<StyleLayer css={styleCss} />
-				<div className={studio ? 'world scaled' : 'world'} style={worldStyle}>
+				<div ref={worldRef} className={studio ? 'world scaled' : 'world'} style={worldStyle}>
 					{studio && (
 						<>
 							<div
@@ -1694,36 +1764,22 @@ export default function Canvas({ studio = false }: Props) {
 							))}
 						</>
 					)}
-					{renderables.map((r) => (
-						<WidgetHost
-							key={r.id}
-							hub={hub}
-							instance={r.instance}
-							rect={r.rect}
-							movable={r.movable}
-							selectId={r.selectId}
-							domId={r.id}
-							defId={r.defId}
-							groupId={r.groupId}
-							contentSize={contentLeaves.has(r.id)}
-							onMeasure={onMeasure}
-							editMode={editMode && !previewing}
-							selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
-							highlighted={hoverId !== null && r.selectId === hoverId}
-							grid={GRID}
-							scale={studio ? zoom : 1}
-							onChange={onChange}
-							onCommit={onCommit}
-							onSelect={onSelect}
-							onDragOver={onDragOver}
-							onDrop={onDrop}
-							onContextMenu={onWidgetContextMenu}
-							onControl={onWidgetControl}
-							onHover={editMode ? setHoverId : undefined}
-							onSuppressContextMenu={armSuppressCtx}
-							suppressContextMenu={consumeSuppressCtx}
-						/>
-					))}
+					{studio ? (
+						// Studio: solver-positioned absolute widgets (CSS-layout migration switches this in
+						// phase D). Overlay below: native CSS flow + absolute floating only.
+						renderables.map((r) => renderHost(r, false))
+					) : (
+						<>
+							<FlowNode
+								node={monitor.root}
+								parentKind="col"
+								renderLeaf={renderFlowLeaf}
+								library={library}
+								fill
+							/>
+							{floatingRenderables.map((r) => renderHost(r, false))}
+						</>
+					)}
 					{editMode && (
 						<>
 							{guideXs.map((gx) => (

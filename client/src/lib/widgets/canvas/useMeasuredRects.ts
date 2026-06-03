@@ -19,6 +19,9 @@ type Args = {
 	zoom: number;
 	// Re-measure when any of these change identity (monitor tree, work area, zoom, pan, edit mode).
 	deps: unknown[];
+	// When false the hook is inert (no observers, empty map) — used to keep it off the role that
+	// still renders via the solver during the staged migration.
+	enabled?: boolean;
 };
 
 const rectEq = (a: Rect, b: Rect): boolean =>
@@ -33,7 +36,7 @@ function sameMap(a: Solved, b: Solved): boolean {
 	return true;
 }
 
-export function useMeasuredRects({ worldRef, zoom, deps }: Args): {
+export function useMeasuredRects({ worldRef, zoom, deps, enabled = true }: Args): {
 	measured: Solved;
 	measuredRef: RefObject<Solved>;
 } {
@@ -55,6 +58,7 @@ export function useMeasuredRects({ worldRef, zoom, deps }: Args): {
 	}, [worldRef, zoom]);
 
 	useLayoutEffect(() => {
+		if (!enabled) return;
 		const world = worldRef.current;
 		if (!world) return;
 		const ro = new ResizeObserver(() => measure());
@@ -81,7 +85,7 @@ export function useMeasuredRects({ worldRef, zoom, deps }: Args): {
 			mo.disconnect();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [measure, ...deps]);
+	}, [measure, enabled, ...deps]);
 
 	return { measured, measuredRef };
 }

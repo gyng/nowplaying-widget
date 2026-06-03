@@ -2,6 +2,14 @@
 	position: absolute;
 }
 
+/* CSS-layout (flow) mode: the widget is a normal in-flow box filling its FlowNode slot, which owns
+   the position/size — so it must NOT absolutely position itself. */
+.widget.flow {
+	position: relative;
+	left: auto;
+	top: auto;
+}
+
 /* Interactive widgets catch clicks in passive mode (the canvas is otherwise pointer-events:none).
    The cursor watcher gates this at the OS level. */
 .widget.catch {
