@@ -26,5 +26,5 @@ export const SECTIONS: Section[] = [
 	{ id: 'plugins', label: 'Plugins', short: 'Plugins', icon: '⧉', group: 'main' },
 	{ id: 'themes', label: 'Themes', short: 'Themes', icon: '◐', group: 'main' },
 	{ id: 'sacks', label: 'Sacks', short: 'Sacks', icon: '▦', group: 'main' },
-	{ id: 'settings', label: 'Settings', short: 'Settings', icon: '⚙', group: 'foot', stub: true }
+	{ id: 'settings', label: 'Settings', short: 'Settings', icon: '⚙', group: 'foot' }
 ];

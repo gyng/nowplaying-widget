@@ -58,24 +58,45 @@
 	text-transform: uppercase;
 }
 
-/* A section panel (everything except Layouts, which uses .outline.docked) — the same fixed box as
-   the docked Outline, shifted right of the nav strip. */
+/* A section panel (every section except Layouts, which is the stage + Outline + Inspector). It
+   takes over the WHOLE working area right of the nav strip — full-screen, opaque, above the stage
+   and the Inspector — so each section is its own screen (a sensor browser, a widget picker, …). */
 .canvas .rail-panel {
 	position: fixed;
 	top: var(--bar-h, 36px);
 	left: var(--nav-w, 56px);
+	right: 0;
 	bottom: var(--bar-b, 0);
-	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px));
 	box-sizing: border-box;
 	overflow-y: auto;
-	padding: 6px;
-	background: rgba(10, 10, 12, 0.92);
-	border-right: 1px solid rgba(119, 196, 211, 0.5);
+	padding: 12px 16px;
+	background: #0b0b0e;
 	color: #eee;
 	font-family: monospace;
-	font-size: 11px;
-	z-index: 6;
+	font-size: 12px;
+	z-index: 7;
 	pointer-events: auto;
+}
+
+/* A picker grid (widget types / templates) that spreads across the full-screen panel. */
+.canvas .rail-panel .rp-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+	gap: 6px;
+	margin-bottom: 4px;
+}
+
+.canvas .rail-panel .rp-grid button {
+	margin: 0;
+	padding: 12px 6px;
+	text-align: center;
+}
+
+/* The live sensor list spreads into responsive columns across the full width. */
+.canvas .rail-panel .rp-sensors {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 0 24px;
 }
 
 .canvas .rail-panel .rp-hd {
@@ -104,6 +125,15 @@
 
 .canvas .rail-panel button:hover {
 	border-color: rgb(119, 196, 211);
+}
+
+.canvas .rail-panel button.rp-danger {
+	border-color: rgba(220, 120, 120, 0.5);
+	color: rgb(230, 160, 160);
+}
+
+.canvas .rail-panel button.rp-danger:hover {
+	border-color: rgb(220, 120, 120);
 }
 
 .canvas .rail-panel select {

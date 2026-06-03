@@ -59,6 +59,7 @@ import WidgetHost from './WidgetHost';
 import Inspector from './Inspector';
 import Outline from './Outline';
 import NavRail from './NavRail';
+import SensorList from './SensorList';
 import StyleLayer from './StyleLayer';
 import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
@@ -764,6 +765,19 @@ export default function Canvas({ studio = false }: Props) {
 	useEffect(() => {
 		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
 	}, [studio, navSection]);
+
+	// Settings: remove all widgets on this monitor (undoable; Save to apply).
+	const clearMonitor = useCallback(() => {
+		if (
+			!window.confirm('Remove all widgets on this monitor? You can undo (Ctrl+Z); Save to apply.')
+		)
+			return;
+		commitOp(() => ({
+			monitor: { root: emptyRoot(), floating: [] },
+			selectedId: null,
+			selectedIds: []
+		}));
+	}, [commitOp]);
 
 	// --- studio: switch monitor ---
 	const switchMonitor = useCallback(
@@ -1601,14 +1615,27 @@ export default function Canvas({ studio = false }: Props) {
 								)}
 								{navSection === 'widget-designer' && (
 									<div className="rail-panel">
-										<div className="rp-hd">Widget designer</div>
+										<div className="rp-hd">Add a widget</div>
+										<div className="rp-grid">
+											{widgetTypes.map((w) => (
+												<button
+													key={w.type}
+													type="button"
+													title={`Add a ${w.label} to this monitor`}
+													onClick={() => handleOp({ op: 'addWidget', widgetType: w.type })}
+												>
+													{w.label}
+												</button>
+											))}
+										</div>
+										<div className="rp-hd">Custom widget</div>
 										<button type="button" onClick={newWidget}>
-											＋ New widget
+											＋ New widget (design)
 										</button>
 										{library?.defs.length ? (
 											<>
 												<div className="rp-hd">Library defs</div>
-												<div className="rp-list">
+												<div className="rp-grid">
 													{library.defs.map((d) => (
 														<button key={d.id} type="button" onClick={() => editExistingDef(d.id)}>
 															{d.name}
@@ -1622,7 +1649,7 @@ export default function Canvas({ studio = false }: Props) {
 											</div>
 										)}
 										<div className="rp-hd">Templates</div>
-										<div className="rp-list">
+										<div className="rp-grid">
 											{TEMPLATES.map((t) => (
 												<button
 													key={t.id}
@@ -1638,14 +1665,11 @@ export default function Canvas({ studio = false }: Props) {
 								)}
 								{navSection === 'sensors' && (
 									<div className="rail-panel">
-										<div className="rp-hd">Sensors</div>
-										<div className="rp-list">
-											{sensorCatalog([...hub.sensorIds(), ...sourceCatalogIds()]).map((s) => (
-												<div key={s} className="rp-row">
-													{s}
-												</div>
-											))}
-										</div>
+										<div className="rp-hd">Sensors &amp; live values</div>
+										<SensorList
+											hub={hub}
+											ids={sensorCatalog([...hub.sensorIds(), ...sourceCatalogIds()])}
+										/>
 									</div>
 								)}
 								{navSection === 'plugins' && (
@@ -1716,8 +1740,37 @@ export default function Canvas({ studio = false }: Props) {
 								)}
 								{navSection === 'settings' && (
 									<div className="rail-panel">
-										<div className="rp-hd">Settings</div>
-										<div className="rp-stub">Coming soon.</div>
+										<div className="rp-hd">Display</div>
+										<div className="rp-list">
+											<div className="rp-row">
+												<span>monitor</span>
+												<span className="dim">{monName || '—'}</span>
+											</div>
+											<div className="rp-row">
+												<span>size</span>
+												<span className="dim">
+													{monSize.w}×{monSize.h}
+												</span>
+											</div>
+											<div className="rp-row">
+												<span>work area</span>
+												<span className="dim">
+													{Math.round(workArea.w)}×{Math.round(workArea.h)}
+												</span>
+											</div>
+										</div>
+										<div className="rp-hd">View</div>
+										<button type="button" onClick={fit}>
+											⤢ Fit to screen ({Math.round(zoom * 100)}%)
+										</button>
+										<div className="rp-hd">Tools</div>
+										<button type="button" onClick={openDevtools}>
+											⧉ Inspect (devtools)
+										</button>
+										<div className="rp-hd">Danger</div>
+										<button type="button" className="rp-danger" onClick={clearMonitor}>
+											✕ Clear this monitor
+										</button>
 									</div>
 								)}
 							</>
@@ -1731,26 +1784,28 @@ export default function Canvas({ studio = false }: Props) {
 								onOp={handleOp}
 							/>
 						)}
-						<Inspector
-							widget={selectedWidget}
-							container={selectedContainer}
-							groupUnit={selectedGroup}
-							def={selectedDef}
-							defs={library?.defs ?? []}
-							tokens={tokenOverrides}
-							baseWidget={baseWidget}
-							baseContainer={baseContainer}
-							baseGroup={baseGroup}
-							baseTokens={savedBaseline?.tokens ?? null}
-							nodeIsNew={nodeIsNew}
-							isGridCell={isGridCell}
-							placement={placement}
-							widgetTypes={widgetTypes}
-							configFields={configFields}
-							sensors={sensors}
-							docked={studio}
-							onOp={handleOp}
-						/>
+						{(!studio || navSection === 'layouts') && (
+							<Inspector
+								widget={selectedWidget}
+								container={selectedContainer}
+								groupUnit={selectedGroup}
+								def={selectedDef}
+								defs={library?.defs ?? []}
+								tokens={tokenOverrides}
+								baseWidget={baseWidget}
+								baseContainer={baseContainer}
+								baseGroup={baseGroup}
+								baseTokens={savedBaseline?.tokens ?? null}
+								nodeIsNew={nodeIsNew}
+								isGridCell={isGridCell}
+								placement={placement}
+								widgetTypes={widgetTypes}
+								configFields={configFields}
+								sensors={sensors}
+								docked={studio}
+								onOp={handleOp}
+							/>
+						)}
 						{menu && menuNode && (
 							<>
 								<button
