@@ -369,6 +369,9 @@ export default function Canvas({ studio = false }: Props) {
 		selectedNode && isLeaf(selectedNode) && !isGroup(selectedNode.unit)
 			? (selectedNode.unit as WidgetInstance)
 			: null;
+	// The selected leaf's main-axis basis (fr = stretch, else fixed) — the leaf wrapper holds it,
+	// not the unit, so the Inspector receives it separately to drive the widget's grow toggle.
+	const selectedLeafBasis = selectedNode && isLeaf(selectedNode) ? selectedNode.basis : undefined;
 	const selectedGroup =
 		selectedNode && isLeaf(selectedNode) && isGroup(selectedNode.unit)
 			? (selectedNode.unit as Group)
@@ -1431,7 +1434,16 @@ export default function Canvas({ studio = false }: Props) {
 											.join(' ')}
 										style={{ left: c.rect.x, top: c.rect.y, width: c.rect.w, height: c.rect.h }}
 									>
-										<span className="ctag">{c.kind}</span>
+										<button
+											type="button"
+											className="ctag"
+											title={`Select this ${c.kind}`}
+											onClick={() => dispatch({ type: 'select', id: c.id })}
+											onMouseEnter={() => setHoverId(c.id)}
+											onMouseLeave={() => setHoverId(null)}
+										>
+											{c.kind}
+										</button>
 									</div>
 								) : null
 							)}
@@ -1875,6 +1887,7 @@ export default function Canvas({ studio = false }: Props) {
 								nodeIsNew={nodeIsNew}
 								isGridCell={isGridCell}
 								placement={placement}
+								widgetBasis={selectedLeafBasis}
 								widgetTypes={widgetTypes}
 								configFields={configFields}
 								sensors={sensors}

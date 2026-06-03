@@ -23,6 +23,7 @@ import {
 	type Group,
 	type Leaf,
 	type LayoutNode,
+	type Length,
 	type Library,
 	type MonitorLayout,
 	type WidgetDef
@@ -538,6 +539,18 @@ function patchContainerOp(s: EditorState, id: string, patch: Partial<Container>)
 	return { monitor: { ...s.monitor, root: updateContainer(s.monitor.root, id, patch) } };
 }
 
+// Set (or clear, when undefined) a flow node's main-axis basis: 'auto'/px = fixed, {fr} = grow.
+// Works on any node in the flow tree (a widget leaf or a container); floating leaves ignore basis.
+function setNodeBasis(s: EditorState, id: string, basis: Length | undefined): Patch {
+	const root = updateNode(s.monitor.root, id, (n) => {
+		const next = { ...n } as LayoutNode & { basis?: Length };
+		if (basis === undefined) delete next.basis;
+		else next.basis = basis;
+		return next;
+	});
+	return { monitor: { ...s.monitor, root } };
+}
+
 // The selected container (incl. root) in the live tree — used by addWidget/addContainer/insert.
 function currentContainer(s: EditorState): Container | null {
 	if (!s.selectedId) return null;
@@ -946,6 +959,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					return;
 				case 'patchWidget':
 					commitOp((s) => patchUnit(s, op.id, op.patch));
+					return;
+				case 'setBasis':
+					commitOp((s) => setNodeBasis(s, op.id, op.basis));
 					return;
 				case 'resetWidget':
 					commitOp((s) => resetWidget(s, op.id));

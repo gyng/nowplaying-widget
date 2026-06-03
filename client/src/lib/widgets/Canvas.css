@@ -108,16 +108,30 @@
 	background: rgba(119, 196, 211, 0.06);
 }
 
+/* The container tag (row/col/grid) doubles as a SELECT button — the .cbound itself is
+   pointer-events:none, so the tag re-enables clicks to select just this container. */
 .canvas .cbound .ctag {
 	position: absolute;
 	top: 0;
 	left: 0;
 	padding: 0 3px;
+	border: none;
 	font-family: monospace;
 	font-size: 9px;
 	line-height: 1.5;
 	color: rgba(218, 237, 226, 0.7);
 	background: rgba(10, 10, 12, 0.55);
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.canvas .cbound .ctag:hover {
+	color: rgb(150, 214, 228);
+	background: rgba(10, 10, 12, 0.8);
+}
+
+.canvas .cbound.csel .ctag {
+	color: rgb(150, 214, 228);
 }
 
 /* Empty grid cells: faint dashed boxes showing where the next widgets will land. */

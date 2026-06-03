@@ -8,6 +8,7 @@ import type {
 	Container,
 	Group,
 	Justify,
+	Length,
 	WidgetDef,
 	WidgetInstance
 } from '../core/layoutTree';
@@ -33,6 +34,7 @@ type Props = {
 	nodeIsNew?: boolean;
 	isGridCell?: boolean; // the selected container is a grid cell → show cell sizing fields
 	placement?: 'flow' | 'floating' | null;
+	widgetBasis?: Length; // the selected in-flow leaf's main-axis basis (drives the grow toggle)
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
 	docked?: boolean;
 	widgetTypes?: { type: string; label: string }[]; // palette (8a)
@@ -111,6 +113,8 @@ function computeDirty(
 // String / boolean views of a config value (avoids `as` casts in the template).
 const cfgStr = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 const cfgBool = (v: unknown): boolean => !!v;
+// Whether a basis means "grow/stretch along the parent's main axis" (an `fr` length).
+const isFrBasis = (b?: Length): boolean => typeof b === 'object' && b !== null && 'fr' in b;
 
 export default function Inspector({
 	widget = null,
@@ -126,6 +130,7 @@ export default function Inspector({
 	nodeIsNew = false,
 	isGridCell = false,
 	placement = null,
+	widgetBasis = undefined,
 	docked = false,
 	widgetTypes = [],
 	configFields = [],
@@ -395,7 +400,7 @@ export default function Inspector({
 							checked={!!container.overlap}
 							onChange={(e) => patchContainer({ overlap: e.currentTarget.checked || undefined })}
 						/>
-						overlap children (same cell)
+						stack children (overlap in one cell)
 					</label>
 					{isGridCell && (
 						<>
@@ -484,6 +489,36 @@ export default function Inspector({
 								</label>
 							))}
 						</div>
+					)}
+					{placement === 'flow' && (
+						<>
+							<div className="row2">
+								{(['w', 'h'] as const).map((key) => (
+									<label key={key} className={dirtyKeys.has('rect.' + key) ? 'dirty' : undefined}>
+										{key} (fixed)
+										<input
+											type="number"
+											value={widget.rect[key]}
+											onInput={(e) => updateRect(key, Number(e.currentTarget.value))}
+										/>
+									</label>
+								))}
+							</div>
+							<label className="check">
+								<input
+									type="checkbox"
+									checked={isFrBasis(widgetBasis)}
+									onChange={(e) =>
+										op({
+											op: 'setBasis',
+											id: widget.id,
+											basis: e.currentTarget.checked ? { fr: 1 } : undefined
+										})
+									}
+								/>
+								grow (stretch to fill the row / column)
+							</label>
+						</>
 					)}
 					{configFields.map((f) => {
 						// The reset button lives OUTSIDE the <label> (positioned over its top-right) so the
