@@ -36,6 +36,7 @@
 	--bar-h: 36px;
 	--bar-b: 24px;
 	--nav-w: 56px; /* the left nav strip; the section panel fills the rest of --rail-l */
+	--tree-w: 200px; /* widget-designer: the def's structure tree, between the list and the canvas */
 	--rail-l: 250px;
 	--rail-r: 264px;
 	background: #0b0b0e;
@@ -65,6 +66,29 @@
 	position: absolute;
 	border: 1px solid rgba(119, 196, 211, 0.55);
 	pointer-events: none;
+}
+
+/* Design mode (editing a widget def): the stage is a widget-sized canvas, not the monitor — a
+   slightly lifted neutral backdrop, with the work-area frame standing in as the widget bounds.
+   The stage is inset by --tree-w to make room for the def's structure tree to its left. */
+.canvas.studio.designing {
+	left: calc(var(--rail-l) + var(--tree-w));
+	background: #14141a;
+	background-image: radial-gradient(rgba(119, 196, 211, 0.08) 1px, transparent 1px);
+	background-size: 16px 16px;
+}
+
+/* While designing, the Outline (the widget's structure) docks as a column between the widget LIST
+   (in the rail) and the design canvas. */
+.canvas.designing .outline.docked {
+	left: var(--rail-l);
+	width: var(--tree-w);
+}
+
+.canvas.designing .monitor-frame {
+	border-color: rgba(119, 196, 211, 0.85);
+	box-shadow: 0 0 0 1px rgba(11, 11, 14, 0.8);
+	background: rgba(11, 11, 14, 0.55);
 }
 
 .canvas .cbound {

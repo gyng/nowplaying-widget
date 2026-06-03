@@ -918,3 +918,35 @@ describe('non-uniform grid (fixed cell width/height + aspect)', () => {
 		expect(solved.get('c0')).toEqual({ x: 25, y: 0, w: 50, h: 50 });
 	});
 });
+
+describe('empty split cells (split-cell collapse fix)', () => {
+	it('empty fr:1 cells in a col share the height evenly', () => {
+		const root = container(
+			'r',
+			'col',
+			[
+				container('a', 'col', [], { basis: { fr: 1 }, align: 'stretch' }),
+				container('b', 'col', [], { basis: { fr: 1 }, align: 'stretch' })
+			],
+			{ align: 'stretch' }
+		);
+		const solved = solveLayout(root, { x: 0, y: 0, w: 200, h: 120 });
+		expect(get(solved, 'a')).toEqual({ x: 0, y: 0, w: 200, h: 60 });
+		expect(get(solved, 'b')).toEqual({ x: 0, y: 60, w: 200, h: 60 });
+	});
+
+	it('empty basis-auto cells collapse to 0 main extent (what split now avoids by using fr)', () => {
+		const root = container(
+			'r',
+			'col',
+			[
+				container('a', 'col', [], { align: 'stretch' }),
+				container('b', 'col', [], { align: 'stretch' })
+			],
+			{ align: 'stretch' }
+		);
+		const solved = solveLayout(root, { x: 0, y: 0, w: 200, h: 120 });
+		expect(get(solved, 'a').h).toBe(0);
+		expect(get(solved, 'b').h).toBe(0);
+	});
+});

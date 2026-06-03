@@ -104,8 +104,7 @@ const ALIGN_THRESHOLD = 6;
 // Docked-panel selector: a palette-widget drop over any of these is the panel's own (e.g. the
 // Outline's container drop), so the stage-level drop handler bails on it.
 const PANEL_SEL =
-	'.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx, .nav-rail, .rail-panel';
-const rand = (): string => Math.random().toString(36).slice(2, 8);
+	'.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx, .nav-rail, .rail-panel, .designer-list, .designer-empty';
 
 // The demo seed (primary monitor only): a row of per-core CPU sparklines + a System-skin cluster.
 function buildDemoWidgets(): WidgetInstance[] {
@@ -268,10 +267,22 @@ export default function Canvas({ studio = false }: Props) {
 	);
 	const monName = monSel?.name ?? '';
 
+	// While designing a widget def, the stage is sized to the DEF (a widget-sized design canvas),
+	// not the monitor — so the Widget designer is its own canvas in the window, not the monitor
+	// overlay. Everything else (solve, world, zoom-to-fit) keys off `stageSize`.
+	const editingDef = useMemo(
+		() =>
+			editingDefId && library ? library.defs.find((d) => d.id === editingDefId) ?? null : null,
+		[editingDefId, library]
+	);
+	const designing = studio && editingDef != null;
+	const stageSize = editingDef ? editingDef.size : monSize;
+
 	const { panX, panY, zoom, setPan, fit } = useZoomFit({
 		studio,
-		myMonitor,
-		monSize,
+		// Re-fit when entering/leaving design mode (the key folds in the design context + size).
+		myMonitor: designing ? `def:${editingDefId}` : myMonitor,
+		monSize: stageSize,
 		stageW,
 		stageH,
 		canvasRef
@@ -279,16 +290,18 @@ export default function Canvas({ studio = false }: Props) {
 
 	const worldStyle: React.CSSProperties = studio
 		? {
-				width: `${monSize.w}px`,
-				height: `${monSize.h}px`,
+				width: `${stageSize.w}px`,
+				height: `${stageSize.h}px`,
 				transform: `translate(${panX}px,${panY}px) scale(${zoom})`
 		  }
 		: {};
 
-	// Studio lays out into the real monitor work area; the overlay uses the actual work area.
-	useEffect(() => {
-		if (studio) setWorkArea({ x: 0, y: 0, w: monSize.w, h: monSize.h });
-	}, [studio, monSize.w, monSize.h]);
+	// Studio lays out into the stage box — the monitor work area normally, the def's size while
+	// designing a widget (so its flow tree solves at the widget's own dimensions). useLayoutEffect so
+	// workArea tracks a monitor<->def swap in the SAME frame (no one-frame mis-solve flash).
+	useLayoutEffect(() => {
+		if (studio) setWorkArea({ x: 0, y: 0, w: stageSize.w, h: stageSize.h });
+	}, [studio, stageSize.w, stageSize.h]);
 
 	const updateWorkArea = useCallback(async () => {
 		if (studio) return; // the effect above owns the studio work area
@@ -766,6 +779,12 @@ export default function Canvas({ studio = false }: Props) {
 		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
 	}, [studio, navSection]);
 
+	// Entering a def edit (from anywhere) switches to the Widget designer section, where its
+	// widget-sized design canvas is revealed.
+	useEffect(() => {
+		if (studio && editingDefId != null) setNavSection('widget-designer');
+	}, [studio, editingDefId]);
+
 	// Settings: remove all widgets on this monitor (undoable; Save to apply).
 	const clearMonitor = useCallback(() => {
 		if (
@@ -799,30 +818,50 @@ export default function Canvas({ studio = false }: Props) {
 
 	// --- def editor entry points (studio bar) ---
 	// Create a brand-new empty def + a floating instance, then enter the def editor (one dispatch).
-	const newWidget = useCallback(() => dispatch({ type: 'newWidget' }), [dispatch]);
-
-	const editExistingDef = useCallback(
+	// All "open a widget in the designer" paths fold any open def first (endDefEdit) so the reducer's
+	// re-entry guard never blocks switching widgets from the list while one is already open.
+	const editingDefIdRef = useRef(editingDefId);
+	editingDefIdRef.current = editingDefId;
+	const foldOpenDef = useCallback(() => {
+		if (editingDefIdRef.current != null) dispatch({ type: 'endDefEdit' });
+	}, [dispatch]);
+	const startNewWidget = useCallback(() => {
+		foldOpenDef();
+		dispatch({ type: 'newWidget' });
+	}, [foldOpenDef, dispatch]);
+	const openExistingDef = useCallback(
 		(defId: string) => {
-			if (defId) handleOp({ op: 'editDef', defId });
+			if (!defId) return;
+			foldOpenDef();
+			dispatch({ type: 'enterDefEdit', defId });
+		},
+		[foldOpenDef, dispatch]
+	);
+	const cloneDefToEdit = useCallback(
+		(defId: string) => {
+			foldOpenDef();
+			dispatch({ type: 'cloneDef', defId });
+		},
+		[foldOpenDef, dispatch]
+	);
+	const newFromTemplate = useCallback(
+		(templateId: string) => {
+			foldOpenDef();
+			dispatch({ type: 'newFromTemplate', templateId });
+		},
+		[foldOpenDef, dispatch]
+	);
+	// Delete a library widget from the list (confirm first). deleteDef is a no-op for the widget
+	// being edited or one that's still placed on a layout (it warns), so this can't orphan instances.
+	const deleteWidget = useCallback(
+		(defId: string, name: string) => {
+			if (defId === editingDefIdRef.current) return;
+			if (
+				window.confirm(`Delete widget “${name}” from your library? (Only if it isn't on a layout.)`)
+			)
+				handleOp({ op: 'deleteDef', defId });
 		},
 		[handleOp]
-	);
-
-	const applyTemplate = useCallback(
-		(id: string) => {
-			commitOp((s) => {
-				const t = editHelpers.getTemplate(id);
-				if (!t) return {};
-				const leaves = t.widgets().map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
-				if (!leaves.length) return {};
-				return {
-					monitor: { ...s.monitor, floating: [...s.monitor.floating, ...leaves] },
-					selectedIds: leaves.map((l) => l.id),
-					selectedId: leaves[leaves.length - 1].id
-				};
-			});
-		},
-		[commitOp]
 	);
 
 	// =========================================================================================
@@ -1363,6 +1402,7 @@ export default function Canvas({ studio = false }: Props) {
 	if (studio) canvasCls.push('studio');
 	if (panning) canvasCls.push('panning');
 	if (spaceDown) canvasCls.push('panmode');
+	if (designing) canvasCls.push('designing');
 
 	return (
 		<TelemetryHubContext.Provider value={hub}>
@@ -1476,6 +1516,8 @@ export default function Canvas({ studio = false }: Props) {
 									<span className="lbl">Studio</span>
 									<select
 										value={myMonitor}
+										disabled={designing}
+										title={designing ? 'Finish the widget (Done) to switch monitor' : undefined}
 										onChange={(e: ChangeEvent<HTMLSelectElement>) =>
 											switchMonitor(e.currentTarget.value)
 										}
@@ -1592,7 +1634,7 @@ export default function Canvas({ studio = false }: Props) {
 						)}
 						{editingDefId && (
 							<div className="def-banner">
-								Editing widget: {editingDefName}
+								Designing widget: {editingDefName} · {stageSize.w}×{stageSize.h}
 								<button type="button" onClick={() => handleOp({ op: 'endDefEdit' })}>
 									Done
 								</button>
@@ -1601,8 +1643,14 @@ export default function Canvas({ studio = false }: Props) {
 						{!studio && <div className="edit-badge">EDIT — Ctrl+E to exit</div>}
 						{studio ? (
 							<>
-								<NavRail active={navSection} onSelect={setNavSection} />
-								{navSection === 'layouts' && (
+								<NavRail
+									active={navSection}
+									onSelect={(id) => {
+										// While designing a widget the nav is modal — leave via the def-banner's Done.
+										if (!designing) setNavSection(id);
+									}}
+								/>
+								{(navSection === 'layouts' || designing) && (
 									<Outline
 										root={monitor.root}
 										floating={monitor.floating}
@@ -1614,56 +1662,84 @@ export default function Canvas({ studio = false }: Props) {
 									/>
 								)}
 								{navSection === 'widget-designer' && (
-									<div className="rail-panel">
-										<div className="rp-hd">Add a widget</div>
-										<div className="rp-grid">
-											{widgetTypes.map((w) => (
-												<button
-													key={w.type}
-													type="button"
-													title={`Add a ${w.label} to this monitor`}
-													onClick={() => handleOp({ op: 'addWidget', widgetType: w.type })}
-												>
-													{w.label}
-												</button>
-											))}
-										</div>
-										<div className="rp-hd">Custom widget</div>
-										<button type="button" onClick={newWidget}>
-											＋ New widget (design)
+									<div className="designer-list">
+										<button type="button" className="dl-new" onClick={startNewWidget}>
+											＋ New widget
 										</button>
+										<div className="rp-hd">Widgets</div>
 										{library?.defs.length ? (
-											<>
-												<div className="rp-hd">Library defs</div>
-												<div className="rp-grid">
-													{library.defs.map((d) => (
-														<button key={d.id} type="button" onClick={() => editExistingDef(d.id)}>
+											<div className="dl-items">
+												{library.defs.map((d) => (
+													<div
+														key={d.id}
+														className={['dl-item', d.id === editingDefId && 'cur']
+															.filter(Boolean)
+															.join(' ')}
+													>
+														<button
+															type="button"
+															className="dl-label"
+															title="Edit this widget"
+															onClick={() => openExistingDef(d.id)}
+														>
 															{d.name}
 														</button>
-													))}
-												</div>
-											</>
-										) : (
-											<div className="rp-stub">
-												No saved widgets yet — use “Make widget” on a selection.
+														<button
+															type="button"
+															className="dl-icon"
+															title="Clone to a new widget"
+															onClick={() => cloneDefToEdit(d.id)}
+														>
+															⎘
+														</button>
+														<button
+															type="button"
+															className="dl-icon dl-del"
+															title="Delete widget"
+															disabled={d.id === editingDefId}
+															onClick={() => deleteWidget(d.id, d.name)}
+														>
+															✕
+														</button>
+													</div>
+												))}
 											</div>
+										) : (
+											<div className="rp-stub">No widgets yet — ＋ New, or clone a template.</div>
 										)}
 										<div className="rp-hd">Templates</div>
-										<div className="rp-grid">
+										<div className="dl-items">
 											{TEMPLATES.map((t) => (
-												<button
-													key={t.id}
-													type="button"
-													title={t.description}
-													onClick={() => applyTemplate(t.id)}
-												>
-													{t.name}
-												</button>
+												<div key={t.id} className="dl-item">
+													<button
+														type="button"
+														className="dl-label"
+														title={`${t.description} — clone into a new widget`}
+														onClick={() => newFromTemplate(t.id)}
+													>
+														{t.name}
+													</button>
+													<button
+														type="button"
+														className="dl-icon"
+														title="Clone into a new widget"
+														onClick={() => newFromTemplate(t.id)}
+													>
+														⎘
+													</button>
+												</div>
 											))}
 										</div>
 									</div>
 								)}
-								{navSection === 'sensors' && (
+								{navSection === 'widget-designer' && !designing && (
+									<div className="designer-empty">
+										<div className="de-hint">
+											Select a widget on the left to edit, or ＋ New widget to design one.
+										</div>
+									</div>
+								)}
+								{navSection === 'sensors' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Sensors &amp; live values</div>
 										<SensorList
@@ -1672,7 +1748,7 @@ export default function Canvas({ studio = false }: Props) {
 										/>
 									</div>
 								)}
-								{navSection === 'plugins' && (
+								{navSection === 'plugins' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Sources</div>
 										<div className="rp-list">
@@ -1694,7 +1770,7 @@ export default function Canvas({ studio = false }: Props) {
 										</div>
 									</div>
 								)}
-								{navSection === 'themes' && (
+								{navSection === 'themes' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Theme</div>
 										<select value={selectedTheme} onChange={(e) => setTheme(e.currentTarget.value)}>
@@ -1710,7 +1786,7 @@ export default function Canvas({ studio = false }: Props) {
 										</button>
 									</div>
 								)}
-								{navSection === 'sacks' && (
+								{navSection === 'sacks' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Sacks</div>
 										<div className="rp-stub">
@@ -1738,7 +1814,7 @@ export default function Canvas({ studio = false }: Props) {
 										)}
 									</div>
 								)}
-								{navSection === 'settings' && (
+								{navSection === 'settings' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Display</div>
 										<div className="rp-list">
@@ -1784,7 +1860,7 @@ export default function Canvas({ studio = false }: Props) {
 								onOp={handleOp}
 							/>
 						)}
-						{(!studio || navSection === 'layouts') && (
+						{(!studio || navSection === 'layouts' || designing) && (
 							<Inspector
 								widget={selectedWidget}
 								container={selectedContainer}
@@ -1959,7 +2035,7 @@ export default function Canvas({ studio = false }: Props) {
 											)}
 										</>
 									)}
-									{studio && menuLeaf && monitorOptions.length > 1 && (
+									{studio && menuLeaf && !designing && monitorOptions.length > 1 && (
 										<>
 											<div className="ctx-sep" />
 											<span className="ctx-hd">Move to</span>

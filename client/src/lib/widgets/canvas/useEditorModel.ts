@@ -205,10 +205,13 @@ function addContainer(s: EditorState, kind: Container['kind']): Patch {
 function splitNode(s: EditorState, id: string, dir: 'rows' | 'cols' | 'grid'): Patch {
 	const node = findNode(s.monitor.root, id);
 	if (!node || !isContainer(node)) return {};
-	const cell = () => container(`cell-${rand()}`, 'col', [], { align: 'stretch' });
+	// Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
+	// has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
+	const cell = () => container(`cell-${rand()}`, 'col', [], { align: 'stretch', basis: { fr: 1 } });
 	const keep = node.children.length
 		? container(`cell-${rand()}`, node.kind, node.children, {
 				align: node.align ?? 'stretch',
+				basis: { fr: 1 },
 				cols: node.cols,
 				rows: node.rows,
 				gap: node.gap,
@@ -395,8 +398,14 @@ function defInUse(s: EditorState, defId: string): boolean {
 			n.children.forEach(visit);
 		}
 	};
-	visit(s.monitor.root);
-	s.monitor.floating.forEach(visit);
+	const scan = (mon: MonitorLayout): void => {
+		visit(mon.root);
+		mon.floating.forEach(visit);
+	};
+	// Check the REAL monitor (stashed in savedMonitor while designing another def) plus, if designing,
+	// the scoped editing tree (a composite def could embed this one) — never just the scoped tree.
+	scan(s.editingDefId != null && s.savedMonitor ? s.savedMonitor : s.monitor);
+	if (s.editingDefId != null) scan(s.monitor);
 	return used;
 }
 
@@ -412,6 +421,10 @@ function renameDef(s: EditorState, defId: string, name: string): Patch {
 
 function deleteDef(s: EditorState, defId: string): Patch {
 	if (!s.library) return {};
+	if (s.editingDefId === defId) {
+		console.warn(`def ${defId} is being edited; not deleted`);
+		return {};
+	}
 	if (defInUse(s, defId)) {
 		console.warn(`def ${defId} is in use; not deleted`);
 		return {};
@@ -547,6 +560,8 @@ type Action =
 	| { type: 'setSelectedIds'; ids: string[]; primary: string | null }
 	| { type: 'enterDefEdit'; defId: string }
 	| { type: 'newWidget' } // item 4: create an empty def + floating instance, then enter def-edit
+	| { type: 'cloneDef'; defId: string } // duplicate a widget def + enter def-edit on the copy
+	| { type: 'newFromTemplate'; templateId: string } // a new widget def seeded from a template
 	| { type: 'endDefEdit' }
 	| { type: 'resetHistory' }
 	| { type: 'setBaseline' }
@@ -572,6 +587,33 @@ function syncPrimary(next: EditorState, patchSetSelectedIds: boolean): EditorSta
 	const lastPrimary = next.selectedId;
 	if (patchSetSelectedIds) return { ...next, lastPrimary };
 	return { ...next, lastPrimary, selectedIds: next.selectedId ? [next.selectedId] : [] };
+}
+
+// Add a freshly-built def to the library, then enter the def editor scoped to it. Shared by
+// newWidget / cloneDef / newFromTemplate. Does NOT drop an instance onto the live monitor —
+// designing a widget shouldn't place it on the layout; the whole library is persisted regardless
+// (usePersistence writes every def), and the user instantiates it via the Inspector library
+// palette. Assumes the caller already refused re-entry while another def is open (would orphan
+// savedMonitor).
+function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
+	const library: Library = {
+		version: state.library?.version ?? 1,
+		defs: [...(state.library?.defs ?? []), def]
+	};
+	const scopedRoot: Container = isContainer(def.child)
+		? (clone(def.child) as Container)
+		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
+	const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
+	const next: EditorState = {
+		...state,
+		library,
+		savedMonitor: state.monitor, // preserve the REAL monitor untouched (no instance dropped)
+		monitor: scopedMonitor,
+		defEditBaseline: scopedMonitor,
+		editingDefId: def.id,
+		selectedId: null
+	};
+	return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
 }
 
 function editorReducer(state: EditorState, action: Action): EditorState {
@@ -636,8 +678,9 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 			return next;
 		}
 		case 'newWidget': {
-			// Create a brand-new, empty widget def + a floating instance (so it persists), then
-			// enter the def editor. Ports Canvas.svelte's newWidget() (then enterDefEdit).
+			// Refuse to start a new def while already editing one (would orphan savedMonitor). The UI
+			// folds the open def (endDefEdit) before starting a new one.
+			if (state.editingDefId != null) return state;
 			const defId = `def-${rand()}`;
 			const def: WidgetDef = {
 				id: defId,
@@ -645,37 +688,46 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 				size: { w: 200, h: 120 },
 				child: container(`${defId}__root`, 'col', [], { align: 'stretch' })
 			};
-			const library: Library = {
-				version: state.library?.version ?? 1,
-				defs: [...(state.library?.defs ?? []), def]
+			return enterNewDef(state, def);
+		}
+		case 'cloneDef': {
+			if (state.editingDefId != null) return state;
+			const src = state.library?.defs.find((d) => d.id === action.defId);
+			if (!src) return state;
+			const defId = `def-${rand()}`;
+			const def: WidgetDef = {
+				id: defId,
+				name: `${src.name}-copy`,
+				size: { ...src.size },
+				child: clone(src.child),
+				...(src.css ? { css: src.css } : {}),
+				...(src.params ? { params: src.params.map((p) => ({ ...p })) } : {})
 			};
-			const grpId = `grp-${rand()}`;
-			const g = group(grpId, def.size, clone(def.child), {
-				def: defId,
-				name: def.name,
-				config: { x: 24, y: 24 }
-			});
-			const withInstance: EditorState = {
-				...state,
-				library,
-				monitor: { ...state.monitor, floating: [...state.monitor.floating, leaf(g)] }
+			return enterNewDef(state, def);
+		}
+		case 'newFromTemplate': {
+			if (state.editingDefId != null) return state;
+			const t = getTemplate(action.templateId);
+			if (!t) return state;
+			const ws = t.widgets();
+			const kids = ws.map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
+			// Size the new def to the template's content bounding box (its widgets are flowed in a col,
+			// so this is approximate — but it stops a tall template from being crushed into 120px).
+			const w = Math.max(40, ...ws.map((u) => Math.round(u.rect.x + u.rect.w)));
+			const h = Math.max(24, ...ws.map((u) => Math.round(u.rect.y + u.rect.h)));
+			const defId = `def-${rand()}`;
+			const def: WidgetDef = {
+				id: defId,
+				name: t.name,
+				size: { w, h },
+				child: container(`${defId}__root`, 'col', kids, { align: 'stretch' })
 			};
-			// enterDefEdit(defId): stash the real monitor, swap in the scoped tree, reset history.
-			const scopedRoot: Container = isContainer(def.child)
-				? (clone(def.child) as Container)
-				: container(`${defId}__root`, 'col', [clone(def.child)], { align: 'stretch' });
-			const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
-			const next: EditorState = {
-				...withInstance,
-				savedMonitor: withInstance.monitor,
-				monitor: scopedMonitor,
-				defEditBaseline: scopedMonitor,
-				editingDefId: defId,
-				selectedId: null
-			};
-			return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
+			return enterNewDef(state, def);
 		}
 		case 'enterDefEdit': {
+			// Never re-enter while already designing — a nested enter would overwrite savedMonitor with
+			// the scoped tree and lose the real monitor layout (the UI folds the open def first).
+			if (state.editingDefId != null) return state;
 			const def = state.library?.defs.find((d) => d.id === action.defId);
 			if (!def) return state;
 			const scopedRoot: Container = isContainer(def.child)

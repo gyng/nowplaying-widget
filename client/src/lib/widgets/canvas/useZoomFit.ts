@@ -56,7 +56,12 @@ export function useZoomFit(opts: {
 			// Wheel over a docked rail / toolbar scrolls THAT panel — don't hijack it to zoom the stage.
 			// (The rails are DOM descendants of `.canvas`, so their wheel events bubble to this listener.)
 			const target = event.target as HTMLElement | null;
-			if (target?.closest('.outline, .inspector, .studio-bar, .theme-editor, .powerbar')) return;
+			if (
+				target?.closest(
+					'.outline, .inspector, .studio-bar, .theme-editor, .powerbar, .nav-rail, .rail-panel, .designer-list'
+				)
+			)
+				return;
 			event.preventDefault();
 			const r = el.getBoundingClientRect();
 			const cx = event.clientX - r.left;
