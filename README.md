@@ -28,7 +28,7 @@ built-in visual editor.
   snap-to-grid, add/remove widgets, and edit their config — saved to `widgets.json` with
   live reload.
 - **Theming:** per-widget user CSS; system fonts.
-- Works with OBS. Built with Tauri + Svelte.
+- Built with Tauri + React.
 
 ## Usage
 
@@ -103,7 +103,7 @@ $ cargo tauri build
 
 # Client tests and checks (run from client/)
 $ (cd client && npm run test:unit)   # Vitest unit/component tests
-$ (cd client && npm run check)       # svelte-check type checking
+$ (cd client && npm run check)       # tsc --noEmit type checking
 $ (cd client && npm run lint)        # Prettier + ESLint
 ```
 

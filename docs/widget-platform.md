@@ -7,7 +7,8 @@ than hand-editing `.ini` files.
 
 > Status: **shipped to `main`** — full sensor/meter platform, transparent multi-monitor
 > click-through overlay, visual editor (drag/resize/snap/align/inspector/palette), persistence
-> + live-reload, tauri 2.11 + global hotkey, renamed to `widgetsack`, all verified on hardware.
+> + live-reload, tauri 2.11 + global hotkey, renamed to `widgetsack` (frontend later ported
+> Svelte→React), all verified on hardware.
 > Remaining stretch items are deferred/skipped (see Phase 4).
 >
 > **Phases 5 & 6 implemented (gates green; pending hardware verification).** The **layout
@@ -25,8 +26,8 @@ than hand-editing `.ini` files.
 - **Better layouting** on the Xeneon; **easier editing/config** than `.ini`.
 - Keep current wins: transparent borderless window, user-CSS theming, OBS capture,
   monitor management, now-playing via GSMTC.
-- **Stay framework-portable**: a possible React port of the UI is wanted soon, so the
-  rendering framework must be a thin, swappable layer over a framework-agnostic core.
+- **Stay framework-portable**: the UI has since been ported from Svelte to React, so the
+  rendering framework must stay a thin, swappable layer over a framework-agnostic core.
 
 ## Migration target (the actual skins to replace)
 
@@ -60,12 +61,12 @@ Source: `C:\Users\gng\Documents\Rainmeter\Skins\gyng`
 - **GPU: NVIDIA (NVML) + generic perf-counter fallback.** NVML for clean
   load/VRAM/temp; Windows perf counters (PDH) as the vendor-agnostic fallback — the
   same source Rainmeter's UsageMonitor uses. Only NVIDIA is confirmed present.
-- **Framework-portable core (React-ready).** All durable logic lives in a
-  **framework-agnostic TypeScript core** with zero Svelte imports. Only the component
-  layer (meters, canvas, editor) is Svelte. A React port reuses the core verbatim and
-  reimplements components. See "Framework portability" below — this constrains every
-  phase, not just the UI. React port: **reimplement components later, share `core/`
-  only** (no web-component investment up front).
+- **Framework-portable core (now React).** All durable logic lives in a
+  **framework-agnostic TypeScript core** with zero framework imports. Only the component
+  layer (meters, canvas, editor) is React. The Svelte→React port reused the core verbatim
+  and reimplemented only the components. See "Framework portability" below — this
+  constrained every phase, not just the UI. Outcome: **components reimplemented, `core/`
+  shared unchanged** (no web-component investment up front).
 - **Z-order & input: always-on-top overlay, click-through by default, per-region
   interactivity required.** Some widgets (now-playing controls, the editor) must catch
   clicks while the rest passes through. This is **in scope, not deferred**, and must be
@@ -85,7 +86,7 @@ Source: `C:\Users\gng\Documents\Rainmeter\Skins\gyng`
 ## Architecture
 
 ```
-Rust (np/)                          Framework-AGNOSTIC core (client/src/lib/core/, no Svelte)
+Rust (widgetsack/)                  Framework-AGNOSTIC core (client/src/lib/core/, no framework)
 ┌──────────────────────────┐       ┌──────────────────────────────────────────┐
 │ sensors: trait + sched    │ emit  │ telemetry client: 1 listener → per-sensor  │
 │  - system  (sysinfo)      │"tele- │   latest + ring-buffer history             │
@@ -97,9 +98,9 @@ Rust (np/)                          Framework-AGNOSTIC core (client/src/lib/core
 └──────────────────────────┘       └───────────────┬────────────────────────────┘
         │                                           │ (consumed via tiny adapter)
    widgets.json (app data dir)          ┌───────────┴───────────────┐
-   notify file-watch → live reload      │ Svelte layer (swappable)   │  ← React port
-                                         │  stores ← core.subscribe   │     replaces only
-                                         │  registry: type → cmpt     │     this box
+   notify file-watch → live reload      │ React layer (swappable)    │  ← ported from
+                                         │  stores ← core.subscribe   │     Svelte; swaps
+                                         │  registry: type → cmpt     │     only this box
                                          │  Canvas (per monitor)      │
                                          │   └ WidgetHost × instances │
                                          │      └ meters, editor      │
@@ -253,7 +254,7 @@ type WidgetDef = { id: string; name: string; size: { w: number; h: number }; chi
 containers distribute the main axis by `basis`/`fr`, place the cross axis by `align`, apply
 `gap`/`pad`/`justify`; a group solves its `child` inside its own `size` box and contributes
 that box as the unit's intrinsic size; a primitive contributes its `rect.{w,h}`. **No text
-measurement** — intrinsic size is what you set in the inspector. Lives in `core/` (zero Svelte),
+measurement** — intrinsic size is what you set in the inspector. Lives in `core/` (zero framework deps),
 unit-tested like `align.ts`. Canvas renders solved primitive rects; `WidgetHost` is unchanged.
 
 **Migration v1 → v2 (no data moves).** `widgets[]` → `floating: widgets.map(leaf)`, `root` =
@@ -261,11 +262,12 @@ empty container. Existing/demo layouts render identically (all floating). `parse
 both versions; `rect` means absolute monitor px for floating units and local/solved coords
 in-flow or inside a group.
 
-## Framework portability (React-ready)
+## Framework portability (Svelte → React, done)
 
-The pivot that makes a React port cheap: **Svelte's store contract and React's
+The pivot that made the React port cheap: **Svelte's store contract and React's
 `useSyncExternalStore` both consume `subscribe(cb) => unsubscribe`.** So the core exposes
-a minimal notify-based observable per sensor; each framework adds a ~5-line adapter.
+a minimal notify-based observable per sensor; each framework adds a ~5-line adapter — which
+is exactly how the port landed.
 
 ```ts
 // core/telemetry.ts — no framework imports
@@ -276,7 +278,7 @@ interface SensorObservable {
 ```
 
 ```ts
-// svelte: stores.ts  — Svelte store = { subscribe(run) }
+// before — svelte/store adapter (Svelte store = { subscribe(run) })
 const sensorStore = (id) => ({
   subscribe: (run) => { const o = core.sensor(id); run(o.getSnapshot());
                         return o.subscribe(() => run(o.getSnapshot())); }
@@ -284,7 +286,7 @@ const sensorStore = (id) => ({
 ```
 
 ```tsx
-// react (future): useSensor.ts
+// after (current): useSensor.ts
 const useSensor = (id) => { const o = core.sensor(id);
   return useSyncExternalStore(o.subscribe, o.getSnapshot); };
 ```
@@ -292,13 +294,14 @@ const useSensor = (id) => { const o = core.sensor(id);
 **Repo structure to enforce the boundary**
 
 - `client/src/lib/core/` — telemetry, layout, sensors, format, geometry, commands.
-  **Zero `.svelte` / Svelte imports.** Unit-tested with vitest (no DOM).
-- `client/src/lib/widgets/` — Svelte: registry, `WidgetHost`, meters, `Canvas`, editor.
-- Future `client-react/` (or a `packages/` split) imports `core/` unchanged.
+  **Zero React / framework imports.** Unit-tested with vitest (no DOM).
+- `client/src/lib/widgets/` — React: registry, `WidgetHost`, meters, `Canvas`, editor.
+- The React port imports `core/` unchanged (it happened in place; the `client-react/` /
+  `packages/` split never became necessary).
 
 Rule of thumb: **if it would be rewritten for React, it must not live in `core/`; if it
-would be copy-pasted, it must.** Meters are the gray area — kept in the Svelte layer for
-now; revisit web-components only if the React timeline firms up (see Open decisions).
+would be copy-pasted, it must.** Meters are the gray area — kept in the component (React)
+layer; web-components remain a later option only for runtime plugin loading (see Open decisions).
 
 ## Key technical risks & mitigations
 
@@ -336,7 +339,7 @@ now; revisit web-components only if the React timeline firms up (see Open decisi
   font and the custom day-pictograph font work when present, incl. per-user installs; fall back
   to the token stack when absent.
 - **Phase 0 refactor risk.** Moving all window/monitor/settings logic out of
-  `NowPlaying.svelte` and onto the canvas is the riskiest change. Mitigation: keep the
+  the legacy `NowPlaying` component and onto the canvas is the riskiest change. Mitigation: keep the
   current page working behind a flag/route until the canvas reaches parity; don't delete
   the old path until then.
 - **Sparkline rendering.** 32 sparklines @ ~1 Hz: SVG is fine and simplest. Switch to
@@ -348,10 +351,10 @@ now; revisit web-components only if the React timeline firms up (see Open decisi
 ## Phased plan
 
 ### Phase S — vertical slice (prove the pipe) ✅ code complete, gates green
-- [x] `sysinfo` dep + `np/src/sensors.rs`: loop emits `telemetry` batch with `cpu.total` (+ serde-contract test).
+- [x] `sysinfo` dep + `widgetsack/src/sensors.rs`: loop emits `telemetry` batch with `cpu.total` (+ serde-contract test).
 - [x] Wire sensor loop into `main.rs` setup.
 - [x] `core/telemetry.ts`: framework-agnostic hub (per-sensor observable, ring buffer) + tests.
-- [x] Svelte `sensorStore` adapter + `Gauge` meter (pure `gaugeFraction` + tests) + `Canvas`/`WidgetHost`/registry; CPU gauge mounted on the page.
+- [x] Store adapter (`createStore`) + `Gauge` meter (pure `gaugeFraction` + tests) + `Canvas`/`WidgetHost`/registry; CPU gauge mounted on the page.
 - [x] All gates green: `npm run check`/`lint`/`test:unit`/`build`, `cargo test`/`clippy`.
 - [ ] Visual confirm: `cargo tauri dev` → live CPU gauge (run by user). Checkpoint.
 
@@ -365,8 +368,8 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [ ] README — deferred (has uncommitted local edits). localStorage key `_mediaStore` left as-is.
 
 ### Phase 0 — refactor seam (+ core boundary)
-- [ ] Establish `core/` (zero Svelte) vs `widgets/` (Svelte) split; move types into `core/`.
-- [ ] Widget registry + `WidgetHost` (`<svelte:component>`), instance-as-data.
+- [ ] Establish `core/` (zero framework) vs `widgets/` (React) split; move types into `core/`.
+- [ ] Widget registry + `WidgetHost` (dynamic component lookup), instance-as-data.
 - [ ] Make NowPlaying one registered widget; extract window/monitor/settings off it (behind flag).
 - [ ] Canvas becomes the main view; nothing lost.
 
@@ -486,7 +489,7 @@ Design decisions (proposed; confirm in Open decisions):
 - [x] Container panel (Inspector): kind, cols, gap, pad, align, justify, grow(fr) — live-editing
       the selected container. Widget panel gains dock/float; add-widget palette retained.
 - [x] Palette "+Row / +Col / +Grid" (Outline header) — adds into the selected container or root.
-- [x] Tree-outline (`Outline.svelte` + pure `outlineRows`): select / reorder (↑↓) / reparent
+- [x] Tree-outline (`Outline.tsx` + pure `outlineRows`): select / reorder (↑↓) / reparent
       (⟸ out, ⟹ in) / dock (⤒) / float (⤓) / remove (✕). All edits funnel through one `op`
       union → `handleOp` → `core/layoutEdit`. Overlay solves + renders the flow tree
       (`collectRenderables`, group-aware); the reusable `library` round-trips in `widgets.json`.
@@ -494,7 +497,7 @@ Design decisions (proposed; confirm in Open decisions):
 ### 5d — right-click context menu ✅ done (in-editor); passive-mode variant deferred
 - [x] **In-editor context menu**: right-click any widget → `Make widget` · `Float`/`Dock →flow` ·
       (group) `Edit def…`/`Ungroup` · `Remove`; right-click empty canvas → `+ Row`/`+ Column`/
-      `+ Grid`. Pure Svelte (`WidgetHost` emits `contextmenu`, Canvas renders a positioned menu +
+      `+ Grid`. Pure React (`WidgetHost` emits `contextmenu`, Canvas renders a positioned menu +
       backdrop; Esc / click-away closes). Gate-verified.
 - 🚫 **Passive-mode (right-click while NOT editing) deferred** — to fire over a click-through
       overlay without hijacking/duplicating the Windows desktop menu it needs a global
@@ -769,18 +772,18 @@ already round-trip in `widgets.json`; this phase gives them (and a theme layer) 
 ```
 
 ### 7a — token-drive the meters (default look unchanged)
-Meters hard-code colours/fonts in Svelte-scoped `<style>`, so external CSS can't reach the
-hashed classes. Fix by reading **tokens with fallbacks** — `fill: var(--np-fg, #fff)`,
+Meters keep colours/fonts in their own component CSS, so a theme's external CSS can't easily
+override them. Fix by reading **tokens with fallbacks** — `fill: var(--np-fg, #fff)`,
 `stroke: var(--np-accent, rgb(119,196,211))`, `font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif)`, `--np-track`, `--np-label`, … Custom properties
-**inherit through Svelte's scoping**, so just setting tokens on a parent restyles every meter —
+**inherit through the CSS cascade**, so just setting tokens on a parent restyles every meter —
 no unscoping needed, default look preserved (the fallbacks ARE today's palette). Starter
 vocabulary in `core/tokens.ts` (framework-agnostic data): `--np-accent / -fg / -muted / -label /
 -track / -bg`, `--np-font / -display`, `--np-size-value / -label`, `--np-radius / -gap`.
 
 ### 7b — stable hooks + scoped css injection
 - Each meter exposes a **stable global hook** for structural restyles beyond tokens: a root
-  class `np-gauge` / `np-bar` / `np-text` + `data-part="value|label|track|fill"` (via `:global`
-  so it survives Svelte hashing). The `WidgetHost` wrapper carries `data-w="<id>"`,
+  class `np-gauge` / `np-bar` / `np-text` + `data-part="value|label|track|fill"` (plain,
+  non-hashed class names so external CSS can match). The `WidgetHost` wrapper carries `data-w="<id>"`,
   `data-type="gauge"`, `data-sensor="cpu.total"` so any layer can match by id / type / sensor.
 - A `<StyleLayer>` (generalized `ThemeInjector`) injects, in cascade order: the global **theme**
   CSS verbatim, then **def** and **instance** CSS each **auto-scoped** to their widget via native
@@ -801,12 +804,12 @@ vocabulary in `core/tokens.ts` (framework-agnostic data): `--np-accent / -fg / -
 
 ### Framework portability
 `core/tokens.ts` (token vocab + default theme as data) and `core/style.ts` (`scopeCss`) are pure
-and React-portable; only `<StyleLayer>` (injection) is Svelte. Consistent with §5's boundary.
+and framework-agnostic; only `<StyleLayer>` (injection) is React. Consistent with §5's boundary.
 
 ### Decisions locked (2026-06-02)
 1. **Scoping = native CSS-nesting wrapper** `[data-w="<id>"] { <user css> }` for def/instance css
    (global theme is verbatim). Leans on WebView2's CSS nesting; `@keyframes`/`@font-face` live in
-   the theme, not scoped blocks. (Shadow DOM rejected — too heavy for Svelte 3 + the overlay.)
+   the theme, not scoped blocks. (Shadow DOM rejected — too heavy for the overlay.)
 2. **Themes = separate `themes/*.css` files** in the app config dir (`list_themes`/`load_theme` +
    `notify` watch); the layout stores only the *selection*. Shareable, live-editable, Rainmeter-style.
 3. **Build the full stack 7a → 7d in order** (token-drive meters → stable hooks + scoped css
@@ -867,11 +870,11 @@ Core widgets/sources become a built-in `core` plugin registered the same way.
 
 ### Packaging — build-time first, runtime later
 - **v1 (build-time):** a plugin is a module under `client/src/lib/plugins/<id>/` exporting a
-  `Plugin`; a manifest registers them. Adding one = code + rebuild. Svelte components compile in;
+  `Plugin`; a manifest registers them. Adding one = code + rebuild. React components compile in;
   zero new security surface.
-- **Future (runtime drop-in):** load a plugin bundle from the config dir at runtime. Svelte
-  components don't load post-compile, so this needs **web-component widgets** (runtime-loadable,
-  aligned with the framework-portability note) or a React/dynamic-import path + sandboxing/CSP.
+- **Future (runtime drop-in):** load a plugin bundle from the config dir at runtime. Compiled
+  React components don't load post-compile, so this needs **web-component widgets** (runtime-
+  loadable, aligned with the framework-portability note) or a dynamic-import path + sandboxing/CSP.
   Bigger; deferred.
 
 ### Home Assistant plugin (the concrete target)
@@ -899,7 +902,7 @@ Core widgets/sources become a built-in `core` plugin registered the same way.
 The standard widget API split honours the core boundary (AGENTS.md §5): the **pure** half is
 `core/widget.ts` (`WidgetMeta`/`ConfigField`/`SensorKind`, `registerMeta`/`getMeta`/`listMetas`,
 `createWidget`, `BUILTIN_METAS`); the **component-bearing** half is `widgets/registry.ts`
-(`registerWidget(meta, component)` mirrors the meta into the pure registry + stores the Svelte
+(`registerWidget(meta, component)` mirrors the meta into the pure registry + stores the React
 component). `WidgetDescriptor` is just `WidgetMeta` + `component` — no second registry. The 6
 built-ins reproduce the old `createWidget` switch exactly (parity pinned by `widget.test.ts`).
 
@@ -954,16 +957,16 @@ built-ins reproduce the old `createWidget` switch exactly (parity pinned by `wid
 2. **Monitors:** multi-monitor overlays from day one; **no cross-monitor widgets** to start.
 3. **Fonts:** Bahnschrift default; `fontFamily` override resolves **system fonts** (any installed
    font, incl. the day-pictograph font) for customization.
-4. **React:** reimplement components later; **share `core/` only** (no web components now).
+4. **React:** components reimplemented (port done); **`core/` shared unchanged** (no web components now).
 5. **Sensor interval:** **configurable per sensor, 1 Hz default.**
 6. **Name:** **rename `np` → `widgetsack`** (Phase R).
 
 ## Environment notes
 
-- Svelte 3.54 (`export let` / `on:` idiom), SvelteKit 1.5 + adapter-static
-  (`ssr=false`, `prerender=true`), Tauri 2.8, Rust edition 2024.
+- React 19 + TypeScript, Vite 5, Vitest 2 (migrated from Svelte 3.54 / SvelteKit 1.5 +
+  adapter-static), Tauri 2.11, Rust edition 2024.
 - Capabilities are scoped to window label `main`; multi-window + fs access will need
-  additions under `np/capabilities/`.
+  additions under `widgetsack/capabilities/`.
 - Dynamic arbitrary-widget-code loading is **not** required — a fixed registry of
   built-in meter types configured by data covers 100% of the listed skins.
 </content>

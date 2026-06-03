@@ -1,26 +1,33 @@
 # client
 
-This is a create-svelte project.
+The `widgetsack` frontend: a React 19 + TypeScript SPA built with Vite, loaded by the Tauri
+webview. See the repo root [AGENTS.md](../AGENTS.md) for the full architecture.
 
 ## Developing
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Install dependencies, then start the dev server (browser-only; no Tauri APIs):
 
 ```bash
+npm i
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+For the full desktop app (Tauri starts this dev server for you), run `cargo tauri dev` from
+the repo root instead.
 
-To create a production version of your app:
+## Building
 
 ```bash
 npm run build
 ```
 
-You can preview the production build with `npm run preview`.
+Output goes to `client/build`, which Tauri embeds as `frontendDist`. Build the frontend
+before any `cargo build` / `cargo test` / `cargo clippy`.
 
-> To deploy your app, you may need to install an [adapter](https://kit.svelte.dev/docs/adapters) for your target environment.
+## Checks
+
+```bash
+npm run check       # tsc --noEmit type checking
+npm run lint        # Prettier + ESLint (zero warnings)
+npm run test:unit   # Vitest unit/component tests
+```
