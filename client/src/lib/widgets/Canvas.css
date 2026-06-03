@@ -34,13 +34,14 @@
    The rail/bar sizes are shared with the docked panels via these custom properties. */
 .canvas.studio {
 	--bar-h: 36px;
+	--bar-b: 24px;
 	--rail-l: 250px;
 	--rail-r: 264px;
 	background: #0b0b0e;
 	top: var(--bar-h);
 	left: var(--rail-l);
 	right: var(--rail-r);
-	bottom: 0;
+	bottom: var(--bar-b); /* leave room for the bottom powerline hint bar */
 	overflow: hidden; /* clip the zoomed world to the stage (don't spill over the rails) */
 }
 
@@ -74,6 +75,12 @@
 .canvas .cbound.csel {
 	border-color: rgba(119, 196, 211, 0.9);
 	border-style: solid;
+}
+
+/* Cross-highlight from the Outline tree: this container's row is hovered. */
+.canvas .cbound.chl {
+	border-color: rgba(218, 237, 226, 0.7);
+	background: rgba(119, 196, 211, 0.06);
 }
 
 .canvas .cbound .ctag {
@@ -306,6 +313,71 @@
 	border-radius: 3px;
 	pointer-events: none;
 	z-index: 5;
+}
+
+/* Item 2: the bottom "powerline" hint bar — a full-width strip of contextual key→action segments
+   in the reserved bottom margin (below the rails, never over the stage). */
+.canvas .powerbar {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: var(--bar-b, 24px);
+	box-sizing: border-box;
+	display: flex;
+	align-items: stretch;
+	gap: 0;
+	padding: 0;
+	background: rgba(10, 10, 12, 0.95);
+	border-top: 1px solid rgba(119, 196, 211, 0.5);
+	color: #ccc;
+	font-family: monospace;
+	font-size: 10px;
+	pointer-events: auto;
+	overflow: hidden;
+	white-space: nowrap;
+	z-index: 7;
+}
+
+.canvas .powerbar .seg {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 10px 0 12px;
+	/* The angled powerline notch between segments. */
+	clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+	margin-left: -8px;
+}
+
+.canvas .powerbar .seg:first-child {
+	margin-left: 0;
+	padding-left: 10px;
+	clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+
+/* Alternate the segment shading so the angled edges read as powerline arrows. */
+.canvas .powerbar .seg:nth-child(odd) {
+	background: rgba(119, 196, 211, 0.1);
+}
+
+.canvas .powerbar .seg:nth-child(even) {
+	background: rgba(119, 196, 211, 0.04);
+}
+
+.canvas .powerbar .seg kbd {
+	font-family: monospace;
+	font-size: 9px;
+	color: #0b0b0e;
+	background: rgb(119, 196, 211);
+	border-radius: 2px;
+	padding: 0 4px;
+	line-height: 14px;
+}
+
+.canvas .powerbar .seg .lbl {
+	color: #bbb;
+	text-transform: lowercase;
+	letter-spacing: 0.3px;
 }
 
 .canvas .studio-bar select,

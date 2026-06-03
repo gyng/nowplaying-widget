@@ -20,7 +20,7 @@
 	position: fixed;
 	top: var(--bar-h, 36px);
 	left: 0;
-	bottom: 0;
+	bottom: var(--bar-b, 0); /* sit above the bottom powerline hint bar */
 	width: var(--rail-l, 250px);
 	max-height: none;
 	border-width: 0 1px 0 0;
@@ -72,6 +72,11 @@
 .outline .row.sel {
 	background: rgba(119, 196, 211, 0.18);
 	outline: 1px solid rgba(119, 196, 211, 0.6);
+}
+
+/* Cross-highlight: this row's widget/container is hovered on the stage (or this row is hovered). */
+.outline .row.hover:not(.sel) {
+	background: rgba(119, 196, 211, 0.1);
 }
 
 /* Drop target highlight while dragging a row/palette widget over a container. */

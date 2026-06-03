@@ -7,6 +7,8 @@ import type { Container, Group, WidgetInstance } from '../core/layoutTree';
 export type LayoutOp =
 	| { op: 'select'; id: string }
 	| { op: 'addWidget'; widgetType: string }
+	// Drop a palette widget onto the stage at world coords (x,y) → a new floating widget there.
+	| { op: 'addWidgetAt'; widgetType: string; x: number; y: number }
 	| { op: 'addContainer'; kind: 'row' | 'col' | 'grid' }
 	// Split a container (cell/pane) in two: 'rows' stacks (a col), 'cols' is side-by-side (a row),
 	// 'grid' makes it a 2×2 grid. Existing content is preserved as the first region. (item 1)

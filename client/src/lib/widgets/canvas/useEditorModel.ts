@@ -41,6 +41,7 @@ import {
 import { intrinsicSize, type Solved } from '../../core/solve';
 import { getTemplate } from '../../core/templates';
 import type { LayoutOp } from '../ops';
+import { dropPlacement } from './dropPlacement';
 import type { EditorState, Snap } from './types';
 
 const rand = (): string => Math.random().toString(36).slice(2, 8);
@@ -167,6 +168,18 @@ function addWidget(s: EditorState, type: string): Patch {
 		? { ...s.monitor, root: insertChild(s.monitor.root, selectedContainer.id, w) }
 		: { ...s.monitor, floating: [...s.monitor.floating, w] };
 	return { monitor, selectedId: id };
+}
+
+// Drop a palette widget onto the stage: a new FLOATING widget centered on the drop point (item 7).
+function addWidgetAt(s: EditorState, type: string, x: number, y: number): Patch {
+	const id = `${type}-${rand()}`;
+	const inst = createWidget(type, id);
+	const at = dropPlacement(inst.rect, x, y);
+	const w = leaf({ ...inst, rect: { ...inst.rect, x: at.x, y: at.y } });
+	return {
+		monitor: { ...s.monitor, floating: [...s.monitor.floating, w] },
+		selectedId: id
+	};
 }
 
 function addContainer(s: EditorState, kind: Container['kind']): Patch {
@@ -806,6 +819,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					return; // no save (selection isn't persisted)
 				case 'addWidget':
 					commitOp((s) => addWidget(s, op.widgetType));
+					return;
+				case 'addWidgetAt':
+					commitOp((s) => addWidgetAt(s, op.widgetType, op.x, op.y));
 					return;
 				case 'addContainer':
 					commitOp((s) => addContainer(s, op.kind));

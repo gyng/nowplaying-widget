@@ -258,7 +258,7 @@ export default function Inspector({
 						key={w.type}
 						type="button"
 						draggable
-						title="Click to add, or drag onto a container in the Outline"
+						title="Click to add, drag onto the canvas to place it, or onto a container in the Outline"
 						onClick={() => op({ op: 'addWidget', widgetType: w.type })}
 						onDragStart={(e: ReactDragEvent) =>
 							e.dataTransfer?.setData('text/x-widget-type', w.type)

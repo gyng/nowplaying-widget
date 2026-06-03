@@ -4,7 +4,15 @@
 // The solver (solveMonitor) positions the flow tree; floating widgets are free-moved. Edit mode
 // shows the Outline (structure) + Inspector (props) which funnel every change through handleOp →
 // core/layoutEdit. React port of Canvas.svelte (behaviour parity is paramount).
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ChangeEvent
+} from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { createTelemetryHub } from '../core/telemetry';
 import { sourceCatalogIds } from '../core/plugin';
@@ -76,6 +84,8 @@ import { useStageSize } from './canvas/useStageSize';
 import { useZoomFit } from './canvas/useZoomFit';
 import { useCanvasPointer } from './canvas/useCanvasPointer';
 import { useKeyboard } from './canvas/useKeyboard';
+import { clampMenuToViewport } from './canvas/menuPosition';
+import { studioHints } from './canvas/studioHints';
 import { useStudioInit } from './canvas/useStudioInit';
 import type { EditorState, Extra, MonitorOption } from './canvas/types';
 import './Canvas.css';
@@ -84,6 +94,9 @@ type Props = { studio?: boolean };
 
 const GRID = 8;
 const ALIGN_THRESHOLD = 6;
+// Docked-panel selector: a palette-widget drop over any of these is the panel's own (e.g. the
+// Outline's container drop), so the stage-level drop handler bails on it.
+const PANEL_SEL = '.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx';
 const rand = (): string => Math.random().toString(36).slice(2, 8);
 
 // The demo seed (primary monitor only): a row of per-core CPU sparklines + a System-skin cluster.
@@ -216,6 +229,10 @@ export default function Canvas({ studio = false }: Props) {
 
 	// Edit mode (tray "Edit layout" / Ctrl+E). Entering disables click-through.
 	const [editMode, setEditMode] = useState(false);
+
+	// Cross-highlight (studio): the id currently hovered in EITHER the Outline tree or on the stage.
+	// Hovering a tree row glows the matching widget/container; hovering a widget glows its tree row.
+	const [hoverId, setHoverId] = useState<string | null>(null);
 
 	const persistence = usePersistence(state, myMonitor);
 	const { persistToDisk, writeBaseline, schedulePreviewWrite, clearPreviewWrite } = persistence;
@@ -960,6 +977,23 @@ export default function Canvas({ studio = false }: Props) {
 	// Context menu (5d).
 	// =========================================================================================
 	const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+	// The menu opens at the cursor but is clamped inside the window so it isn't clipped at the
+	// right/bottom edges. We render at the cursor first, then measure the box and shift it back in a
+	// layout effect (runs before paint → no visible jump). Reset when the menu closes.
+	const ctxRef = useRef<HTMLDivElement | null>(null);
+	const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
+	useLayoutEffect(() => {
+		if (!menu) {
+			setMenuPos(null);
+			return;
+		}
+		const el = ctxRef.current;
+		if (!el) return;
+		const r = el.getBoundingClientRect();
+		setMenuPos(
+			clampMenuToViewport(menu.x, menu.y, r.width, r.height, window.innerWidth, window.innerHeight)
+		);
+	}, [menu]);
 
 	const widgetsAt = useCallback((world: { x: number; y: number }): Renderable[] => {
 		const rs = renderablesRef.current;
@@ -1008,10 +1042,30 @@ export default function Canvas({ studio = false }: Props) {
 		menuNode !== null && isContainer(menuNode) && menuNode.children.some(isContainer);
 	const menuParentId =
 		menuId && menuId !== '__canvas__' ? findParent(monitor.root, menuId)?.id ?? null : null;
-	const menuStack = useMemo(
-		() => (menu && studio ? widgetsAt(toWorld(menu.x, menu.y)) : []),
-		[menu, studio, widgetsAt, toWorld]
-	);
+	// The right-click stack (5d, item 8): every selectable thing under the cursor — overlapping
+	// widgets first (front-to-back), then the containers/grid cells nesting them (smallest first).
+	// Picking an entry re-points the menu at it, so you can act on a widget OR any container around it.
+	const menuStack = useMemo<{ id: string; label: string }[]>(() => {
+		if (!menu || !studio) return [];
+		const world = toWorld(menu.x, menu.y);
+		const widgets = widgetsAt(world).map((r) => ({
+			id: r.selectId,
+			label: `${r.instance.type} · ${r.selectId}`
+		}));
+		const rootId = monitorForDragRef.current.root.id;
+		const containers = containerRectsRef.current
+			.filter(
+				(c) =>
+					c.id !== rootId &&
+					world.x >= c.rect.x &&
+					world.x < c.rect.x + c.rect.w &&
+					world.y >= c.rect.y &&
+					world.y < c.rect.y + c.rect.h
+			)
+			.sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h)
+			.map((c) => ({ id: c.id, label: `▦ ${c.kind} · ${c.id}` }));
+		return [...widgets, ...containers];
+	}, [menu, studio, widgetsAt, toWorld]);
 
 	const onWidgetContextMenu = useCallback((e: { id: string; x: number; y: number }) => {
 		setMenu({ x: e.x, y: e.y, id: e.id });
@@ -1026,6 +1080,31 @@ export default function Canvas({ studio = false }: Props) {
 		},
 		[studio, containerAt, toWorld]
 	);
+	// Drag a palette widget (the Inspector "Add" buttons set text/x-widget-type) onto the stage to
+	// drop a new floating widget at the cursor (item 7). Drops over a docked rail belong to that
+	// panel (the Outline's own dropWidget), so bail when the target is inside one.
+	const onCanvasDragOver = useCallback(
+		(event: React.DragEvent) => {
+			if (!studio || !editModeRef.current) return;
+			if (!event.dataTransfer.types.includes('text/x-widget-type')) return;
+			if ((event.target as HTMLElement | null)?.closest(PANEL_SEL)) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = 'copy';
+		},
+		[studio]
+	);
+	const onCanvasDrop = useCallback(
+		(event: React.DragEvent) => {
+			if (!studio || !editModeRef.current) return;
+			const wt = event.dataTransfer.getData('text/x-widget-type');
+			if (!wt || (event.target as HTMLElement | null)?.closest(PANEL_SEL)) return;
+			event.preventDefault();
+			const { x, y } = toWorld(event.clientX, event.clientY);
+			handleOp({ op: 'addWidgetAt', widgetType: wt, x, y });
+		},
+		[studio, toWorld, handleOp]
+	);
+
 	const closeMenu = useCallback(() => setMenu(null), []);
 	const menuAct = useCallback(
 		(op: LayoutOp) => {
@@ -1146,6 +1225,13 @@ export default function Canvas({ studio = false }: Props) {
 		clearSelection
 	});
 
+	// Contextual action hints for the studio's bottom powerline bar (item 2).
+	const hasSelection = selectedIds.length > 0 || selectedId !== null;
+	const hints = useMemo(
+		() => studioHints({ hasSelection, spaceDown, panning }),
+		[hasSelection, spaceDown, panning]
+	);
+
 	// =========================================================================================
 	// Render.
 	// =========================================================================================
@@ -1162,6 +1248,8 @@ export default function Canvas({ studio = false }: Props) {
 				ref={canvasRef}
 				onContextMenu={onCanvasContextMenu}
 				onMouseDown={onCanvasMouseDown}
+				onDragOver={onCanvasDragOver}
+				onDrop={onCanvasDrop}
 			>
 				<StyleLayer css={styleCss} />
 				<div className={studio ? 'world scaled' : 'world'} style={worldStyle}>
@@ -1175,7 +1263,9 @@ export default function Canvas({ studio = false }: Props) {
 								c.id !== monitor.root.id ? (
 									<div
 										key={c.id}
-										className={['cbound', c.id === selectedId && 'csel'].filter(Boolean).join(' ')}
+										className={['cbound', c.id === selectedId && 'csel', c.id === hoverId && 'chl']
+											.filter(Boolean)
+											.join(' ')}
 										style={{ left: c.rect.x, top: c.rect.y, width: c.rect.w, height: c.rect.h }}
 									>
 										<span className="ctag">{c.kind}</span>
@@ -1204,6 +1294,7 @@ export default function Canvas({ studio = false }: Props) {
 							groupId={r.groupId}
 							editMode={editMode}
 							selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
+							highlighted={hoverId !== null && r.selectId === hoverId}
 							grid={GRID}
 							scale={studio ? zoom : 1}
 							onChange={onChange}
@@ -1213,6 +1304,7 @@ export default function Canvas({ studio = false }: Props) {
 							onDrop={onDrop}
 							onContextMenu={onWidgetContextMenu}
 							onControl={onWidgetControl}
+							onHover={editMode ? setHoverId : undefined}
 						/>
 					))}
 					{editMode && (
@@ -1366,6 +1458,14 @@ export default function Canvas({ studio = false }: Props) {
 									</button>
 								</div>
 								<div className="monitor-badge">▦ {monName}</div>
+								<div className="powerbar">
+									{hints.map((h, i) => (
+										<span className="seg" key={i}>
+											<kbd>{h.key}</kbd>
+											<span className="lbl">{h.label}</span>
+										</span>
+									))}
+								</div>
 							</>
 						)}
 						{themeEditorOpen && (
@@ -1420,6 +1520,8 @@ export default function Canvas({ studio = false }: Props) {
 							root={monitor.root}
 							floating={monitor.floating}
 							selectedId={selectedId}
+							hoverId={hoverId}
+							onHover={setHoverId}
 							docked={studio}
 							onOp={handleOp}
 						/>
@@ -1451,18 +1553,22 @@ export default function Canvas({ studio = false }: Props) {
 									aria-label="Close menu"
 									onClick={closeMenu}
 								/>
-								<div className="ctx" style={{ left: menu.x, top: menu.y }}>
+								<div
+									ref={ctxRef}
+									className="ctx"
+									style={{ left: menuPos?.left ?? menu.x, top: menuPos?.top ?? menu.y }}
+								>
 									{menuStack.length > 1 && (
 										<>
 											<span className="ctx-hd">Select ({menuStack.length})</span>
 											{menuStack.map((s) => (
 												<button
-													key={s.selectId}
+													key={s.id}
 													type="button"
-													className={s.selectId === menu.id ? 'cur' : undefined}
-													onClick={() => mPick(s.selectId)}
+													className={s.id === menu.id ? 'cur' : undefined}
+													onClick={() => mPick(s.id)}
 												>
-													{s.instance.type} · {s.selectId}
+													{s.label}
 												</button>
 											))}
 											<div className="ctx-sep" />

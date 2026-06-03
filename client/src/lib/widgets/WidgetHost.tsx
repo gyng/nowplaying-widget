@@ -21,6 +21,8 @@ type Props = {
 	instance: WidgetInstance;
 	editMode?: boolean;
 	selected?: boolean;
+	// Cross-highlight from the Outline tree (studio): glow this widget while its tree row is hovered.
+	highlighted?: boolean;
 	grid?: number;
 	// Zoom factor of the surrounding world layer; pointer deltas (screen px) are divided by it.
 	scale?: number;
@@ -41,6 +43,8 @@ type Props = {
 	onDrop?: (e: { id: string; x: number; y: number }) => void;
 	onContextMenu?: (e: { id: string; x: number; y: number }) => void;
 	onControl?: (e: { id: string; sensor?: string; domain: string; service: string }) => void;
+	// Report hover enter/leave (selectId) so the Canvas can cross-highlight the Outline row.
+	onHover?: (id: string | null) => void;
 };
 
 const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -53,6 +57,7 @@ export default function WidgetHost({
 	instance,
 	editMode = false,
 	selected = false,
+	highlighted = false,
 	grid = 8,
 	scale = 1,
 	rect: rectProp,
@@ -67,7 +72,8 @@ export default function WidgetHost({
 	onDragOver,
 	onDrop,
 	onContextMenu,
-	onControl
+	onControl,
+	onHover
 }: Props) {
 	const rect = rectProp ?? instance.rect;
 	const selectId = selectIdProp ?? instance.id;
@@ -185,6 +191,7 @@ export default function WidgetHost({
 	const cls = ['widget'];
 	if (editMode) cls.push('editable');
 	if (selected) cls.push('selected');
+	if (highlighted) cls.push('hl');
 	if (action !== null) cls.push('active');
 	if (!editMode && instance.interactive) cls.push('catch');
 	if (action === 'flow') cls.push('dragging');
@@ -205,6 +212,8 @@ export default function WidgetHost({
 			data-def={defId}
 			data-group={groupId}
 			onContextMenu={handleContextMenu}
+			onMouseEnter={onHover ? () => onHover(selectId) : undefined}
+			onMouseLeave={onHover ? () => onHover(null) : undefined}
 		>
 			{Comp ? (
 				!instance.sensor || binds === 'none' ? (

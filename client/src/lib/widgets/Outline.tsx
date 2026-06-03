@@ -13,6 +13,10 @@ type Props = {
 	root: Container;
 	floating?: Leaf[];
 	selectedId?: string | null;
+	// Cross-highlight (studio): the id hovered on the stage glows its row here; hovering a row here
+	// reports back via onHover so the Canvas glows the matching widget/container.
+	hoverId?: string | null;
+	onHover?: (id: string | null) => void;
 	// In the studio this panel docks as the full-height left rail (vs a floating box on an
 	// overlay). The rail size + bar height come from the canvas's shared custom properties.
 	docked?: boolean;
@@ -23,10 +27,14 @@ export default function Outline({
 	root,
 	floating = [],
 	selectedId = null,
+	hoverId = null,
+	onHover,
 	docked = false,
 	onOp
 }: Props) {
 	const op = (o: LayoutOp) => onOp?.(o);
+	const hoverProps = (id: string) =>
+		onHover ? { onMouseEnter: () => onHover(id), onMouseLeave: () => onHover(null) } : undefined;
 
 	const rows = useMemo(() => outlineRows(root), [root]);
 
@@ -70,6 +78,7 @@ export default function Outline({
 	const rootRowCls = ['row', 'root'];
 	if (selectedId === root.id) rootRowCls.push('sel');
 	if (dragOverId === root.id) rootRowCls.push('dropok');
+	if (hoverId === root.id) rootRowCls.push('hover');
 
 	return (
 		<div className={outlineCls.join(' ')}>
@@ -95,6 +104,7 @@ export default function Outline({
 				onDragOver={(e) => onRowDragOver(e, root)}
 				onDrop={(e) => onRowDrop(e, root)}
 				onDragLeave={onRowDragLeave}
+				{...hoverProps(root.id)}
 			>
 				▦ root ({root.kind})
 			</button>
@@ -103,6 +113,7 @@ export default function Outline({
 				const rowCls = ['row'];
 				if (selectedId === r.node.id) rowCls.push('sel');
 				if (dragOverId === r.node.id) rowCls.push('dropok');
+				if (hoverId === r.node.id) rowCls.push('hover');
 				return (
 					<div
 						key={r.node.id}
@@ -113,6 +124,7 @@ export default function Outline({
 						onDragOver={(e) => onRowDragOver(e, r.node)}
 						onDrop={(e) => onRowDrop(e, r.node)}
 						onDragLeave={onRowDragLeave}
+						{...hoverProps(r.node.id)}
 					>
 						<button
 							type="button"
@@ -182,12 +194,14 @@ export default function Outline({
 					{floating.map((lf) => {
 						const lfCls = ['row'];
 						if (selectedId === lf.id) lfCls.push('sel');
+						if (hoverId === lf.id) lfCls.push('hover');
 						return (
 							<div
 								key={lf.id}
 								className={lfCls.join(' ')}
 								draggable
 								onDragStart={(e) => onRowDragStart(e, lf.id)}
+								{...hoverProps(lf.id)}
 							>
 								<button
 									type="button"

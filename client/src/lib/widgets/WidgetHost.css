@@ -22,6 +22,14 @@
 	outline-style: solid;
 }
 
+/* Cross-highlight while the matching Outline tree row is hovered: a soft glow that reads even
+   when the widget isn't selected (selection keeps its solid accent outline). */
+.widget.hl {
+	outline-color: rgba(218, 237, 226, 0.85);
+	outline-style: solid;
+	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.35);
+}
+
 .drag-overlay {
 	position: absolute;
 	inset: 0;

@@ -22,7 +22,7 @@
 	top: var(--bar-h, 36px);
 	right: 0;
 	left: auto;
-	bottom: 0;
+	bottom: var(--bar-b, 0); /* sit above the bottom powerline hint bar */
 	width: var(--rail-r, 264px);
 	max-height: none;
 	overflow-y: auto;
