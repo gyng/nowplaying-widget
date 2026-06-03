@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { createStore } from './createStore';
 
 export type ManagerEventWrapper = unknown;
 
@@ -134,9 +134,9 @@ const initialState: State = {
 	...localMediaStoreDeserializedState
 };
 
-export const mediaStore = writable<State>(initialState);
+export const mediaStore = createStore<State>(initialState);
 
-mediaStore.subscribe((value) => {
+function persist(value: State): void {
 	const toSerialize: SerializedState = {
 		sourcePriority: value.sourcePriority,
 		styleOverride: value.styleOverride,
@@ -145,7 +145,14 @@ mediaStore.subscribe((value) => {
 		restoreToSavedPosition: value.restoreToSavedPosition
 	};
 	localStorage.setItem(MEDIA_STORE_KEY, JSON.stringify(toSerialize));
-});
+}
+
+// Svelte's writable fired its subscriber synchronously on subscribe, so persistence ran at import
+// AND on every change. `createStore` does NOT fire on subscribe, so replicate both halves: persist
+// once now, then on every update. The subscription is module-level (decoupled from React) so it
+// persists even when no component is mounted.
+persist(initialState);
+mediaStore.subscribe(() => persist(mediaStore.getSnapshot()));
 
 export type HandleInitializeOpts = { sessions: Record<number, SessionRecord> };
 export function handleInitialize(opts: HandleInitializeOpts) {

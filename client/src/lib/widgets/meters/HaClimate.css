@@ -1,0 +1,32 @@
+/* Global, scoped under the unique `.np-ha-climate` root so the generic inner class names
+   (.label, .temps, .mode) don't collide with other meters and stay byte-identical in the DOM
+   (so user themes / per-widget css that target `[data-w] .label` or `[data-part="label"]`
+   still match). */
+.np-ha-climate {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 1px;
+	width: 100%;
+	height: 100%;
+	color: var(--np-fg, #fff);
+	font-family: var(--np-font, 'Bahnschrift', 'Arial Narrow', sans-serif);
+}
+
+.np-ha-climate .label {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--np-label, rgb(218, 237, 226));
+	opacity: 0.8;
+}
+
+.np-ha-climate .temps {
+	font-size: 17px;
+}
+
+.np-ha-climate .mode {
+	font-size: 10px;
+	opacity: 0.6;
+	text-transform: capitalize;
+}

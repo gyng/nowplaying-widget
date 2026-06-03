@@ -6,9 +6,9 @@
 
 import { registerPlugin } from '../plugin';
 import { haSource } from './ha-source';
-import HaSensor from '../meters/HaSensor.svelte';
-import HaLight from '../meters/HaLight.svelte';
-import HaClimate from '../meters/HaClimate.svelte';
+import HaSensor from '../meters/HaSensor';
+import HaLight from '../meters/HaLight';
+import HaClimate from '../meters/HaClimate';
 import type { MeterComponent } from '../registry';
 
 // HA widgets have no defaultSensor — the entity is unknown until the user picks one from

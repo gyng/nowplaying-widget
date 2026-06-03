@@ -1,0 +1,152 @@
+.inspector {
+	position: absolute;
+	bottom: 8px;
+	left: 8px;
+	width: 240px;
+	padding: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	background: rgba(10, 10, 12, 0.92);
+	border: 1px solid rgba(119, 196, 211, 0.5);
+	border-radius: 4px;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	pointer-events: auto;
+}
+
+/* Studio: a full-height, scrollable right rail in the reserved margin (no stage overlap). */
+.inspector.docked {
+	position: fixed;
+	top: var(--bar-h, 36px);
+	right: 0;
+	left: auto;
+	bottom: 0;
+	width: var(--rail-r, 264px);
+	max-height: none;
+	overflow-y: auto;
+	border-width: 0 0 0 1px;
+	border-radius: 0;
+	z-index: 6;
+}
+
+.inspector .hd {
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+}
+
+.inspector .palette {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	align-items: center;
+}
+
+.inspector .fields {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.inspector .tokens {
+	border-top: 1px solid #333;
+	padding-top: 6px;
+}
+
+.inspector .row {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 4px;
+}
+
+.inspector .row2 {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 4px;
+}
+
+.inspector label {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.inspector label.check {
+	flex-direction: row;
+	align-items: center;
+	gap: 4px;
+}
+
+/* Dirty (unsaved) field indicator (item 2): accent the label + tint the control. */
+.inspector label.dirty {
+	color: rgb(150, 214, 228);
+}
+
+.inspector label.dirty > input,
+.inspector label.dirty > select,
+.inspector label.dirty > textarea {
+	border-color: rgba(119, 196, 211, 0.75);
+	background: rgba(119, 196, 211, 0.07);
+}
+
+.inspector .actions {
+	display: flex;
+	gap: 4px;
+}
+
+.inspector input,
+.inspector textarea,
+.inspector select {
+	background: #1a1a1e;
+	border: 1px solid #333;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 4px;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.inspector textarea.error {
+	border-color: rgb(220, 120, 120);
+}
+
+.inspector button {
+	background: #1a1a1e;
+	border: 1px solid #444;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 6px;
+	cursor: pointer;
+}
+
+.inspector button:hover {
+	border-color: rgb(119, 196, 211);
+}
+
+.inspector .remove {
+	border-color: rgba(220, 120, 120, 0.6);
+	color: rgb(230, 160, 160);
+}
+
+.inspector .hint {
+	color: #888;
+}
+
+.inspector .meta {
+	color: #aaa;
+	word-break: break-all;
+}
+
+.inspector .libitem {
+	display: inline-flex;
+}
+
+.inspector .libitem .x {
+	border-left: none;
+	color: rgb(230, 160, 160);
+	padding: 2px 4px;
+}

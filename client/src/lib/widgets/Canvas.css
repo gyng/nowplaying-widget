@@ -1,0 +1,425 @@
+/* Canvas (organism) styles — ported verbatim from Canvas.svelte's scoped <style>. Every selector
+   is PREFIXED with the `.canvas` root class so bare element / generic class selectors (.world,
+   .marquee, .ctx, .guide, …) do not leak globally now that React has no per-component scoping. The
+   declarations (incl. var(--bar-h)/var(--rail-l)/var(--np-*)) are unchanged. */
+
+.canvas {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	overflow: hidden; /* clip stray/edge widgets instead of scrolling (overlay + studio) */
+}
+
+.canvas.edit {
+	pointer-events: auto;
+}
+
+/* Panning the view: middle-drag or Space+drag. While Space is held (panmode) the cursor shows
+   grab and widgets are click-through, so the press lands on the stage to pan. */
+.canvas.studio.panmode {
+	cursor: grab;
+}
+
+.canvas.studio.panmode .widget {
+	pointer-events: none;
+}
+
+.canvas.studio.panning {
+	cursor: grabbing;
+}
+
+/* Studio: a normal opaque window (not a transparent desktop overlay). The canvas is the
+   inset STAGE between the tool rails — the top bar, left rail (Outline) and right rail
+   (Inspector) live in the reserved margins (fixed), so the tools never overlap widgets.
+   The rail/bar sizes are shared with the docked panels via these custom properties. */
+.canvas.studio {
+	--bar-h: 36px;
+	--rail-l: 250px;
+	--rail-r: 264px;
+	background: #0b0b0e;
+	top: var(--bar-h);
+	left: var(--rail-l);
+	right: var(--rail-r);
+	bottom: 0;
+	overflow: hidden; /* clip the zoomed world to the stage (don't spill over the rails) */
+}
+
+/* The world layer (zoom-to-fit). Overlay: fills the canvas 1:1. Studio (.scaled): sized to
+   the monitor, transformed from the top-left by the inline transform. */
+.canvas .world {
+	position: absolute;
+	inset: 0;
+	transform-origin: 0 0;
+}
+
+.canvas .world.scaled {
+	inset: auto;
+	left: 0;
+	top: 0;
+}
+
+/* The monitor's work-area frame + nested pane outlines (designer only). */
+.canvas .monitor-frame {
+	position: absolute;
+	border: 1px solid rgba(119, 196, 211, 0.55);
+	pointer-events: none;
+}
+
+.canvas .cbound {
+	position: absolute;
+	border: 1px dashed rgba(218, 237, 226, 0.35);
+	pointer-events: none;
+}
+
+.canvas .cbound.csel {
+	border-color: rgba(119, 196, 211, 0.9);
+	border-style: solid;
+}
+
+.canvas .cbound .ctag {
+	position: absolute;
+	top: 0;
+	left: 0;
+	padding: 0 3px;
+	font-family: monospace;
+	font-size: 9px;
+	line-height: 1.5;
+	color: rgba(218, 237, 226, 0.7);
+	background: rgba(10, 10, 12, 0.55);
+}
+
+/* Empty grid cells: faint dashed boxes showing where the next widgets will land. */
+.canvas .grid-cell {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px dashed rgba(119, 196, 211, 0.25);
+	pointer-events: none;
+}
+
+/* Highlight a container the drag will drop INTO (e.g. an empty grid). */
+.canvas .dropzone {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px solid rgb(119, 196, 211);
+	background: rgba(119, 196, 211, 0.12);
+	pointer-events: none;
+	z-index: 3;
+}
+
+.canvas .guide {
+	position: absolute;
+	background: rgba(119, 196, 211, 0.4);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.canvas .drag-hint {
+	position: absolute;
+	transform: translate(12px, 12px);
+	padding: 2px 6px;
+	font-family: monospace;
+	font-size: 10px;
+	color: #0b0b0b;
+	background: rgba(218, 237, 226, 0.95);
+	border-radius: 3px;
+	pointer-events: none;
+	white-space: nowrap;
+	z-index: 8;
+}
+
+.canvas .guide.v {
+	top: 0;
+	bottom: 0;
+	width: 1px;
+}
+
+.canvas .guide.h {
+	left: 0;
+	right: 0;
+	height: 1px;
+}
+
+.canvas .dropbar {
+	position: absolute;
+	background: rgb(119, 196, 211);
+	box-shadow: 0 0 4px rgba(119, 196, 211, 0.9);
+	pointer-events: none;
+	z-index: 3;
+}
+
+/* Rubber-band selection rectangle (item 3). Above the world/widgets, below the tool bars. */
+.canvas .marquee {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px dashed rgb(119, 196, 211);
+	background: rgba(119, 196, 211, 0.1);
+	pointer-events: none;
+	z-index: 6;
+}
+
+.canvas .ctx-backdrop {
+	position: fixed;
+	inset: 0;
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	cursor: default;
+	z-index: 9;
+}
+
+.canvas .ctx {
+	position: fixed;
+	display: flex;
+	flex-direction: column;
+	min-width: 132px;
+	padding: 3px;
+	background: rgba(10, 10, 12, 0.97);
+	border: 1px solid rgba(119, 196, 211, 0.6);
+	border-radius: 4px;
+	z-index: 10;
+	pointer-events: auto;
+}
+
+.canvas .ctx button {
+	background: transparent;
+	border: none;
+	color: #eee;
+	font-family: monospace;
+	font-size: 12px;
+	text-align: left;
+	padding: 4px 8px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+
+.canvas .ctx button:hover {
+	background: rgba(119, 196, 211, 0.25);
+}
+
+.canvas .ctx button.rm {
+	color: rgb(230, 160, 160);
+}
+
+/* The currently-targeted item in the overlap stack picker. */
+.canvas .ctx button.cur {
+	color: rgb(150, 214, 228);
+}
+
+.canvas .ctx-sep {
+	height: 1px;
+	margin: 3px 4px;
+	background: #333;
+}
+
+.canvas .ctx-hd {
+	padding: 1px 8px;
+	font-family: monospace;
+	font-size: 9px;
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	color: rgb(119, 196, 211);
+}
+
+.canvas .def-banner {
+	position: absolute;
+	top: 4px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 4px 10px;
+	font-family: monospace;
+	font-size: 12px;
+	color: #0b0b0b;
+	background: rgb(218, 237, 226);
+	border-radius: 3px;
+	pointer-events: auto;
+	z-index: 4;
+}
+
+.canvas .def-banner button {
+	background: #0b0b0b;
+	color: rgb(218, 237, 226);
+	border: none;
+	border-radius: 2px;
+	padding: 1px 8px;
+	cursor: pointer;
+	font-family: monospace;
+}
+
+/* The studio's full-width top bar (in the reserved margin above the stage). */
+.canvas .studio-bar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--bar-h, 36px);
+	box-sizing: border-box;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 0 10px;
+	background: rgba(10, 10, 12, 0.95);
+	border-bottom: 1px solid rgba(119, 196, 211, 0.5);
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	pointer-events: auto;
+	z-index: 7;
+}
+
+.canvas .studio-bar .lbl {
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+}
+
+.canvas .studio-bar .chk {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	color: #ccc;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.canvas .studio-bar .zlevel {
+	min-width: 34px;
+	text-align: right;
+	color: #ccc;
+}
+
+/* Which physical monitor this stage is editing (screen-space, top-left of the stage). */
+.canvas .monitor-badge {
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	padding: 2px 7px;
+	font-family: monospace;
+	font-size: 10px;
+	letter-spacing: 0.5px;
+	color: rgb(119, 196, 211);
+	background: rgba(10, 10, 12, 0.7);
+	border: 1px solid rgba(119, 196, 211, 0.4);
+	border-radius: 3px;
+	pointer-events: none;
+	z-index: 5;
+}
+
+.canvas .studio-bar select,
+.canvas .studio-bar button {
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 6px;
+	cursor: pointer;
+}
+
+.canvas .studio-bar button:hover {
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .studio-bar button:disabled {
+	opacity: 0.4;
+	cursor: default;
+	border-color: #333;
+}
+
+/* Save glows while there are unsaved changes; disabled (= "Saved") when clean. */
+.canvas .studio-bar button.save.hot {
+	border-color: rgb(119, 196, 211);
+	color: rgb(170, 230, 240);
+	background: rgba(119, 196, 211, 0.18);
+	opacity: 1;
+}
+
+/* Item 5: the theme editor panel (a floating modal over the stage). */
+.canvas .theme-editor {
+	position: fixed;
+	top: calc(var(--bar-h, 36px) + 16px);
+	right: calc(var(--rail-r, 264px) + 16px);
+	width: 320px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px;
+	background: rgba(12, 12, 16, 0.98);
+	border: 1px solid rgba(119, 196, 211, 0.6);
+	border-radius: 4px;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	pointer-events: auto;
+	z-index: 11;
+}
+
+.canvas .theme-editor .te-hd {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+}
+
+.canvas .theme-editor .te-close {
+	background: transparent;
+	border: none;
+	color: #aaa;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.canvas .theme-editor .te-name {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.canvas .theme-editor input,
+.canvas .theme-editor textarea {
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 4px;
+}
+
+.canvas .theme-editor .te-css {
+	height: 200px;
+	resize: vertical;
+	white-space: pre;
+}
+
+.canvas .theme-editor .te-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.canvas .theme-editor .te-actions button {
+	background: rgb(119, 196, 211);
+	color: #07181c;
+	border: none;
+	border-radius: 3px;
+	padding: 4px 10px;
+	cursor: pointer;
+	font-family: monospace;
+}
+
+.canvas .edit-badge {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	padding: 2px 6px;
+	font-family: monospace;
+	font-size: 10px;
+	color: #fff;
+	background: rgba(119, 196, 211, 0.85);
+	border-radius: 3px;
+	pointer-events: none;
+}

@@ -1,0 +1,127 @@
+.outline {
+	position: absolute;
+	top: 8px;
+	left: 8px;
+	width: 240px;
+	max-height: 50vh;
+	overflow-y: auto;
+	padding: 6px;
+	background: rgba(10, 10, 12, 0.92);
+	border: 1px solid rgba(119, 196, 211, 0.5);
+	border-radius: 4px;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	pointer-events: auto;
+}
+
+/* Studio: a full-height left rail in the reserved margin (no overlap with the stage). */
+.outline.docked {
+	position: fixed;
+	top: var(--bar-h, 36px);
+	left: 0;
+	bottom: 0;
+	width: var(--rail-l, 250px);
+	max-height: none;
+	border-width: 0 1px 0 0;
+	border-radius: 0;
+	z-index: 6;
+}
+
+.outline .hd,
+.outline .hd2 {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	margin-bottom: 4px;
+}
+
+.outline .hd2 {
+	margin-top: 6px;
+	border-top: 1px solid #333;
+	padding-top: 4px;
+}
+
+.outline .add button {
+	padding: 1px 3px;
+}
+
+.outline .row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+	border-radius: 2px;
+}
+
+.outline .row.root {
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	cursor: pointer;
+	padding: 1px 4px;
+}
+
+.outline .row.sel {
+	background: rgba(119, 196, 211, 0.18);
+	outline: 1px solid rgba(119, 196, 211, 0.6);
+}
+
+/* Drop target highlight while dragging a row/palette widget over a container. */
+.outline .row.dropok {
+	background: rgba(119, 196, 211, 0.32);
+	outline: 1px dashed rgb(119, 196, 211);
+}
+
+.outline .label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	cursor: pointer;
+	padding: 1px 2px;
+}
+
+.outline .btns {
+	display: flex;
+	gap: 1px;
+	flex-shrink: 0;
+}
+
+.outline .btns button {
+	width: 16px;
+	padding: 0;
+	line-height: 16px;
+}
+
+.outline button {
+	background: #1a1a1e;
+	border: 1px solid #444;
+	color: #eee;
+	font-family: monospace;
+	font-size: 10px;
+	cursor: pointer;
+}
+
+.outline button:hover:not(:disabled) {
+	border-color: rgb(119, 196, 211);
+}
+
+.outline button:disabled {
+	opacity: 0.3;
+	cursor: default;
+}

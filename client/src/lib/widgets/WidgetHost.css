@@ -1,0 +1,104 @@
+.widget {
+	position: absolute;
+}
+
+/* Interactive widgets catch clicks in passive mode (the canvas is otherwise pointer-events:none).
+   The cursor watcher gates this at the OS level. */
+.widget.catch {
+	pointer-events: auto;
+}
+
+.widget.editable {
+	outline: 1px dashed rgba(119, 196, 211, 0.7);
+	outline-offset: 2px;
+}
+
+.widget.active {
+	outline-style: solid;
+}
+
+.widget.selected {
+	outline-color: rgb(119, 196, 211);
+	outline-style: solid;
+}
+
+.drag-overlay {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	cursor: move;
+}
+
+.widget.dragging {
+	z-index: 10;
+	opacity: 0.85;
+}
+
+.handle {
+	position: absolute;
+	width: 8px;
+	height: 8px;
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+	border: 1px solid rgba(119, 196, 211, 0.9);
+	background: #0b0b0b;
+	z-index: 1;
+}
+
+.handle.n {
+	top: -4px;
+	left: calc(50% - 4px);
+	cursor: ns-resize;
+}
+
+.handle.s {
+	bottom: -4px;
+	left: calc(50% - 4px);
+	cursor: ns-resize;
+}
+
+.handle.e {
+	right: -4px;
+	top: calc(50% - 4px);
+	cursor: ew-resize;
+}
+
+.handle.w {
+	left: -4px;
+	top: calc(50% - 4px);
+	cursor: ew-resize;
+}
+
+.handle.ne {
+	top: -4px;
+	right: -4px;
+	cursor: nesw-resize;
+}
+
+.handle.nw {
+	top: -4px;
+	left: -4px;
+	cursor: nwse-resize;
+}
+
+.handle.se {
+	bottom: -4px;
+	right: -4px;
+	cursor: nwse-resize;
+}
+
+.handle.sw {
+	bottom: -4px;
+	left: -4px;
+	cursor: nesw-resize;
+}
+
+.missing {
+	font-family: monospace;
+	font-size: 11px;
+	color: rgba(255, 120, 120, 0.9);
+}
