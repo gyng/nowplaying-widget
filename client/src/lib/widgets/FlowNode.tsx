@@ -98,6 +98,7 @@ export default function FlowNode({
 						renderLeaf={renderLeaf}
 						library={library}
 						prefix={`${id}/`}
+						fill
 					/>
 				) : null}
 			</div>

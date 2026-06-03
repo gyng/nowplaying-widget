@@ -10,6 +10,7 @@
 // `itemStyle` styles it AS a child of its parent's flow (sizing + self-alignment).
 
 import {
+	isContainer,
 	resolvePad,
 	type Align,
 	type AlignH,
@@ -69,6 +70,37 @@ const GRID_SELF: Record<AlignH | AlignV, string> = {
 
 function isFr(b: Length | undefined): b is { fr: number } {
 	return typeof b === 'object' && b !== null && 'fr' in b;
+}
+
+// Per-track fixed sizes for a grid axis (mirrors the solver's gridTracks fixed array): a track is
+// pinned to the max cellW (cols) / cellH (rows) among its cells; flexible tracks stay null. Returns
+// null when no cell fixes a size on this axis → the caller emits uniform `repeat(n, 1fr)`.
+function gridFixedTracks(
+	c: Container,
+	count: number,
+	horizontal: boolean
+): (number | null)[] | null {
+	const cols = Math.max(1, c.cols ?? 1);
+	const fixed: (number | null)[] = new Array(count).fill(null);
+	let any = false;
+	c.children.forEach((child, i) => {
+		const track = horizontal ? i % cols : Math.floor(i / cols);
+		if (track >= count) return;
+		const v = isContainer(child) ? (horizontal ? child.cellW : child.cellH) : undefined;
+		if (typeof v === 'number' && v > 0) {
+			fixed[track] = Math.max(fixed[track] ?? 0, v);
+			any = true;
+		}
+	});
+	return any ? fixed : null;
+}
+
+// A grid track template: explicit `Npx`/`1fr` tracks when any cell is fixed (CSS splits the leftover
+// among the 1fr tracks exactly like the solver), else uniform `repeat(count, 1fr)`.
+function gridTemplate(c: Container, count: number, horizontal: boolean): string {
+	const fixed = gridFixedTracks(c, count, horizontal);
+	if (!fixed) return `repeat(${count}, 1fr)`;
+	return fixed.map((v) => (v != null ? `${v}px` : '1fr')).join(' ');
 }
 
 /**
@@ -149,8 +181,11 @@ export function containerStyle(c: Container): Style {
 	if (c.kind === 'grid') {
 		s.display = 'grid';
 		const cols = Math.max(1, c.cols ?? 1);
-		s.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-		s.gridAutoRows = '1fr';
+		// Row count grown to fit children (mirrors solve.ts gridRows), so per-row cellH tracks line up.
+		const rows = Math.max(c.rows ?? 1, Math.ceil(c.children.length / cols), 1);
+		s.gridTemplateColumns = gridTemplate(c, cols, true);
+		s.gridTemplateRows = gridTemplate(c, rows, false);
+		s.gridAutoRows = '1fr'; // any overflow row stays uniform
 		const a = GRID_ITEMS[c.align ?? 'stretch'];
 		s.justifyItems = a;
 		s.alignItems = a;

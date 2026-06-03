@@ -50,6 +50,21 @@ describe('containerStyle', () => {
 		expect(s.alignItems).toBe('center');
 	});
 
+	it('grid with a fixed-width cell emits explicit tracks (px for fixed, 1fr splits the rest)', () => {
+		const c0 = container('c0', 'col', [], { cellW: 150 });
+		const s = containerStyle(
+			container('g', 'grid', [c0, leaf(prim('B')), leaf(prim('C'))], { cols: 3 })
+		);
+		expect(s.gridTemplateColumns).toBe('150px 1fr 1fr');
+	});
+
+	it('grid with a fixed-height cell emits explicit rows', () => {
+		const c0 = container('c0', 'col', [], { cellH: 50 });
+		// 2 children in 1 col → 2 rows; row 0 fixed 50px, row 1 flexible.
+		const s = containerStyle(container('g', 'grid', [c0, leaf(prim('B'))], { cols: 1 }));
+		expect(s.gridTemplateRows).toBe('50px 1fr');
+	});
+
 	it('overlap → single-cell grid stack', () => {
 		const s = containerStyle(container('o', 'col', [], { overlap: true }));
 		expect(s.display).toBe('grid');

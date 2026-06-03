@@ -403,12 +403,9 @@ export default function Canvas({ studio = false }: Props) {
 			),
 		[renderables, monitor.floating]
 	);
-	const renderFlowLeaf = useCallback<RenderLeaf>(
-		(lf, id) => (
-			<WidgetHost flow hub={hub} instance={lf.unit as WidgetInstance} domId={id} selectId={id} />
-		),
-		[hub]
-	);
+	// Look up a flow primitive's renderable (for selectId / group + def hooks) when FlowNode hands us
+	// a leaf by its namespaced id.
+	const renderablesById = useMemo(() => new Map(renderables.map((r) => [r.id, r])), [renderables]);
 
 	const tokenCss = useMemo(
 		() => (Object.keys(tokenOverrides).length ? tokensToCss(tokenOverrides) : ''),
@@ -1713,6 +1710,35 @@ export default function Canvas({ studio = false }: Props) {
 			suppressContextMenu={consumeSuppressCtx}
 		/>
 	);
+
+	// Render a FlowNode primitive leaf (overlay CSS path): a slot-filling WidgetHost wired for
+	// passive interaction (onControl), selection + context menu (id-based, correct without measured
+	// rects). The rect-dependent drag/reorder is intentionally NOT wired here — it lands in phase D
+	// once the editor reads measured rects (until then in-flow editing stays in the studio).
+	const renderFlowLeaf: RenderLeaf = (lf, id) => {
+		const r = renderablesById.get(id);
+		const sid = r?.selectId ?? id;
+		return (
+			<WidgetHost
+				flow
+				hub={hub}
+				instance={lf.unit as WidgetInstance}
+				domId={id}
+				selectId={sid}
+				defId={r?.defId}
+				groupId={r?.groupId}
+				editMode={editMode && !previewing}
+				selected={sid === selectedId || selectedSet.has(sid)}
+				highlighted={hoverId !== null && sid === hoverId}
+				onSelect={onSelect}
+				onContextMenu={onWidgetContextMenu}
+				onControl={onWidgetControl}
+				onHover={editMode ? setHoverId : undefined}
+				onSuppressContextMenu={armSuppressCtx}
+				suppressContextMenu={consumeSuppressCtx}
+			/>
+		);
+	};
 
 	return (
 		<TelemetryHubContext.Provider value={hub}>
