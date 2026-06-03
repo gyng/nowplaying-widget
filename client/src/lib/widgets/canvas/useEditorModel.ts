@@ -19,6 +19,8 @@ import {
 	isGroup,
 	isLeaf,
 	leaf,
+	type AlignH,
+	type AlignV,
 	type Container,
 	type Group,
 	type Leaf,
@@ -621,6 +623,22 @@ function setNodeBasis(s: EditorState, id: string, basis: Length | undefined): Pa
 	return { monitor: { ...s.monitor, root } };
 }
 
+// Set a leaf's placement (halign/valign) within the box the layout gives it. 'fill' (the default)
+// clears the field so the leaf spans the box; the others pin it to a screen edge/center. A no-op
+// on non-leaf nodes (containers align their children via align/justify instead).
+function setLeafAlign(s: EditorState, id: string, halign: AlignH, valign: AlignV): Patch {
+	const root = updateNode(s.monitor.root, id, (n) => {
+		if (!isLeaf(n)) return n;
+		const next = { ...n } as Leaf & { halign?: AlignH; valign?: AlignV };
+		if (halign === 'fill') delete next.halign;
+		else next.halign = halign;
+		if (valign === 'fill') delete next.valign;
+		else next.valign = valign;
+		return next;
+	});
+	return { monitor: { ...s.monitor, root } };
+}
+
 // The selected container (incl. root) in the live tree — used by addWidget/addContainer/insert.
 function currentContainer(s: EditorState): Container | null {
 	if (!s.selectedId) return null;
@@ -1095,6 +1113,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					return;
 				case 'setBasis':
 					commitOp((s) => setNodeBasis(s, op.id, op.basis));
+					return;
+				case 'setLeafAlign':
+					commitOp((s) => setLeafAlign(s, op.id, op.halign, op.valign));
 					return;
 				case 'resetWidget':
 					commitOp((s) => resetWidget(s, op.id));

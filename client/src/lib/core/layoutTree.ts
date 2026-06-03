@@ -24,6 +24,13 @@ export type Align = 'start' | 'center' | 'end' | 'stretch'; // cross axis
 export type Justify = 'start' | 'center' | 'end' | 'between' | 'around'; // main axis
 export type Pad = number | { t: number; r: number; b: number; l: number };
 
+// A leaf's placement WITHIN the box the layout hands it, per screen axis (default 'fill' =
+// span the box, the historical behaviour). 'fill' shrinks to nothing; the others size the
+// leaf to its intrinsic extent on that axis and pin it left/center/right or top/middle/bottom.
+// Only bites when the box is bigger than the leaf (a grown cell, a grid cell, an overlap stack).
+export type AlignH = 'left' | 'center' | 'right' | 'fill';
+export type AlignV = 'top' | 'middle' | 'bottom' | 'fill';
+
 // The layout designer's panes/splits. hsplit = row, vsplit = col, multi-pane = grid.
 export type Container = {
 	id: string;
@@ -67,6 +74,8 @@ export type Leaf = {
 	id: string;
 	unit: WidgetInstance | Group;
 	basis?: Length; // default 'auto'
+	halign?: AlignH; // horizontal placement within its solved box (default 'fill')
+	valign?: AlignV; // vertical placement within its solved box (default 'fill')
 };
 
 export type LayoutNode = Container | Leaf;

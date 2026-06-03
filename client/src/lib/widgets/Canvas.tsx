@@ -429,6 +429,10 @@ export default function Canvas({ studio = false }: Props) {
 	// The selected leaf's main-axis basis (fr = stretch, else fixed) — the leaf wrapper holds it,
 	// not the unit, so the Inspector receives it separately to drive the widget's grow toggle.
 	const selectedLeafBasis = selectedNode && isLeaf(selectedNode) ? selectedNode.basis : undefined;
+	// The selected leaf's placement within its box (halign/valign), surfaced like basis so the
+	// Inspector can offer per-widget left/center/right + top/middle/bottom alignment.
+	const selectedLeafHalign = selectedNode && isLeaf(selectedNode) ? selectedNode.halign : undefined;
+	const selectedLeafValign = selectedNode && isLeaf(selectedNode) ? selectedNode.valign : undefined;
 	const selectedGroup =
 		selectedNode && isLeaf(selectedNode) && isGroup(selectedNode.unit)
 			? (selectedNode.unit as Group)
@@ -2254,6 +2258,8 @@ export default function Canvas({ studio = false }: Props) {
 									containerBox={selectedContainerBox}
 									placement={placement}
 									widgetBasis={selectedLeafBasis}
+									widgetHalign={selectedLeafHalign}
+									widgetValign={selectedLeafValign}
 									widgetTypes={widgetTypes}
 									configFields={configFields}
 									sensors={sensors}

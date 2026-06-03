@@ -363,6 +363,87 @@ describe('align (cross axis)', () => {
 	});
 });
 
+// ---- per-leaf alignment (halign / valign) --------------------------------
+
+describe('per-leaf alignment (halign / valign within the box)', () => {
+	it('default (unset) fills the box — no regression', () => {
+		const s = solveLayout(
+			container('r', 'row', [leaf(prim('A', 40, 20), { fr: 1 })], { align: 'stretch' }),
+			{ x: 0, y: 0, w: 200, h: 100 }
+		);
+		expect(get(s, 'A')).toEqual({ x: 0, y: 0, w: 200, h: 100 });
+	});
+
+	it("halign 'right' on a grown leaf pins it to the right at its intrinsic width", () => {
+		const s = solveLayout(
+			container('r', 'row', [{ ...leaf(prim('A', 40, 20), { fr: 1 }), halign: 'right' as const }], {
+				align: 'stretch'
+			}),
+			{ x: 0, y: 0, w: 200, h: 100 }
+		);
+		// fr fills 200 wide, stretch fills 100 tall; halign right shrinks to w=40 pinned to x=160.
+		expect(get(s, 'A')).toEqual({ x: 160, y: 0, w: 40, h: 100 });
+	});
+
+	it("valign 'middle' centers a leaf vertically in its (stretched) grid cell", () => {
+		const s = solveLayout(
+			container('g', 'grid', [{ ...leaf(prim('A', 40, 40)), valign: 'middle' as const }], {
+				cols: 1,
+				align: 'stretch'
+			}),
+			{ x: 0, y: 0, w: 100, h: 100 }
+		);
+		// cell is the full 100×100; valign middle → h=40 at y=30, width still fills.
+		expect(get(s, 'A')).toEqual({ x: 0, y: 30, w: 100, h: 40 });
+	});
+
+	it('halign + valign center positions the leaf in both axes', () => {
+		const s = solveLayout(
+			container(
+				'g',
+				'grid',
+				[{ ...leaf(prim('A', 40, 40)), halign: 'center' as const, valign: 'middle' as const }],
+				{ cols: 1, align: 'stretch' }
+			),
+			{ x: 0, y: 0, w: 100, h: 100 }
+		);
+		expect(get(s, 'A')).toEqual({ x: 30, y: 30, w: 40, h: 40 });
+	});
+
+	it('no slack on an axis → that axis is a no-op (auto width, full-height valign still works)', () => {
+		const s = solveLayout(
+			container(
+				'r',
+				'row',
+				[{ ...leaf(prim('A', 40, 20)), halign: 'center' as const, valign: 'bottom' as const }],
+				{ align: 'stretch' }
+			),
+			{ x: 0, y: 0, w: 200, h: 100 }
+		);
+		// auto basis → main box = intrinsic 40 (no horizontal slack, stays at x=0);
+		// stretch cross → full 100 tall, valign bottom pins h=20 to y=80.
+		expect(get(s, 'A')).toEqual({ x: 0, y: 80, w: 40, h: 20 });
+	});
+
+	it('a group leaf is positioned by its intrinsic size; its child solves in the placed box', () => {
+		const inner = container('gc', 'col', [leaf(prim('X', 60, 50), { fr: 1 })], {
+			align: 'stretch'
+		});
+		const g = {
+			...leaf(group('g', { w: 60, h: 50 }, inner), { fr: 1 }),
+			halign: 'center' as const
+		};
+		const s = solveLayout(container('r', 'row', [g], { align: 'stretch' }), {
+			x: 0,
+			y: 0,
+			w: 200,
+			h: 50
+		});
+		expect(get(s, 'g')).toEqual({ x: 70, y: 0, w: 60, h: 50 });
+		expect(get(s, 'g/X')).toEqual({ x: 70, y: 0, w: 60, h: 50 });
+	});
+});
+
 // ---- pad -----------------------------------------------------------------
 
 describe('pad', () => {
@@ -781,6 +862,26 @@ describe('solveMonitor / floating', () => {
 		};
 		const s = solveMonitor(mon, wa);
 		expect(get(s, 'W')).toEqual({ x: 10, y: 10, w: 60, h: 40 });
+	});
+
+	it('floating group size defaults to the def size but config.w/config.h override it', () => {
+		const mk = (cfg: Record<string, number>) =>
+			group(
+				'fg',
+				{ w: 60, h: 40 },
+				container('r', 'row', [leaf(prim('P', 60, 40), { fr: 1 })], { align: 'stretch' }),
+				{ config: cfg }
+			);
+		// No override → def size 60×40 at the anchor.
+		let s = solveMonitor({ root: emptyRoot(), floating: [leaf(mk({ x: 10, y: 20 }))] }, wa);
+		expect(get(s, 'fg')).toEqual({ x: 10, y: 20, w: 60, h: 40 });
+		// config.w/h override → the box (and its fr child) grow to the given size.
+		s = solveMonitor(
+			{ root: emptyRoot(), floating: [leaf(mk({ x: 10, y: 20, w: 300, h: 200 }))] },
+			wa
+		);
+		expect(get(s, 'fg')).toEqual({ x: 10, y: 20, w: 300, h: 200 });
+		expect(get(s, 'fg/P')).toEqual({ x: 10, y: 20, w: 300, h: 200 });
 	});
 
 	it('floating group anchored by config.x/config.y', () => {

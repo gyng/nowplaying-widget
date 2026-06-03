@@ -2,7 +2,7 @@
 // the Canvas (which holds the layout state and applies it via core/layoutEdit). One
 // discriminated union keeps the wiring flat — Canvas has one `handleOp` switch.
 
-import type { Container, Group, Length, WidgetInstance } from '../core/layoutTree';
+import type { AlignH, AlignV, Container, Group, Length, WidgetInstance } from '../core/layoutTree';
 
 export type LayoutOp =
 	| { op: 'select'; id: string }
@@ -41,6 +41,8 @@ export type LayoutOp =
 	| { op: 'setToken'; key: string; value: string } // a global token override (7d, '' clears)
 	// A node's main-axis sizing inside its flow parent: 'auto'/px = fixed, {fr} = stretch/grow.
 	| { op: 'setBasis'; id: string; basis: Length | undefined }
+	// A leaf's placement within the box the layout gives it (per screen axis; 'fill' = span the box).
+	| { op: 'setLeafAlign'; id: string; halign: AlignH; valign: AlignV }
 	| { op: 'patchWidget'; id: string; patch: Partial<WidgetInstance> }
 	| { op: 'resetWidget'; id: string } // restore config/css/sensor to the widget type's defaults
 	| { op: 'patchContainer'; id: string; patch: Partial<Container> }

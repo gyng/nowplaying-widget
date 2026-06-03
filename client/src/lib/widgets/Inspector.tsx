@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from 'react';
 import type {
 	Align,
+	AlignH,
+	AlignV,
 	Container,
 	Group,
 	Justify,
@@ -17,6 +19,7 @@ import { getMeta } from '../core/widget';
 import type { ConfigField } from '../core/widget';
 import type { LayoutOp } from './ops';
 import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
+import { containerAlignControls, LEAF_H_OPTIONS, LEAF_V_OPTIONS } from './canvas/alignControls';
 import './Inspector.css';
 
 type Props = {
@@ -38,6 +41,8 @@ type Props = {
 	containerBox?: Rect | null; // the selected container's solved box — caps pad/gap to it (guardrail)
 	placement?: 'flow' | 'floating' | null;
 	widgetBasis?: Length; // the selected in-flow leaf's main-axis basis (drives the grow toggle)
+	widgetHalign?: AlignH; // the selected leaf's horizontal placement within its box (default 'fill')
+	widgetValign?: AlignV; // the selected leaf's vertical placement within its box (default 'fill')
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
 	docked?: boolean;
 	widgetTypes?: { type: string; label: string }[]; // palette (8a)
@@ -59,8 +64,6 @@ const TOKEN_FIELDS = [
 ];
 
 const RECT_KEYS = ['x', 'y', 'w', 'h'] as const;
-const ALIGNS: Align[] = ['start', 'center', 'end', 'stretch'];
-const JUSTIFIES: Justify[] = ['start', 'center', 'end', 'between', 'around'];
 
 // --- dirty-field tracking (item 2): the set of field keys that differ from the saved baseline.
 // A `label`/field marks itself dirty via `dirtyKeys.has('<key>')`. Keys: sensor, rect.<x|y|w|h>,
@@ -96,7 +99,7 @@ function computeDirty(
 		if (!b || ne(c.pad, b.pad)) d.add('pad');
 		if (!b || ne(c.align, b.align)) d.add('align');
 		if (!b || ne(c.justify, b.justify)) d.add('justify');
-		if (!b || (typeof c.basis === 'object') !== (typeof b.basis === 'object')) d.add('basis');
+		if (!b || ne(c.basis, b.basis)) d.add('basis');
 		if (!b || !!c.overlap !== !!b.overlap) d.add('overlap');
 		if (!b || ne(c.cellW, b.cellW)) d.add('cellW');
 		if (!b || ne(c.cellH, b.cellH)) d.add('cellH');
@@ -138,6 +141,8 @@ export default function Inspector({
 	containerBox = null,
 	placement = null,
 	widgetBasis = undefined,
+	widgetHalign = undefined,
+	widgetValign = undefined,
 	docked = false,
 	widgetTypes = [],
 	configFields = [],
@@ -220,8 +225,21 @@ export default function Inspector({
 
 	// Typed setters (the casts live here, not in the template).
 	const setKind = (v: string) => patchContainer({ kind: v as Container['kind'] });
-	const setAlign = (v: string) => patchContainer({ align: v as Align });
-	const setJustify = (v: string) => patchContainer({ justify: v as Justify });
+	// Write one of the orientation-aware alignment controls (align = cross / justify = main).
+	const setAlignField = (field: 'align' | 'justify', v: string) =>
+		patchContainer(field === 'align' ? { align: v as Align } : { justify: v as Justify });
+	// The container's own main-axis sizing inside its parent: fit children / grow / fixed px.
+	const setContainerSizing = (mode: string) =>
+		patchContainer({
+			basis:
+				mode === 'grow'
+					? { fr: 1 }
+					: mode === 'fixed'
+					? typeof container?.basis === 'number'
+						? container.basis
+						: 100
+					: undefined
+		});
 
 	// Guarded actions.
 	const removeContainer = () => container && op({ op: 'remove', id: container.id });
@@ -235,6 +253,20 @@ export default function Inspector({
 	const removeGroup = () => groupUnit && op({ op: 'remove', id: groupUnit.id });
 	const setGroupName = (name: string) =>
 		groupUnit && op({ op: 'patchGroup', id: groupUnit.id, patch: { name } });
+	// A floating group's anchor (x/y) + per-instance size override (w/h) live in its `config`.
+	const groupSize = def?.size ?? groupUnit?.size ?? { w: 0, h: 0 };
+	const groupCfgNum = (k: 'x' | 'y' | 'w' | 'h'): number => {
+		const v = groupUnit?.config?.[k];
+		if (typeof v === 'number') return v;
+		return k === 'w' ? groupSize.w : k === 'h' ? groupSize.h : 0;
+	};
+	const setGroupConfig = (k: string, v: number) =>
+		groupUnit &&
+		op({
+			op: 'patchGroup',
+			id: groupUnit.id,
+			patch: { config: { ...(groupUnit.config ?? {}), [k]: v } }
+		});
 	const renameDefName = (name: string) => def && op({ op: 'renameDef', defId: def.id, name });
 	const editDef = () => def && op({ op: 'editDef', defId: def.id });
 	const setDefW = (w: number) => def && op({ op: 'setDefSize', defId: def.id, w, h: def.size.h });
@@ -272,6 +304,101 @@ export default function Inspector({
 			setConfigError(true);
 		}
 	}
+
+	// Per-leaf placement controls (halign/valign), shared by the primitive-widget and group
+	// branches — both are flow leaves whose Leaf wrapper carries the alignment. `id` is the leaf id.
+	const leafAlignControls = (id: string) => (
+		<>
+			<span className="hd">Align in its space</span>
+			<div className="row2">
+				<label>
+					horizontal
+					<select
+						value={widgetHalign ?? 'fill'}
+						onChange={(e) =>
+							op({
+								op: 'setLeafAlign',
+								id,
+								halign: e.currentTarget.value as AlignH,
+								valign: widgetValign ?? 'fill'
+							})
+						}
+					>
+						{LEAF_H_OPTIONS.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</select>
+				</label>
+				<label>
+					vertical
+					<select
+						value={widgetValign ?? 'fill'}
+						onChange={(e) =>
+							op({
+								op: 'setLeafAlign',
+								id,
+								halign: widgetHalign ?? 'fill',
+								valign: e.currentTarget.value as AlignV
+							})
+						}
+					>
+						{LEAF_V_OPTIONS.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</select>
+				</label>
+			</div>
+		</>
+	);
+
+	// A flow leaf's own main-axis sizing inside its parent: fit (its own/def size) / grow / fixed px.
+	// Used for groups (custom widgets) — primitives have a richer select with 'content' measuring.
+	const leafSizingControls = (id: string) => (
+		<>
+			<label className="full">
+				size (in parent)
+				<select
+					value={
+						isFrBasis(widgetBasis) ? 'grow' : typeof widgetBasis === 'number' ? 'fixed' : 'fit'
+					}
+					onChange={(e) => {
+						const v = e.currentTarget.value;
+						op({
+							op: 'setBasis',
+							id,
+							basis:
+								v === 'grow'
+									? { fr: 1 }
+									: v === 'fixed'
+									? typeof widgetBasis === 'number'
+										? widgetBasis
+										: 100
+									: undefined
+						});
+					}}
+				>
+					<option value="fit">fit — use its own size</option>
+					<option value="grow">grow — stretch to fill</option>
+					<option value="fixed">fixed (px)</option>
+				</select>
+			</label>
+			{typeof widgetBasis === 'number' && (
+				<label className="full">
+					size (px)
+					<input
+						type="number"
+						min="0"
+						value={widgetBasis}
+						onInput={(e) => op({ op: 'setBasis', id, basis: Number(e.currentTarget.value) || 0 })}
+					/>
+				</label>
+			)}
+		</>
+	);
 
 	return (
 		<div className={['inspector', docked && 'docked'].filter(Boolean).join(' ')}>
@@ -375,44 +502,53 @@ export default function Inspector({
 							/>
 						</label>
 					</div>
-					<label className={['full', dirtyKeys.has('align') && 'dirty'].filter(Boolean).join(' ')}>
-						align (cross)
-						<select
-							value={container.align ?? 'stretch'}
-							onChange={(e) => setAlign(e.currentTarget.value)}
+					<span className="hd">Align children</span>
+					{containerAlignControls(container).map((ctl) => (
+						<label
+							key={ctl.axis}
+							className={['full', dirtyKeys.has(ctl.field) && 'dirty'].filter(Boolean).join(' ')}
 						>
-							{ALIGNS.map((a) => (
-								<option key={a} value={a}>
-									{a}
-								</option>
-							))}
-						</select>
-					</label>
-					<label
-						className={['full', dirtyKeys.has('justify') && 'dirty'].filter(Boolean).join(' ')}
-					>
-						justify (main)
+							{ctl.label}
+							<select
+								value={ctl.value}
+								onChange={(e) => setAlignField(ctl.field, e.currentTarget.value)}
+							>
+								{ctl.options.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+							</select>
+						</label>
+					))}
+					<label className={['full', dirtyKeys.has('basis') && 'dirty'].filter(Boolean).join(' ')}>
+						size (in parent)
 						<select
-							value={container.justify ?? 'start'}
-							onChange={(e) => setJustify(e.currentTarget.value)}
-						>
-							{JUSTIFIES.map((j) => (
-								<option key={j} value={j}>
-									{j}
-								</option>
-							))}
-						</select>
-					</label>
-					<label className={['check', dirtyKeys.has('basis') && 'dirty'].filter(Boolean).join(' ')}>
-						<input
-							type="checkbox"
-							checked={typeof container.basis === 'object'}
-							onChange={(e) =>
-								patchContainer({ basis: e.currentTarget.checked ? { fr: 1 } : undefined })
+							value={
+								isFrBasis(container.basis)
+									? 'grow'
+									: typeof container.basis === 'number'
+									? 'fixed'
+									: 'fit'
 							}
-						/>
-						grow to fill (fr)
+							onChange={(e) => setContainerSizing(e.currentTarget.value)}
+						>
+							<option value="fit">fit children</option>
+							<option value="grow">grow — stretch to fill</option>
+							<option value="fixed">fixed (px)</option>
+						</select>
 					</label>
+					{typeof container.basis === 'number' && (
+						<label className="full">
+							size (px)
+							<input
+								type="number"
+								min="0"
+								value={container.basis}
+								onInput={(e) => patchContainer({ basis: Number(e.currentTarget.value) || 0 })}
+							/>
+						</label>
+					)}
 					<label
 						className={['check', dirtyKeys.has('overlap') && 'dirty'].filter(Boolean).join(' ')}
 					>
@@ -557,6 +693,7 @@ export default function Inspector({
 									<option value="grow">grow — stretch to fill</option>
 								</select>
 							</label>
+							{leafAlignControls(widget.id)}
 						</>
 					)}
 					{configFields.map((f) => {
@@ -678,6 +815,26 @@ export default function Inspector({
 							onInput={(e) => setGroupName(e.currentTarget.value)}
 						/>
 					</label>
+					{placement === 'flow' && (
+						<>
+							{leafSizingControls(groupUnit.id)}
+							{leafAlignControls(groupUnit.id)}
+						</>
+					)}
+					{placement === 'floating' && (
+						<div className="row">
+							{(['x', 'y', 'w', 'h'] as const).map((k) => (
+								<label key={k}>
+									{k}
+									<input
+										type="number"
+										value={groupCfgNum(k)}
+										onInput={(e) => setGroupConfig(k, Number(e.currentTarget.value))}
+									/>
+								</label>
+							))}
+						</div>
+					)}
 					{def ? (
 						<>
 							<label className="full">

@@ -354,11 +354,34 @@ function solveLeaf(
 	out: Solved
 ): void {
 	const unit = lf.unit;
-	out.set(prefix + lf.id, { ...box });
+	const placed = placeLeafInBox(lf, box, library);
+	out.set(prefix + lf.id, placed);
 	if (isGroup(unit)) {
 		const { child } = resolveGroup(unit, library);
-		solveNode(child, box, prefix + lf.id + '/', library, out);
+		solveNode(child, placed, prefix + lf.id + '/', library, out);
 	}
+}
+
+// Position a leaf WITHIN the box the layout handed it, per its halign/valign (default 'fill' =
+// span the box, the historical behaviour). A non-'fill' axis sizes the leaf to its intrinsic
+// extent (capped to the box) and pins it start/center/end. Pure; only moves the leaf when the
+// box is bigger than the leaf (a grown/grid/overlap cell) — otherwise it's an exact no-op.
+function placeLeafInBox(lf: Leaf, box: Rect, library: Library | undefined): Rect {
+	const ha = lf.halign ?? 'fill';
+	const va = lf.valign ?? 'fill';
+	if (ha === 'fill' && va === 'fill') return { ...box };
+	let { x, y, w, h } = box;
+	if (ha !== 'fill') {
+		w = Math.min(intrinsicMain(lf, true, library), box.w);
+		if (ha === 'center') x = box.x + (box.w - w) / 2;
+		else if (ha === 'right') x = box.x + box.w - w;
+	}
+	if (va !== 'fill') {
+		h = Math.min(intrinsicMain(lf, false, library), box.h);
+		if (va === 'middle') y = box.y + (box.h - h) / 2;
+		else if (va === 'bottom') y = box.y + box.h - h;
+	}
+	return { x, y, w, h };
 }
 
 /** A floating leaf is positioned absolutely: a primitive by its own rect, a group by
@@ -369,7 +392,12 @@ function solveFloating(lf: Leaf, library: Library | undefined, out: Solved): voi
 		const { child, size } = resolveGroup(unit, library);
 		const x = numCfg(unit.config, 'x', 0);
 		const y = numCfg(unit.config, 'y', 0);
-		const box: Rect = { x, y, w: size.w, h: size.h };
+		// A floating group's box defaults to its def size, but a per-instance size override
+		// (config.w / config.h) lets the same custom widget be sized freely where it's placed —
+		// its fr/stretch internals then scale to fill the larger box.
+		const w = numCfg(unit.config, 'w', size.w);
+		const h = numCfg(unit.config, 'h', size.h);
+		const box: Rect = { x, y, w, h };
 		out.set(lf.id, box);
 		solveNode(child, box, lf.id + '/', library, out);
 		return;
