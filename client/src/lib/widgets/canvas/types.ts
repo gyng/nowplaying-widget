@@ -4,7 +4,7 @@
 // (drag/marquee/pan bookkeeping, measured stage size, zoom) lives in refs/hooks, not here —
 // it was never part of an undo snapshot or a disk write.
 
-import type { Library, MonitorLayout } from '../../core/layoutTree';
+import type { Library, MonitorLayout, WidgetDef } from '../../core/layoutTree';
 
 /** An undo/redo snapshot of the editable {monitor, library} pair. Immutable tree ops reassign
  * these to NEW objects, so a snapshot is just the current references — no deep clone. */
@@ -45,6 +45,10 @@ export type EditorState = {
 	editingDefId: string | null;
 	savedMonitor: MonitorLayout | null;
 	defEditBaseline: MonitorLayout | null;
+	// Template preview (read-only): clicking a template previews it without cloning into the library.
+	// The transient def lives HERE (not in `library`), `editingDefId` points at it so the canvas sizes
+	// to it, and the preview is locked + discardable. The Clone button promotes it into the library.
+	previewDef: WidgetDef | null;
 	// Undo/redo (item 2).
 	undoStack: Snap[];
 	redoStack: Snap[];

@@ -3,6 +3,7 @@
 // the widget and corner/edge handles resize it; both report rect changes up via the `onChange`
 // callback. The seven Svelte dispatch events become seven callback props.
 import {
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -47,9 +48,19 @@ type Props = {
 	onDragOver?: (e: { id: string; x: number; y: number; skipFlow?: boolean }) => void;
 	onDrop?: (e: { id: string; x: number; y: number }) => void;
 	onContextMenu?: (e: { id: string; x: number; y: number }) => void;
-	onControl?: (e: { id: string; sensor?: string; domain: string; service: string }) => void;
+	onControl?: (e: {
+		id: string;
+		sensor?: string;
+		domain: string;
+		service: string;
+		data?: Record<string, unknown>;
+	}) => void;
 	// Report hover enter/leave (selectId) so the Canvas can cross-highlight the Outline row.
 	onHover?: (id: string | null) => void;
+	// Content-fit sizing: render the box at its natural (max-content) size instead of the solved rect,
+	// and report the measured size up so the solver can lay out siblings against it (basis 'content').
+	contentSize?: boolean;
+	onMeasure?: (id: string, size: { w: number; h: number }) => void;
 	// Right-button free-move suppresses the trailing contextmenu. Because Chromium fires the
 	// contextmenu on whatever is under the cursor at right-up (NOT necessarily this widget, after a
 	// grid-snap drift), suppression is armed canvas-side: end() calls onSuppressContextMenu after a
@@ -86,17 +97,45 @@ export default function WidgetHost({
 	onControl,
 	onHover,
 	onSuppressContextMenu,
-	suppressContextMenu
+	suppressContextMenu,
+	contentSize = false,
+	onMeasure
 }: Props) {
 	const rect = rectProp ?? instance.rect;
 	const selectId = selectIdProp ?? instance.id;
 	const domId = domIdProp ?? instance.id;
+
+	// Content-fit: observe the box's rendered size and report it (deduped) so the solver can size the
+	// flow around it. Guarded for ResizeObserver (absent in the test DOM). Measured at natural size
+	// because the box renders width/height:max-content in this mode (see the style below).
+	const boxRef = useRef<HTMLDivElement | null>(null);
+	const lastMeasured = useRef<{ w: number; h: number } | null>(null);
+	useLayoutEffect(() => {
+		if (!contentSize || !onMeasure || typeof ResizeObserver === 'undefined') return;
+		const el = boxRef.current;
+		if (!el) return;
+		const report = () => {
+			const w = Math.round(el.offsetWidth);
+			const h = Math.round(el.offsetHeight);
+			const last = lastMeasured.current;
+			if (last && last.w === w && last.h === h) return; // dedupe → no solve churn
+			lastMeasured.current = { w, h };
+			onMeasure(domId, { w, h });
+		};
+		report();
+		const ro = new ResizeObserver(report);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [contentSize, onMeasure, domId]);
 
 	// A sentinel id keeps the hook valid for self-sourcing widgets (no sensor).
 	const sensorState = useSensor(hub, instance.sensor ?? '__none__');
 	const Comp = registry[instance.type];
 	// How this widget binds to its sensor drives the meter's value-shape (Phase 8).
 	const binds = getMeta(instance.type)?.binds ?? 'scalar';
+	// Interactive (catches clicks in passive mode) if the instance OR its type meta says so — the
+	// meta fallback makes a type interactive for already-saved instances without re-creating them.
+	const interactive = instance.interactive || getMeta(instance.type)?.interactive;
 	const scalar =
 		sensorState.value && sensorState.value.kind === 'scalar' ? sensorState.value.value : null;
 	const rawValue = sensorState.value ? sensorState.value.value : null;
@@ -118,20 +157,22 @@ export default function WidgetHost({
 		startRect: Rect;
 		moved: boolean;
 		skipFlow: boolean; // a right-button move-drag never docks (free-move)
+		wasSelected: boolean; // selected at press → defer the select so a drag can move the group
 	}>({
 		action: null,
 		startX: 0,
 		startY: 0,
 		startRect: instance.rect,
 		moved: false,
-		skipFlow: false
+		skipFlow: false,
+		wasSelected: false
 	});
 	const [action, setAction] = useState<'move' | 'flow' | ResizeHandle | null>(null);
 	const [ghost, setGhost] = useState({ dx: 0, dy: 0 });
 
 	// A plugin widget (e.g. an HA light) asks to actuate; the host adds its identity and bubbles up —
 	// the side-effecting Tauri call lives in the container (Canvas), not here (AGENTS.md §5/§6).
-	const handleControl = (e: { domain: string; service: string }) =>
+	const handleControl = (e: { domain: string; service: string; data?: Record<string, unknown> }) =>
 		onControl?.({ id: instance.id, sensor: instance.sensor, ...e });
 
 	const handleContextMenu = (e: ReactMouseEvent) => {
@@ -151,8 +192,13 @@ export default function WidgetHost({
 		if (!intent || !intent.start) return; // middle-drag is reserved for panning
 		if (intent.skipFlow && !(movable && kind === 'move')) return;
 		if (!editMode) return;
-		onSelect?.({ id: selectId });
 		const d = drag.current;
+		d.wasSelected = selected;
+		// Select on press EXCEPT when starting a MOVE on an already-selected widget — then defer to
+		// end(): pressing a member of a multi-selection must not collapse it (otherwise only the pressed
+		// widget would drag); a click without a drag collapses to just it. A resize still collapses on
+		// press so it acts on the single widget (onChange's group-move only applies to a move drag).
+		if (!selected || kind !== 'move') onSelect?.({ id: selectId });
 		d.moved = false;
 		d.skipFlow = intent.skipFlow;
 		if (!movable) {
@@ -215,17 +261,24 @@ export default function WidgetHost({
 		const d = drag.current;
 		if (d.action === null) return;
 		const wasFlow = d.action === 'flow';
+		const wasMove = d.action === 'move';
 		const didMove = d.moved;
+		const wasSelected = d.wasSelected;
 		d.action = null;
 		setAction(null);
 		if (wasFlow) {
 			setGhost({ dx: 0, dy: 0 });
-			// A click (no real movement) just selects — only an actual drag reparents/reorders.
+			// A real drag reparents/reorders; a click (no movement) on an already-selected widget
+			// collapses the (multi-)selection to just this one — selecting an unselected one already
+			// happened in begin(), so only re-select here when it was selected at press.
 			if (didMove) onDrop?.({ id: selectId, x: e.clientX, y: e.clientY });
+			else if (wasSelected) onSelect?.({ id: selectId });
 			return;
 		}
-		// Likewise a click on a floating widget selects without a no-op move/commit.
+		// Likewise a click (no drag) on an already-selected floating widget collapses a multi-selection
+		// to just it — only for a MOVE (a resize already selected on press); a real drag commits instead.
 		if (didMove) onCommit?.({ skipFlow: d.skipFlow });
+		else if (wasSelected && wasMove) onSelect?.({ id: selectId });
 		// A real right-button free-move arms canvas-side suppression of the contextmenu that follows
 		// (a right-CLICK without movement must still open the menu, so only arm when it actually moved).
 		if (didMove && d.skipFlow) onSuppressContextMenu?.();
@@ -236,17 +289,20 @@ export default function WidgetHost({
 	if (selected) cls.push('selected');
 	if (highlighted) cls.push('hl');
 	if (action !== null) cls.push('active');
-	if (!editMode && instance.interactive) cls.push('catch');
+	if (!editMode && interactive) cls.push('catch');
 	if (action === 'flow') cls.push('dragging');
 
 	return (
 		<div
+			ref={boxRef}
 			className={cls.join(' ')}
 			style={{
 				left: `${rect.x}px`,
 				top: `${rect.y}px`,
-				width: `${rect.w}px`,
-				height: `${rect.h}px`,
+				// Content-fit: let the box shrink-wrap its content (and report that size); otherwise use
+				// the solved rect. The solved rect for a 'content' leaf already equals the measured size.
+				width: contentSize ? 'max-content' : `${rect.w}px`,
+				height: contentSize ? 'max-content' : `${rect.h}px`,
 				transform: `translate(${ghost.dx}px, ${ghost.dy}px)`
 			}}
 			data-w={domId}

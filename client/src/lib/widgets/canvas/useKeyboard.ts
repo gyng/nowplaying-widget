@@ -1,33 +1,51 @@
-// Global keyboard (svelte:window on:keydown/on:keyup): Escape closes the menu; Ctrl+E broadcasts
-// toggle_edit; Ctrl+S saves the studio draft; Ctrl+Z/Y/Shift+Z undo/redo; Delete removes the
-// selection; arrows nudge floating widgets (Shift = grid step); Space (held) enters pan mode.
-// Ported verbatim from onKeydown/onKeyup, gated identically. `spaceDownRef` is shared with the
-// canvas-pointer hook so a Space+left-drag pans.
+// Global keyboard, now DISPATCHED THROUGH the central controls registry: each keydown is normalized
+// to a chord, matched (with live overrides) against the registered controls under the current
+// ControlContext, and the matched control's id is run via the Canvas-supplied handler map. Two
+// controls are serviced locally because they need hook-internal data: `studio.panHold` owns the
+// `spaceDown` ref/state shared with the canvas-pointer hook (Space+left-drag pan), and `studio.nudge`
+// derives its delta from the arrow key + Shift (grid step). The text-field focus guard and the
+// "don't steal Space from a button" guard are DOM concerns and stay here. Importing controls.defaults
+// registers the built-in inventory.
 import { useEffect, useRef, useState } from 'react';
-import { emit } from '@tauri-apps/api/event';
+import '../../core/controls.defaults';
+import {
+	listControls,
+	matchKeyChord,
+	mergeOverrides,
+	parseKeyEvent,
+	type ControlContext,
+	type ControlOverrides
+} from '../../core/controls';
 
 const GRID = 8;
+const NUDGE: Record<string, [number, number]> = {
+	arrowleft: [-1, 0],
+	arrowright: [1, 0],
+	arrowup: [0, -1],
+	arrowdown: [0, 1]
+};
+
+// The slice of ControlContext the Canvas supplies; the hook fills scope + spaceDown (its own ref) +
+// panning (irrelevant to keyboard matching).
+export type KeyboardCtx = Pick<
+	ControlContext,
+	'studio' | 'editMode' | 'menuOpen' | 'dirty' | 'hasSelection' | 'previewing'
+>;
 
 export type KeyboardDeps = {
 	studio: boolean;
-	editMode: () => boolean;
-	menuOpen: () => boolean;
-	closeMenu: () => void;
-	dirty: () => boolean;
-	commitSave: () => void;
-	undo: () => void;
-	redo: () => void;
-	hasSelection: () => boolean;
-	deleteSelected: () => void;
-	nudge: (dx: number, dy: number) => void; // translateSelectedFloating + saveLayout if it changed
+	ctx: () => KeyboardCtx; // read latest
+	overrides: () => ControlOverrides; // live remaps (empty until Phase 4)
+	handlers: Record<string, () => void>; // control id → action (closeMenu, toggleEdit, save, undo, redo, delete)
+	nudge: (dx: number, dy: number) => void; // serviced locally: needs the arrow key + Shift step
 };
 
 export function useKeyboard(deps: KeyboardDeps): {
 	spaceDownRef: React.RefObject<boolean>;
 	spaceDown: boolean;
 } {
-	// `spaceDown` is BOTH a ref (read synchronously by the pointer hook for a Space+left-drag pan)
-	// AND render state (drives the `panmode` class on the canvas — Svelte's class:panmode={spaceDown}).
+	// `spaceDown` is BOTH a ref (read synchronously by the pointer hook for a Space+left-drag pan) AND
+	// render state (drives the `panmode` class on the canvas).
 	const spaceDownRef = useRef(false);
 	const [spaceDown, setSpaceDown] = useState(false);
 	const setSpace = (v: boolean) => {
@@ -41,55 +59,43 @@ export function useKeyboard(deps: KeyboardDeps): {
 	useEffect(() => {
 		const onKeydown = (event: KeyboardEvent) => {
 			const dep = d.current;
-			if (event.key === 'Escape' && dep.menuOpen()) {
-				dep.closeMenu();
-				return;
-			}
-			if (event.ctrlKey && event.key.toLowerCase() === 'e') {
-				event.preventDefault();
-				emit('toggle_edit'); // broadcast so every monitor's overlay toggles together
-			}
-			if (!(dep.studio || dep.editMode())) return;
-			const k = event.key.toLowerCase();
-			if (event.ctrlKey && k === 's') {
-				event.preventDefault();
-				if (dep.studio && dep.dirty()) dep.commitSave();
-				return;
-			}
+			const chord = parseKeyEvent(event);
+			const ctx: ControlContext = {
+				scope: dep.studio ? 'studio' : 'widget',
+				spaceDown: spaceDownRef.current,
+				panning: false,
+				...dep.ctx()
+			};
+			const controls = mergeOverrides(listControls(), dep.overrides());
+			const hit = matchKeyChord(chord, controls, ctx);
+			if (!hit) return;
+
+			// Text-field guard: editing keys must not hijack typing; command chords opt in via allowInInput.
 			const target = event.target as HTMLElement | null;
-			if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-			if (dep.studio && event.code === 'Space' && target?.tagName !== 'BUTTON') {
+			if (!hit.allowInInput && target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+
+			// Space pan-mode (hold): owns spaceDown; never steal Space from a focused button.
+			if (hit.id === 'studio.panHold') {
+				if (target?.tagName === 'BUTTON') return;
 				event.preventDefault();
 				setSpace(true);
 				return;
 			}
-			if (event.ctrlKey && k === 'z' && !event.shiftKey) {
-				event.preventDefault();
-				dep.undo();
-				return;
-			} else if (event.ctrlKey && (k === 'y' || (k === 'z' && event.shiftKey))) {
-				event.preventDefault();
-				dep.redo();
-				return;
-			}
-			if (!dep.hasSelection()) return;
-			if (k === 'delete' || k === 'backspace') {
-				event.preventDefault();
-				dep.deleteSelected();
+
+			if (hit.preventDefault !== false) event.preventDefault();
+
+			// Nudge derives its delta from the pressed arrow + Shift (grid step), so it can't be a plain
+			// id→handler entry. One undo step + persist is the Canvas-supplied `nudge`.
+			if (hit.id === 'studio.nudge') {
+				const delta = NUDGE[chord.key ?? ''];
+				if (delta) {
+					const step = event.shiftKey ? GRID : 1;
+					dep.nudge(delta[0] * step, delta[1] * step);
+				}
 				return;
 			}
-			const step = event.shiftKey ? GRID : 1;
-			const map: Record<string, [number, number]> = {
-				arrowleft: [-step, 0],
-				arrowright: [step, 0],
-				arrowup: [0, -step],
-				arrowdown: [0, step]
-			};
-			const delta = map[k];
-			if (delta) {
-				event.preventDefault();
-				dep.nudge(delta[0], delta[1]);
-			}
+
+			dep.handlers[hit.id]?.();
 		};
 		const onKeyup = (event: KeyboardEvent) => {
 			if (event.code === 'Space') setSpace(false);

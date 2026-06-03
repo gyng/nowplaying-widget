@@ -530,7 +530,9 @@ function resolveMain(
 	library: Library | undefined
 ): number {
 	if (typeof basis === 'number') return Math.max(0, basis);
-	if (basis === 'auto') return intrinsicMain(node, horizontal, library);
+	// 'content' resolves like 'auto' here — the caller has already substituted the leaf's measured
+	// size into its rect (see canvas/measure.ts), so the intrinsic extent IS the measured one.
+	if (basis === 'auto' || basis === 'content') return intrinsicMain(node, horizontal, library);
 	return 0; // fr handled by the caller
 }
 

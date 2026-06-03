@@ -7,3 +7,13 @@ body {
 	   (scrollbars also produced the thin line at the transparent overlay's edge). */
 	overflow: hidden;
 }
+
+/* The studio is an opaque window; give it a dark full-window backdrop so any area not covered by a
+   panel (e.g. the margins exposed when the Inspector/Outline are hidden during a template preview)
+   reads as studio chrome, not the webview's default white. The overlay (no `.studio`) stays
+   transparent so the desktop shows through. */
+.app.studio {
+	position: fixed;
+	inset: 0;
+	background: #0b0b0e;
+}

@@ -19,11 +19,15 @@
 /* Studio: a full-height, scrollable right rail in the reserved margin (no stage overlap). */
 .inspector.docked {
 	position: fixed;
+	/* border-box so width = the TOTAL footprint (incl. padding + border); otherwise the panel
+	   overflows ~13px past its calc'd edge into the gutter/stage and the divider lands wrong. */
+	box-sizing: border-box;
 	top: var(--bar-h, 36px);
 	right: 0;
 	left: auto;
 	bottom: var(--bar-b, 0); /* sit above the bottom powerline hint bar */
-	width: var(--rail-r, 264px);
+	/* leave a --pane-gap gutter on the left for the resize handle (fallback matches the handle's) */
+	width: calc(var(--rail-r, 264px) - var(--pane-gap, 6px));
 	max-height: none;
 	overflow-y: auto;
 	border-width: 0 0 0 1px;

@@ -1,0 +1,56 @@
+/* Multi-select pane extras. The root carries `.inspector` so it reuses the docked-rail layout +
+   field styling from Inspector.css; these rules add the selection list, the mixed-value hint, and
+   the bulk delete. */
+.inspector.multi .multi-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 160px;
+	overflow: auto;
+	margin-bottom: 4px;
+}
+
+.inspector.multi .multi-item {
+	text-align: left;
+	background: rgba(119, 196, 211, 0.07);
+	border: 1px solid transparent;
+	color: #ddd;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 6px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+
+.inspector.multi .multi-item:hover {
+	border-color: rgba(119, 196, 211, 0.5);
+	color: rgb(150, 214, 228);
+}
+
+.inspector.multi .multi-note {
+	color: #888;
+	font-size: 11px;
+	font-style: italic;
+}
+
+/* A field whose selected widgets disagree: faint, with a "mixed" hint via the placeholder. */
+.inspector.multi .mixed input::placeholder {
+	color: rgb(200, 170, 120);
+	font-style: italic;
+}
+
+.inspector.multi .multi-delete {
+	margin-top: 8px;
+	background: rgba(230, 120, 120, 0.15);
+	border: 1px solid rgba(230, 120, 120, 0.5);
+	color: rgb(235, 160, 160);
+	font-family: monospace;
+	font-size: 11px;
+	padding: 4px 8px;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.inspector.multi .multi-delete:hover {
+	background: rgba(230, 120, 120, 0.28);
+}

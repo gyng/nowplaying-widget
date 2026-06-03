@@ -106,7 +106,8 @@
 	top: var(--bar-h, 36px);
 	left: var(--nav-w, 56px);
 	bottom: var(--bar-b, 0);
-	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px));
+	/* leave a --pane-gap gutter on the right for the resize handle (fallback matches the handle's) */
+	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px) - var(--pane-gap, 6px));
 	box-sizing: border-box;
 	overflow-y: auto;
 	padding: 6px;
@@ -301,4 +302,636 @@
 .canvas .rail-panel .rp-stub {
 	color: #777;
 	padding: 8px 2px;
+}
+
+/* The Plugins section: a clickable plugin list (left) + the selected plugin's settings/summary
+   (right), both inside the full-width .rail-panel — mirrors the widget designer's list+editor split. */
+.canvas .rail-panel.plugins-panel {
+	display: flex;
+	padding: 0;
+}
+
+.canvas .plugins-panel .pl-list {
+	flex: 0 0 220px;
+	box-sizing: border-box;
+	overflow-y: auto;
+	padding: 12px 10px;
+	border-right: 1px solid rgba(119, 196, 211, 0.5);
+}
+
+.canvas .plugins-panel .pl-item {
+	display: block;
+	width: 100%;
+	text-align: left;
+	margin: 0 0 1px;
+	padding: 5px 6px;
+	background: transparent;
+	border: none;
+	border-left: 2px solid transparent;
+	color: #eee;
+	font-family: monospace;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .pl-item:hover {
+	background: rgba(119, 196, 211, 0.1);
+}
+
+.canvas .plugins-panel .pl-item.cur {
+	background: rgba(119, 196, 211, 0.16);
+	border-left-color: rgb(119, 196, 211);
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .pl-detail {
+	flex: 1 1 auto;
+	box-sizing: border-box;
+	overflow-y: auto;
+	padding: 12px 16px;
+}
+
+.canvas .plugins-panel .pl-title {
+	font-size: 14px;
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .pl-desc {
+	color: #aaa;
+	margin: 2px 0 6px;
+	max-width: 560px;
+	line-height: 1.5;
+}
+
+/* Now Playing settings (rendered inside .pl-detail). */
+.canvas .plugins-panel .nps {
+	max-width: 560px;
+}
+
+.canvas .plugins-panel .nps-help {
+	color: #999;
+	margin: 0 0 4px;
+	line-height: 1.5;
+}
+
+.canvas .plugins-panel .nps-help code {
+	color: #bbb;
+}
+
+.canvas .plugins-panel .nps-area {
+	width: 100%;
+	box-sizing: border-box;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 12px;
+	padding: 4px 6px;
+	resize: vertical;
+}
+
+.canvas .plugins-panel .nps-cur {
+	color: #aaa;
+	margin-bottom: 4px;
+}
+
+.canvas .plugins-panel .nps-cur span {
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .nps-sources {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.canvas .plugins-panel .nps-source {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 4px;
+	border-radius: 2px;
+}
+
+.canvas .plugins-panel .nps-source:hover {
+	background: rgba(119, 196, 211, 0.06);
+}
+
+.canvas .plugins-panel .nps-source.off {
+	opacity: 0.7;
+}
+
+.canvas .plugins-panel .nps-source.off .nps-src-id {
+	color: #777;
+	text-decoration: line-through;
+}
+
+.canvas .plugins-panel .nps-src-id {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #ccc;
+}
+
+.canvas .plugins-panel .nps-add {
+	flex-shrink: 0;
+	background: #1a1a1e;
+	border: 1px solid #444;
+	color: #ccc;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 1px 6px;
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .nps-add:hover:not(:disabled) {
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .nps-add:active:not(:disabled) {
+	background: rgba(119, 196, 211, 0.12);
+}
+
+.canvas .plugins-panel .nps-add:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+/* Block (ignore) action reads as muted-destructive; promote (priority) keeps the default look. */
+.canvas .plugins-panel .nps-add.nps-ignore {
+	border-color: rgba(200, 120, 120, 0.4);
+	color: #c99;
+}
+
+.canvas .plugins-panel .nps-add.nps-ignore:hover:not(:disabled) {
+	border-color: rgba(200, 120, 120, 0.7);
+}
+
+/* The active source's badge in the detected list. */
+.canvas .plugins-panel .nps-badge-now {
+	flex: 0 0 auto;
+	background: rgba(119, 196, 211, 0.2);
+	border: 1px solid rgba(119, 196, 211, 0.5);
+	border-radius: 2px;
+	color: rgb(150, 214, 228);
+	font-size: 9px;
+	padding: 0 3px;
+}
+
+/* The Reset button, armed (awaiting the confirming second click). */
+.canvas .plugins-panel .rp-danger.nps-armed {
+	border-color: rgb(220, 120, 120);
+	color: rgb(240, 170, 170);
+}
+
+/* The read-only "live session" region, set off from the editable settings above. */
+.canvas .plugins-panel .nps-live {
+	margin-top: 10px;
+	border-top: 1px solid rgba(119, 196, 211, 0.35);
+	padding-top: 2px;
+}
+
+/* Live values = the bindable np.* sensors: id · value · copy. */
+.canvas .plugins-panel .nps-readout {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin-bottom: 2px;
+}
+
+.canvas .plugins-panel .nps-sensor {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 1px 2px;
+}
+
+.canvas .plugins-panel .nps-sensor-id {
+	flex: 0 0 auto;
+	background: #1a1a1e;
+	border-radius: 2px;
+	color: #ccc;
+	padding: 1px 5px;
+}
+
+.canvas .plugins-panel .nps-sensor-val {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: right;
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .nps-copy {
+	flex: 0 0 auto;
+	margin: 0;
+	background: transparent;
+	border: none;
+	color: #888;
+	cursor: pointer;
+	padding: 0 4px;
+}
+
+.canvas .plugins-panel .nps-copy:hover {
+	color: rgb(119, 196, 211);
+}
+
+/* Supported-controls grid: ✓/✗ per transport capability of the active session. */
+.canvas .plugins-panel .nps-caps {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+	gap: 2px 8px;
+}
+
+.canvas .plugins-panel .nps-cap {
+	color: #777;
+}
+
+.canvas .plugins-panel .nps-cap.yes {
+	color: rgb(150, 214, 228);
+}
+
+/* Screen-reader-only text (e.g. the "(ignored)" prefix), visually hidden but in the a11y tree. */
+.canvas .plugins-panel .sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Structured priority / ignore lists: one editable row per entry (drag-reorder + ↑↓ + remove). */
+.canvas .plugins-panel .nps-entries {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0 0 4px;
+	padding: 0;
+	list-style: none;
+}
+
+.canvas .plugins-panel .nps-entry {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 4px;
+	background: rgba(255, 255, 255, 0.03);
+	border: 1px solid #2a2a30;
+	border-radius: 2px;
+}
+
+.canvas .plugins-panel .nps-entry:hover {
+	border-color: #3a3a42;
+}
+
+.canvas .plugins-panel .nps-grip {
+	flex: 0 0 auto;
+	color: #666;
+	cursor: grab;
+	letter-spacing: -2px;
+}
+
+.canvas .plugins-panel .nps-entry-id {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #ddd;
+}
+
+/* Liveness dot: filled accent when the entry's process is running, hollow grey otherwise. */
+.canvas .plugins-panel .nps-dot {
+	flex: 0 0 auto;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	border: 1px solid #555;
+}
+
+.canvas .plugins-panel .nps-dot.on {
+	background: rgb(119, 196, 211);
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .nps-mini {
+	flex: 0 0 auto;
+	margin: 0;
+	padding: 0 4px;
+	background: transparent;
+	border: none;
+	color: #999;
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .nps-mini:hover:not(:disabled) {
+	color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .nps-mini:disabled {
+	opacity: 0.3;
+	cursor: default;
+}
+
+.canvas .plugins-panel .nps-mini.nps-x:hover:not(:disabled) {
+	color: rgb(230, 160, 160);
+}
+
+/* Collapsed raw-text fallback (a process that isn't running can't be quick-added, so edit by hand). */
+.canvas .plugins-panel .nps-raw {
+	margin-bottom: 4px;
+}
+
+.canvas .plugins-panel .nps-raw > summary {
+	color: #999;
+	cursor: pointer;
+	padding: 2px 0;
+	user-select: none;
+}
+
+.canvas .plugins-panel .nps-raw > summary:hover {
+	color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .nps-raw .nps-area {
+	margin-top: 4px;
+}
+
+/* Home Assistant settings (rendered inside .pl-detail): connection form + live status badge. */
+.canvas .plugins-panel .has {
+	max-width: 560px;
+}
+
+.canvas .plugins-panel .has-statusline {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 6px;
+}
+
+.canvas .plugins-panel .has-badge {
+	font-size: 11px;
+	color: #999;
+}
+
+.canvas .plugins-panel .has-badge.ok {
+	color: rgb(140, 214, 160);
+}
+
+.canvas .plugins-panel .has-badge.busy {
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .has-badge.warn {
+	color: rgb(230, 160, 160);
+}
+
+.canvas .plugins-panel .has-state-dim {
+	color: #777;
+	font-size: 11px;
+}
+
+.canvas .plugins-panel .has-help {
+	color: #999;
+	margin: 0 0 8px;
+	line-height: 1.5;
+}
+
+.canvas .plugins-panel .has-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-bottom: 8px;
+	color: #bbb;
+}
+
+.canvas .plugins-panel .has-field input {
+	width: 100%;
+	box-sizing: border-box;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 12px;
+	padding: 4px 6px;
+}
+
+.canvas .plugins-panel .has-field input:focus {
+	outline: none;
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .has-check {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: #bbb;
+	margin-bottom: 4px;
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .has-warn {
+	color: rgb(220, 180, 140);
+	line-height: 1.5;
+	margin: 0 0 8px;
+}
+
+.canvas .plugins-panel .has-advanced {
+	margin: 0 0 8px;
+}
+
+.canvas .plugins-panel .has-advanced > summary {
+	color: #999;
+	cursor: pointer;
+	padding: 2px 0;
+	user-select: none;
+}
+
+.canvas .plugins-panel .has-advanced > summary:hover {
+	color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .has-field small.has-help {
+	margin-top: 2px;
+}
+
+.canvas .plugins-panel .has-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.canvas .plugins-panel .has-actions button.has-primary {
+	border-color: rgba(119, 196, 211, 0.6);
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .has-actions button:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.canvas .plugins-panel .has-ok {
+	color: rgb(140, 214, 160);
+	font-size: 11px;
+}
+
+.canvas .plugins-panel .has-test {
+	margin-top: 6px;
+	line-height: 1.5;
+}
+
+.canvas .plugins-panel .has-test.ok {
+	color: rgb(140, 214, 160);
+}
+
+.canvas .plugins-panel .has-test.err {
+	color: rgb(230, 160, 160);
+}
+
+/* HA entity browser: search + refresh bar, count, and the expose/copy entity rows. */
+.canvas .plugins-panel .has-browser-bar {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	margin-bottom: 4px;
+}
+
+.canvas .plugins-panel .has-search {
+	flex: 1;
+	box-sizing: border-box;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 12px;
+	padding: 4px 6px;
+}
+
+.canvas .plugins-panel .has-search:focus {
+	outline: none;
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .plugins-panel .has-browser-bar button {
+	flex: 0 0 auto;
+}
+
+.canvas .plugins-panel .has-browser-count {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	color: #777;
+	margin-bottom: 4px;
+}
+
+.canvas .plugins-panel .has-group-toggle {
+	margin-bottom: 0;
+	color: #999;
+}
+
+/* Grouped (area > device > entity) browser. */
+.canvas .plugins-panel .has-area {
+	margin-bottom: 6px;
+}
+
+.canvas .plugins-panel .has-area-hd {
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	border-bottom: 1px solid #2a2a30;
+	padding: 4px 0 2px;
+	margin-bottom: 2px;
+}
+
+.canvas .plugins-panel .has-device {
+	margin: 2px 0 2px 8px;
+}
+
+.canvas .plugins-panel .has-device-hd {
+	color: #aaa;
+	padding: 1px 0;
+}
+
+.canvas .plugins-panel .has-entities {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.canvas .plugins-panel .has-entity {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 4px;
+	border-radius: 2px;
+}
+
+.canvas .plugins-panel .has-entity:hover {
+	background: rgba(119, 196, 211, 0.06);
+}
+
+.canvas .plugins-panel .has-entity-expose {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .has-entity-name {
+	flex: 1 1 40%;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #ddd;
+}
+
+.canvas .plugins-panel .has-entity-id {
+	flex: 1 1 40%;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #888;
+}
+
+.canvas .plugins-panel .has-entity-state {
+	flex: 0 0 auto;
+	max-width: 120px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: right;
+	color: rgb(150, 214, 228);
+}
+
+.canvas .plugins-panel .has-copy {
+	flex: 0 0 auto;
+	margin: 0;
+	background: transparent;
+	border: none;
+	color: #888;
+	cursor: pointer;
+	padding: 0 4px;
+}
+
+.canvas .plugins-panel .has-copy:hover {
+	color: rgb(119, 196, 211);
 }

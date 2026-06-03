@@ -1,0 +1,55 @@
+.controls-panel .cp-resetall {
+	float: right;
+	font-size: 11px;
+	padding: 1px 6px;
+}
+
+.controls-panel .cp-group {
+	margin-bottom: 8px;
+}
+
+.controls-panel .cp-grouphd {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	opacity: 0.55;
+	margin: 6px 0 2px;
+}
+
+.controls-panel .cp-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 0;
+}
+
+.controls-panel .cp-label {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.controls-panel .cp-keys {
+	flex: 0 0 auto;
+	font-family: monospace;
+	font-size: 11px;
+	opacity: 0.85;
+}
+
+.controls-panel .cp-keys.cp-conflict {
+	color: rgba(255, 140, 90, 0.95);
+	opacity: 1;
+}
+
+.controls-panel .cp-actions {
+	flex: 0 0 auto;
+	display: flex;
+	gap: 4px;
+}
+
+.controls-panel .cp-actions button {
+	font-size: 11px;
+	padding: 1px 6px;
+}

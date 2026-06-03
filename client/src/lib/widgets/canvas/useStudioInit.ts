@@ -23,6 +23,7 @@ export type StudioInitDeps = {
 	hub: TelemetryHub;
 	updateWorkArea: () => Promise<void>;
 	reloadLayout: () => Promise<void>;
+	reloadControls: () => Promise<void>; // load control remaps (startup + controls_changed)
 	editMode: () => boolean; // for the layout_changed guard
 	syncRects: () => void;
 	syncPrimaryOverlays: () => Promise<void>;
@@ -43,6 +44,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 		let cancelled = false;
 		let sourceStop: (() => void) | undefined;
 		let unlistenLayout: UnlistenFn | undefined;
+		let unlistenControls: UnlistenFn | undefined;
 		let unlistenThemes: UnlistenFn | undefined;
 		let unlistenStudio: UnlistenFn | undefined;
 		let unlistenEdit: UnlistenFn | undefined;
@@ -57,6 +59,12 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			}
 			await dep.reloadLayout();
 
+			// Control remaps (controls.json): load once, then live-reload on external edits or a save
+			// from another window. Always applied (not gated by editMode) — a remap should take effect
+			// immediately everywhere.
+			await dep.reloadControls();
+			unlistenControls = await listen('controls_changed', () => d.current.reloadControls());
+
 			// Live-reload external edits to widgets.json (ignored while actively editing). On the
 			// primary main window, also reconcile overlays + own visibility as monitors gain/lose widgets.
 			unlistenLayout = await listen('layout_changed', () => {
@@ -67,6 +75,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				});
 			});
 			if (cancelled) {
+				unlistenControls?.();
 				unlistenLayout?.();
 				return;
 			}
@@ -74,6 +83,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			// Themes: list them + live-reload the active theme when the folder changes.
 			const themes = await listThemes();
 			if (cancelled) {
+				unlistenControls?.();
 				unlistenLayout?.();
 				return;
 			}
@@ -83,6 +93,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				listThemes().then((t) => d.current.setThemeList(t));
 			});
 			if (cancelled) {
+				unlistenControls?.();
 				unlistenLayout?.();
 				unlistenThemes?.();
 				return;
@@ -92,6 +103,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				dep.setEditModeImmediate(); // the studio is always an editor; no overlay fill/click-through
 				const opts = await studioMonitorOptions();
 				if (cancelled) {
+					unlistenControls?.();
 					unlistenLayout?.();
 					unlistenThemes?.();
 					return;
@@ -108,6 +120,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				unlistenStudio = await listen('open_studio', () => openStudio());
 			}
 			if (cancelled) {
+				unlistenControls?.();
 				unlistenLayout?.();
 				unlistenThemes?.();
 				unlistenStudio?.();
@@ -117,6 +130,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			d.current.syncRects();
 			unlistenEdit = await listen('toggle_edit', () => d.current.setEdit(!d.current.editMode()));
 			if (cancelled) {
+				unlistenControls?.();
 				unlistenLayout?.();
 				unlistenThemes?.();
 				unlistenStudio?.();
@@ -135,6 +149,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 		return () => {
 			cancelled = true;
 			sourceStop?.();
+			unlistenControls?.();
 			unlistenLayout?.();
 			unlistenThemes?.();
 			unlistenStudio?.();

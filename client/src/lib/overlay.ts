@@ -102,6 +102,26 @@ export async function setClickThrough(enabled: boolean): Promise<void> {
 	await getCurrentWindow().setIgnoreCursorEvents(enabled);
 }
 
+/** Read the saved control remaps (`controls.json`), or null if none/failed. The frontend validates
+ * the JSON via core/controls.ts `parseControlOverrides`; this is just the Tauri I/O edge. */
+export async function loadControls(): Promise<string | null> {
+	try {
+		return await invoke<string | null>('load_controls');
+	} catch (err) {
+		console.warn('load_controls failed', err);
+		return null;
+	}
+}
+
+/** Persist the control remaps JSON (`{ version, overrides }`). */
+export async function saveControls(contents: string): Promise<void> {
+	try {
+		await invoke('save_controls', { contents });
+	} catch (err) {
+		console.warn('save_controls failed', err);
+	}
+}
+
 /** Theme names available in the config dir's `themes/` folder (Phase 7c). */
 export async function listThemes(): Promise<string[]> {
 	try {

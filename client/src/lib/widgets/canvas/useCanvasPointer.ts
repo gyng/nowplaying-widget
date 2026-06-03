@@ -3,6 +3,15 @@
 // mousemove/mouseup listeners are attached imperatively on mousedown and removed on mouseup
 // (mirrors the Svelte handlers exactly), with all transient bookkeeping in refs.
 import { useCallback, useRef, useState } from 'react';
+import '../../core/controls.defaults';
+import {
+	listControls,
+	matchPointer,
+	mergeOverrides,
+	type ControlContext,
+	type ControlOverrides,
+	type PointerGesture
+} from '../../core/controls';
 import type { Rect } from '../../core/layout';
 import { rectsIntersect } from '../../core/geometry';
 import type { Renderable } from '../../core/solve';
@@ -11,6 +20,7 @@ import type { Pan } from './useZoomFit';
 export type CanvasPointerDeps = {
 	editMode: boolean;
 	studio: boolean;
+	overrides: () => ControlOverrides; // live remaps (empty until Phase 4)
 	spaceDown: () => boolean; // read latest (held in a ref by useKeyboard)
 	pan: () => Pan; // read latest pan/zoom
 	setPan: React.Dispatch<React.SetStateAction<Pan>>;
@@ -29,6 +39,23 @@ export type CanvasPointer = {
 	panning: boolean;
 	onCanvasMouseDown: (event: React.MouseEvent) => void;
 };
+
+/**
+ * The widgets a marquee `box` (world coords) selects: ANY renderable it intersects — floating AND
+ * in-flow. `additive` (Shift) merges into `currentIds`; otherwise it replaces. Group descendants
+ * resolve to their group via `selectId` and the Set de-dups them; primary = last added. Pure.
+ */
+export function marqueeSelection(
+	renderables: Renderable[],
+	box: Rect,
+	additive: boolean,
+	currentIds: string[]
+): { ids: string[]; primary: string | null } {
+	const ids = new Set(additive ? currentIds : []);
+	for (const r of renderables) if (rectsIntersect(r.rect, box)) ids.add(r.selectId);
+	const list = [...ids];
+	return { ids: list, primary: list[list.length - 1] ?? null };
+}
 
 export function useCanvasPointer(deps: CanvasPointerDeps): CanvasPointer {
 	const [marquee, setMarquee] = useState<Rect | null>(null);
@@ -113,12 +140,13 @@ export function useCanvasPointer(deps: CanvasPointerDeps): CanvasPointer {
 		const a = canvasToWorld(m.x, m.y);
 		const b = canvasToWorld(m.x + m.w, m.y + m.h);
 		const box: Rect = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-		const hits = deps.renderables().filter((r) => r.movable && rectsIntersect(r.rect, box));
-		const ids = new Set(marqueeAdditive.current ? deps.selectedIds() : []);
-		for (const r of hits) ids.add(r.selectId);
-		const list = [...ids];
-		const primary = list[list.length - 1] ?? null;
-		deps.setSelection(list, primary);
+		const { ids, primary } = marqueeSelection(
+			deps.renderables(),
+			box,
+			marqueeAdditive.current,
+			deps.selectedIds()
+		);
+		deps.setSelection(ids, primary);
 	}, [onMarqueeMove, canvasToWorld, deps]);
 
 	// Mirror the live marquee into a ref so onMarqueeUp reads the final rect (it set state async).
@@ -128,24 +156,51 @@ export function useCanvasPointer(deps: CanvasPointerDeps): CanvasPointer {
 	const onCanvasMouseDown = useCallback(
 		(event: React.MouseEvent) => {
 			if (!deps.editMode) return;
-			// Pan from anywhere (studio): middle-button, or left-drag while Space is held.
-			if (deps.studio && (event.button === 1 || (event.button === 0 && deps.spaceDown()))) {
+			const t = event.target as HTMLElement | null;
+			const onCanvas = !!t?.classList.contains('world') || !!t?.classList.contains('canvas');
+			// Resolve the gesture against the registry (pan vs marquee, honoring remaps) instead of a
+			// hard-coded button/Space branch. Widget presses stopPropagation in WidgetHost, so reaching
+			// here means an empty-canvas / chrome press.
+			const gesture: PointerGesture = {
+				button: event.button === 1 ? 'middle' : event.button === 2 ? 'right' : 'left',
+				kind: 'drag',
+				target: onCanvas ? 'canvas' : 'any',
+				ctrl: event.ctrlKey,
+				shift: event.shiftKey,
+				alt: event.altKey,
+				meta: event.metaKey,
+				spaceHeld: deps.spaceDown()
+			};
+			const ctx: ControlContext = {
+				scope: 'studio',
+				studio: deps.studio,
+				editMode: deps.editMode,
+				menuOpen: false,
+				dirty: false,
+				hasSelection: false,
+				spaceDown: deps.spaceDown(),
+				panning: false,
+				previewing: false,
+				pointerTarget: gesture.target
+			};
+			const hit = matchPointer(gesture, mergeOverrides(listControls(), deps.overrides()), ctx);
+			if (!hit) return;
+			if (hit.id === 'studio.panDrag') {
 				event.preventDefault();
 				startPan(event);
 				return;
 			}
-			if (event.button !== 0) return;
-			const t = event.target as HTMLElement | null;
-			const onWorld = !!t?.classList.contains('world');
-			const onCanvas = !!t?.classList.contains('canvas');
-			if (!onWorld && !onCanvas) return;
-			const p = toCanvas(event.clientX, event.clientY);
-			marqueeStart.current = p;
-			setMarquee({ x: p.x, y: p.y, w: 0, h: 0 });
-			marqueeAdditive.current = event.shiftKey;
-			if (!event.shiftKey) deps.clearSelection();
-			window.addEventListener('mousemove', onMarqueeMove);
-			window.addEventListener('mouseup', onMarqueeUp);
+			if (hit.id === 'studio.marquee' || hit.id === 'studio.marqueeAdd') {
+				if (!onCanvas) return; // marquee only rubber-bands on the empty canvas/world
+				const additive = hit.id === 'studio.marqueeAdd';
+				const p = toCanvas(event.clientX, event.clientY);
+				marqueeStart.current = p;
+				setMarquee({ x: p.x, y: p.y, w: 0, h: 0 });
+				marqueeAdditive.current = additive;
+				if (!additive) deps.clearSelection();
+				window.addEventListener('mousemove', onMarqueeMove);
+				window.addEventListener('mouseup', onMarqueeUp);
+			}
 		},
 		[deps, startPan, toCanvas, onMarqueeMove, onMarqueeUp]
 	);

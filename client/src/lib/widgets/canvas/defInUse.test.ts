@@ -20,6 +20,7 @@ function stub(over: Partial<EditorState>): EditorState {
 		editingDefId: null,
 		savedMonitor: null,
 		defEditBaseline: null,
+		previewDef: null,
 		undoStack: [],
 		redoStack: [],
 		lastSnap: null,

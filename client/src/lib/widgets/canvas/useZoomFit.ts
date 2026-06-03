@@ -3,8 +3,18 @@
 // drive the world transform AND the drag-coordinate math; in the overlay they stay 1/0/0 (no
 // transform). Auto-fit runs only AFTER a real measure, once per `${myMonitor}:${w}x${h}` key.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import '../../core/controls.defaults';
+import {
+	listControls,
+	matchWheel,
+	mergeOverrides,
+	type ControlContext,
+	type ControlOverrides
+} from '../../core/controls';
 
 export type Pan = { panX: number; panY: number; zoom: number };
+
+const NO_OVERRIDES = (): ControlOverrides => ({});
 
 export type ZoomFit = Pan & {
 	setPan: React.Dispatch<React.SetStateAction<Pan>>;
@@ -18,9 +28,14 @@ export function useZoomFit(opts: {
 	stageW: number;
 	stageH: number;
 	canvasRef: React.RefObject<HTMLDivElement | null>;
+	overrides?: () => ControlOverrides; // live remaps (empty until Phase 4)
 }): ZoomFit {
 	const { studio, myMonitor, monSize, stageW, stageH, canvasRef } = opts;
 	const [pan, setPan] = useState<Pan>({ panX: 0, panY: 0, zoom: 1 });
+	// Read the latest overrides without re-subscribing the native wheel listener (its effect deps stay
+	// [studio, canvasRef]); a new overrides fn each render just updates the ref.
+	const overridesRef = useRef(opts.overrides ?? NO_OVERRIDES);
+	overridesRef.current = opts.overrides ?? NO_OVERRIDES;
 
 	// fit() reads the latest sizes via a ref so it's a stable callback (used by the Fit button + the
 	// auto-fit effect) without re-subscribing.
@@ -52,7 +67,6 @@ export function useZoomFit(opts: {
 		const el = canvasRef.current;
 		if (!el) return;
 		const onWheel = (event: WheelEvent) => {
-			if (!studio) return;
 			// Wheel over a docked rail / toolbar scrolls THAT panel — don't hijack it to zoom the stage.
 			// (The rails are DOM descendants of `.canvas`, so their wheel events bubble to this listener.)
 			const target = event.target as HTMLElement | null;
@@ -62,6 +76,24 @@ export function useZoomFit(opts: {
 				)
 			)
 				return;
+			// Gate on the registry's wheel control (studio-only by default; remappable/disable-able).
+			const ctx: ControlContext = {
+				scope: 'studio',
+				studio,
+				editMode: studio,
+				menuOpen: false,
+				dirty: false,
+				hasSelection: false,
+				spaceDown: false,
+				panning: false,
+				previewing: false
+			};
+			const hit = matchWheel(
+				{ ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey },
+				mergeOverrides(listControls(), overridesRef.current()),
+				ctx
+			);
+			if (hit?.id !== 'studio.zoom') return;
 			event.preventDefault();
 			const r = el.getBoundingClientRect();
 			const cx = event.clientX - r.left;

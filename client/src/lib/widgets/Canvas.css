@@ -39,6 +39,7 @@
 	--tree-w: 200px; /* widget-designer: the def's structure tree, between the list and the canvas */
 	--rail-l: 250px;
 	--rail-r: 264px;
+	--pane-gap: 6px; /* empty gutter at each resizable divider — the drag handle lives here */
 	background: #0b0b0e;
 	top: var(--bar-h);
 	left: var(--rail-l);
@@ -50,6 +51,55 @@
 	   tool chrome. Real text-editing controls opt back in below. */
 	user-select: none;
 	-webkit-user-select: none;
+}
+
+/* Draggable pane dividers (resizable studio columns; widths persist via usePaneSizes). Each panel is
+   shrunk by --pane-gap on its divider side (see the panel CSS), leaving an EMPTY gutter the handle
+   fills — so the hit-strip never overlaps panel OR stage content (buttons, scrollbar, widgets). The
+   visible divider line sits on the PANEL-facing edge of the gutter (i.e. exactly on the panel's
+   border, where you expect the divider), and brightens on hover. */
+.canvas.studio .pane-resize {
+	position: fixed;
+	top: var(--bar-h, 36px);
+	bottom: var(--bar-b, 24px);
+	width: var(--pane-gap, 6px);
+	z-index: 8;
+	cursor: ew-resize;
+	pointer-events: auto;
+}
+
+/* No line at rest — the panel's own border IS the divider. The line sits 1px into the
+   panel side so it lands exactly on that border pixel (the panel's last inner column), and
+   only lights up on hover. */
+.canvas.studio .pane-resize::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -1px;
+	width: 1px;
+	background: transparent;
+}
+
+/* The right divider's panel (the details rail) is to its RIGHT, so its border line is on the right. */
+.canvas.studio .pane-resize.right::after {
+	left: auto;
+	right: -1px;
+}
+
+.canvas.studio .pane-resize:hover::after {
+	background: rgb(119, 196, 211);
+	box-shadow: 0 0 4px rgba(119, 196, 211, 0.85);
+}
+
+.canvas.studio .pane-resize.left {
+	left: calc(var(--rail-l) - var(--pane-gap, 6px));
+}
+.canvas.studio .pane-resize.tree {
+	left: calc(var(--rail-l) + var(--tree-w) - var(--pane-gap, 6px));
+}
+.canvas.studio .pane-resize.right {
+	right: calc(var(--rail-r) - var(--pane-gap, 6px));
 }
 
 /* …except where you actually edit text: Inspector fields, the theme CSS editor, prompts, etc. */
@@ -95,7 +145,7 @@
    (in the rail) and the design canvas. */
 .canvas.designing .outline.docked {
 	left: var(--rail-l);
-	width: var(--tree-w);
+	width: calc(var(--tree-w) - var(--pane-gap)); /* leave the gutter before the stage */
 }
 
 .canvas.designing .monitor-frame {
@@ -306,6 +356,15 @@
 	padding: 1px 8px;
 	cursor: pointer;
 	font-family: monospace;
+}
+
+/* A read-only template preview reads as amber (distinct from the mint "designing" banner). */
+.canvas .def-banner.preview {
+	background: rgb(237, 224, 186);
+}
+
+.canvas .def-banner.preview button {
+	color: rgb(237, 224, 186);
 }
 
 /* The studio's full-width top bar (in the reserved margin above the stage). */

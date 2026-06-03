@@ -14,10 +14,14 @@ import {
 	type ChangeEvent
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
 import { createTelemetryHub } from '../core/telemetry';
-import { listSources, sourceCatalogIds } from '../core/plugin';
+import { sourceCatalogEntries, sourceCatalogIds } from '../core/plugin';
+import { listPlugins } from './plugin';
 import '../telemetry/source'; // side-effect: registers the built-in `system` source
 import './plugins/home-assistant'; // side-effect: registers the Home Assistant plugin
+import './plugins/now-playing'; // side-effect: registers the Now Playing plugin (+ its widget)
+import './plugins/mqtt'; // side-effect: registers the MQTT plugin
 import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
 import {
 	emptyRoot,
@@ -57,6 +61,7 @@ import {
 } from '../core/layoutEdit';
 import WidgetHost from './WidgetHost';
 import Inspector from './Inspector';
+import ControlsPanel from './ControlsPanel';
 import Outline from './Outline';
 import NavRail from './NavRail';
 import SensorList from './SensorList';
@@ -89,16 +94,23 @@ import {
 	lookup,
 	setSolvedForFloat,
 	editHelpers,
-	defInUse
+	defInUse,
+	bulkPatchConfig,
+	bulkSetBasis
 } from './canvas/useEditorModel';
 import { usePersistence } from './canvas/usePersistence';
 import { useStageSize } from './canvas/useStageSize';
 import { useZoomFit } from './canvas/useZoomFit';
 import { useCanvasPointer } from './canvas/useCanvasPointer';
 import { useKeyboard } from './canvas/useKeyboard';
+import { useControls } from './canvas/useControls';
 import { clampMenuToViewport } from './canvas/menuPosition';
 import { studioHints } from './canvas/studioHints';
 import { buildDebugInfo } from './canvas/debugInfo';
+import { applyMeasured, contentLeafIds, type Measured } from './canvas/measure';
+import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
+import { usePaneSizes } from './canvas/usePaneSizes';
+import MultiInspector from './MultiInspector';
 import type { SectionId } from './canvas/studioSections';
 import { mergeLibrary, packSack, unpackSack } from '../core/sack';
 import { useStudioInit } from './canvas/useStudioInit';
@@ -206,6 +218,8 @@ function buildDemoWidgets(): WidgetInstance[] {
 export default function Canvas({ studio = false }: Props) {
 	// The widget palette (built-ins + any registered plugin widgets), with labels (8a). Computed once.
 	const widgetTypes = useMemo(() => paletteItems(), []);
+	// Registered plugins (Home Assistant, Now Playing, …), for the studio's Plugins section. Once.
+	const pluginList = useMemo(() => listPlugins(), []);
 
 	// Stable telemetry hub (item 5): one per Canvas, provided via Context (replaces setContext).
 	const hub = useRef(createTelemetryHub()).current;
@@ -231,6 +245,7 @@ export default function Canvas({ studio = false }: Props) {
 		tokenOverrides,
 		editingDefId,
 		defEditBaseline,
+		previewDef,
 		savedBaseline,
 		undoStack,
 		redoStack,
@@ -252,6 +267,14 @@ export default function Canvas({ studio = false }: Props) {
 	// Studio left-rail nav: which section's panel is showing. Transient UI — never in EditorState, so
 	// it doesn't touch undo/redo or the dirty diff.
 	const [navSection, setNavSection] = useState<SectionId>('layouts');
+	// Plugins section: which plugin's detail/settings pane is showing (transient UI).
+	const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
+	const selectedPlugin = useMemo(
+		() => pluginList.find((p) => p.id === selectedPluginId) ?? null,
+		[pluginList, selectedPluginId]
+	);
+	// Capitalized so it can be used as a JSX element when the plugin ships a settings panel.
+	const SelectedPluginSettings = selectedPlugin?.settings ?? null;
 	// The saved sacks (names), loaded when the Sacks section is open.
 	const [sackNames, setSackNames] = useState<string[]>([]);
 
@@ -280,11 +303,21 @@ export default function Canvas({ studio = false }: Props) {
 	// overlay. Everything else (solve, world, zoom-to-fit) keys off `stageSize`.
 	const editingDef = useMemo(
 		() =>
-			editingDefId && library ? library.defs.find((d) => d.id === editingDefId) ?? null : null,
-		[editingDefId, library]
+			previewDef ??
+			(editingDefId && library ? library.defs.find((d) => d.id === editingDefId) ?? null : null),
+		[previewDef, editingDefId, library]
 	);
 	const designing = studio && editingDef != null;
+	// A read-only template preview reuses the design canvas but locks editing (no Inspector/Outline,
+	// no widget drag/menu/keyboard) until the user clones it into the library.
+	const previewing = studio && previewDef != null;
 	const stageSize = editingDef ? editingDef.size : monSize;
+
+	// Control remaps (controls.json): overrides state + ref for the dispatch hooks (keyboard/pointer/
+	// wheel read the ref synchronously), load/save helpers. setOverride/resetOverride/resetAll feed the
+	// Settings → Controls panel (Phase 5); reloadControls is wired into useStudioInit (startup + watcher).
+	const controls = useControls();
+	const { overrides, overridesRef, reloadControls } = controls;
 
 	const { panX, panY, zoom, setPan, fit } = useZoomFit({
 		studio,
@@ -293,7 +326,8 @@ export default function Canvas({ studio = false }: Props) {
 		monSize: stageSize,
 		stageW,
 		stageH,
-		canvasRef
+		canvasRef,
+		overrides: () => overridesRef.current
 	});
 
 	const worldStyle: React.CSSProperties = studio
@@ -317,10 +351,22 @@ export default function Canvas({ studio = false }: Props) {
 		setWorkArea(wa ?? { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
 	}, [studio]);
 
+	// --- content-fit measurement (basis 'content'): the render layer measures these leaves and we
+	// substitute the measured size into the tree just for solving (applyMeasured), so the solver stays
+	// pure and the stored layout keeps the user's own w/h. ---
+	const [measured, setMeasured] = useState<Measured>({});
+	const onMeasure = useCallback((id: string, size: { w: number; h: number }) => {
+		setMeasured((prev) =>
+			prev[id] && prev[id].w === size.w && prev[id].h === size.h ? prev : { ...prev, [id]: size }
+		);
+	}, []);
+	const contentLeaves = useMemo(() => contentLeafIds(monitor), [monitor]);
+
 	// --- derived layout (pure) ---
+	const solvedMonitor = useMemo(() => applyMeasured(monitor, measured), [monitor, measured]);
 	const solved = useMemo(
-		() => solveMonitor(monitor, workArea, library),
-		[monitor, workArea, library]
+		() => solveMonitor(solvedMonitor, workArea, library),
+		[solvedMonitor, workArea, library]
 	);
 	// floatNode (via handleOp) reads the live solved map; keep the module ref current.
 	setSolvedForFloat(solved);
@@ -408,10 +454,11 @@ export default function Canvas({ studio = false }: Props) {
 		baseNode && isLeaf(baseNode) && isGroup(baseNode.unit) ? (baseNode.unit as Group) : null;
 	const nodeIsNew = !!(studio && savedBaseline && selectedId && selectedNode && !baseNode);
 
-	const editingDefName =
-		editingDefId && library
-			? library.defs.find((d) => d.id === editingDefId)?.name ?? editingDefId
-			: '';
+	const editingDefName = previewDef
+		? previewDef.name
+		: editingDefId && library
+		? library.defs.find((d) => d.id === editingDefId)?.name ?? editingDefId
+		: '';
 
 	const placement = useMemo<'flow' | 'floating' | null>(() => {
 		if (selectedId === null) return null;
@@ -420,16 +467,68 @@ export default function Canvas({ studio = false }: Props) {
 		return null;
 	}, [selectedId, monitor]);
 
-	const sensors = useMemo(
-		() => sensorCatalog(selectedWidget ? [...hub.sensorIds(), ...sourceCatalogIds()] : []),
-		[selectedWidget, hub]
+	// Source catalog entries (with friendly label/unit) for the selected widget's sensor dropdown.
+	const sensorEntries = useMemo(
+		() => (selectedWidget ? sourceCatalogEntries() : []),
+		[selectedWidget]
 	);
+	const sensors = useMemo(
+		() =>
+			sensorCatalog(selectedWidget ? [...hub.sensorIds(), ...sensorEntries.map((e) => e.id)] : []),
+		[selectedWidget, hub, sensorEntries]
+	);
+	// id → display metadata, so the Inspector's <datalist> can show "Kitchen Light" not ha.light.kitchen.
+	const sensorMeta = useMemo(() => {
+		const m: Record<string, { label?: string; unit?: string }> = {};
+		for (const e of sensorEntries)
+			if (e.label || e.unit) m[e.id] = { label: e.label, unit: e.unit };
+		return m;
+	}, [sensorEntries]);
 	const configFields = useMemo(
 		() => (selectedWidget ? getMeta(selectedWidget.type)?.configFields ?? [] : []),
 		[selectedWidget]
 	);
 
 	const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+	// --- multi-selection (2+ widgets) → the common-properties details pane ---
+	const multiSelected = selectedIds.length > 1;
+	const multiNodes = useMemo(
+		() =>
+			multiSelected
+				? selectedIds
+						.map((id) => lookup(id, monitor))
+						.filter((n): n is NonNullable<typeof n> => n != null)
+				: [],
+		[multiSelected, selectedIds, monitor]
+	);
+	const multiItems = useMemo(
+		() =>
+			multiNodes.map((n) => ({
+				id: n.id,
+				label: isContainer(n)
+					? `▦ ${n.kind} · ${n.id}`
+					: isGroup(n.unit)
+					? `group ${n.unit.name ?? n.id}`
+					: `${(n.unit as WidgetInstance).type} · ${n.id}`
+			})),
+		[multiNodes]
+	);
+	const multiWidgets = useMemo(
+		() =>
+			multiNodes
+				.filter((n) => isLeaf(n) && !isGroup(n.unit))
+				.map((n) => (n as Leaf).unit as WidgetInstance),
+		[multiNodes]
+	);
+	const multiFields = useMemo(() => commonConfigFields(multiWidgets), [multiWidgets]);
+	// Shared sizing only when EVERY selected node is a flow leaf (floating leaves ignore basis).
+	const multiBasis = useMemo(() => {
+		if (!multiSelected || multiNodes.length === 0) return null;
+		const flowLeaves = multiNodes.filter((n) => isLeaf(n) && findNode(monitor.root, n.id));
+		if (flowLeaves.length !== multiNodes.length) return null;
+		return commonBasisMode(flowLeaves.map((n) => (n as Leaf).basis));
+	}, [multiSelected, multiNodes, monitor]);
 
 	const canUndo = undoStack.length > 0;
 	const canRedo = redoStack.length > 0;
@@ -450,7 +549,10 @@ export default function Canvas({ studio = false }: Props) {
 	// --- interactive rects (passive click-through) ---
 	const interactiveItems = useCallback(
 		(): { rect: Rect; interactive?: boolean }[] =>
-			renderables.map((r) => ({ rect: r.rect, interactive: r.instance.interactive })),
+			renderables.map((r) => ({
+				rect: r.rect,
+				interactive: r.instance.interactive || getMeta(r.instance.type)?.interactive
+			})),
 		[renderables]
 	);
 	// Latest values for callbacks that run outside the render (listeners / async).
@@ -552,6 +654,7 @@ export default function Canvas({ studio = false }: Props) {
 		hub,
 		updateWorkArea,
 		reloadLayout,
+		reloadControls,
 		editMode: () => editModeRef.current,
 		syncRects,
 		syncPrimaryOverlays,
@@ -642,6 +745,20 @@ export default function Canvas({ studio = false }: Props) {
 			return { monitor: mon, selectedId: null, selectedIds: [] };
 		});
 	}, [commitOp]);
+
+	// --- multi-select bulk edits (one commit → one undo step each) ---
+	const focusOne = useCallback((id: string) => dispatch({ type: 'select', id }), [dispatch]);
+	const patchSelectedConfig = useCallback(
+		(key: string, value: unknown) => commitOp((s) => bulkPatchConfig(s, key, value)),
+		[commitOp]
+	);
+	const setSelectedBasisAll = useCallback(
+		(mode: 'fixed' | 'content' | 'grow') =>
+			commitOp((s) =>
+				bulkSetBasis(s, mode === 'grow' ? { fr: 1 } : mode === 'content' ? 'content' : undefined)
+			),
+		[commitOp]
+	);
 
 	// --- undo/redo/save (used by keyboard + studio bar) ---
 	const undo = useCallback(() => dispatch({ type: 'undo' }), [dispatch]);
@@ -836,8 +953,12 @@ export default function Canvas({ studio = false }: Props) {
 	// re-entry guard never blocks switching widgets from the list while one is already open.
 	const editingDefIdRef = useRef(editingDefId);
 	editingDefIdRef.current = editingDefId;
+	const previewingRef = useRef(previewing);
+	previewingRef.current = previewing;
 	const foldOpenDef = useCallback(() => {
-		if (editingDefIdRef.current != null) dispatch({ type: 'endDefEdit' });
+		// A read-only preview is discarded (endPreview); a real def edit is folded back (endDefEdit).
+		if (previewingRef.current) dispatch({ type: 'endPreview' });
+		else if (editingDefIdRef.current != null) dispatch({ type: 'endDefEdit' });
 	}, [dispatch]);
 	const startNewWidget = useCallback(() => {
 		foldOpenDef();
@@ -865,6 +986,16 @@ export default function Canvas({ studio = false }: Props) {
 		},
 		[foldOpenDef, dispatch]
 	);
+	// Clicking a template only PREVIEWS it (read-only); the Clone button (or the banner) clones it.
+	const previewTemplate = useCallback(
+		(templateId: string) => {
+			foldOpenDef();
+			dispatch({ type: 'previewTemplate', templateId });
+		},
+		[foldOpenDef, dispatch]
+	);
+	const clonePreview = useCallback(() => dispatch({ type: 'clonePreview' }), [dispatch]);
+	const closePreview = useCallback(() => dispatch({ type: 'endPreview' }), [dispatch]);
 	// Rename a library widget (prompt). Works on any def, including the one being designed — the name
 	// lives in the library, so renaming mid-edit just updates it (the banner reflects it live).
 	const renameWidget = useCallback(
@@ -1128,14 +1259,35 @@ export default function Canvas({ studio = false }: Props) {
 		[dispatch]
 	);
 
-	// A plugin widget asked to actuate (HA light toggle). Side-effecting Tauri call lives here.
+	// A widget asked to actuate (HA light toggle, now-playing transport). Side-effecting Tauri
+	// calls live here, not in the prop-only meters (AGENTS.md §6).
 	const onWidgetControl = useCallback(
-		async (e: { id: string; sensor?: string; domain: string; service: string }) => {
-			const { sensor, domain, service } = e;
+		async (e: {
+			id: string;
+			sensor?: string;
+			domain: string;
+			service: string;
+			data?: Record<string, unknown>;
+		}) => {
+			const { sensor, domain, service, data } = e;
+			// Now-playing transport: control GSMTC directly (self-sourcing widget, no sensor binding).
+			if (domain === 'media') {
+				try {
+					await invoke('media_control', {
+						action: service,
+						source: (data?.source as string) ?? null,
+						value: (data?.value as number) ?? null
+					});
+				} catch (err) {
+					console.warn('media_control failed', err);
+				}
+				return;
+			}
 			if (!sensor || !sensor.startsWith('ha.')) return;
 			const entity_id = sensor.slice('ha.'.length);
 			try {
-				await invoke('ha_call_service', { domain, service, data: { entity_id } });
+				// Merge the meter's control data (e.g. brightness, temperature) with the bound entity.
+				await invoke('ha_call_service', { domain, service, data: { entity_id, ...data } });
 			} catch {
 				// Non-fatal: the next state_changed telemetry tick reconciles the widget anyway.
 			}
@@ -1261,7 +1413,7 @@ export default function Canvas({ studio = false }: Props) {
 	}, []);
 	const onCanvasContextMenu = useCallback(
 		(event: React.MouseEvent) => {
-			if (!editModeRef.current) return;
+			if (!editModeRef.current || previewingRef.current) return; // read-only while previewing
 			event.preventDefault();
 			if (consumeSuppressCtx()) return; // swallow the contextmenu trailing a right-drag free-move
 			const mon = monitorForDragRef.current;
@@ -1275,7 +1427,7 @@ export default function Canvas({ studio = false }: Props) {
 	// panel (the Outline's own dropWidget), so bail when the target is inside one.
 	const onCanvasDragOver = useCallback(
 		(event: React.DragEvent) => {
-			if (!studio || !editModeRef.current) return;
+			if (!studio || !editModeRef.current || previewingRef.current) return;
 			if (!event.dataTransfer.types.includes('text/x-widget-type')) return;
 			if ((event.target as HTMLElement | null)?.closest(PANEL_SEL)) return;
 			event.preventDefault();
@@ -1285,7 +1437,7 @@ export default function Canvas({ studio = false }: Props) {
 	);
 	const onCanvasDrop = useCallback(
 		(event: React.DragEvent) => {
-			if (!studio || !editModeRef.current) return;
+			if (!studio || !editModeRef.current || previewingRef.current) return;
 			const wt = event.dataTransfer.getData('text/x-widget-type');
 			if (!wt || (event.target as HTMLElement | null)?.closest(PANEL_SEL)) return;
 			event.preventDefault();
@@ -1357,15 +1509,26 @@ export default function Canvas({ studio = false }: Props) {
 	dirtyKbRef.current = dirty;
 	const { spaceDownRef, spaceDown } = useKeyboard({
 		studio,
-		editMode: () => editModeRef.current,
-		menuOpen: () => menuRef.current !== null,
-		closeMenu: () => setMenu(null),
-		dirty: () => dirtyKbRef.current,
-		commitSave,
-		undo,
-		redo,
-		hasSelection: () => selectedIdsRef.current.length > 0 || selectedIdRef.current !== null,
-		deleteSelected,
+		// The plain ControlContext slice; `previewing` folds into the controls' canEdit gate (so
+		// delete/nudge/save are suppressed in a read-only overlay preview — the studio short-circuits,
+		// matching the prior behavior). spaceDown/panning are filled by the hook/registry.
+		ctx: () => ({
+			studio,
+			editMode: editModeRef.current,
+			menuOpen: menuRef.current !== null,
+			dirty: dirtyKbRef.current,
+			hasSelection: selectedIdsRef.current.length > 0 || selectedIdRef.current !== null,
+			previewing: previewingRef.current
+		}),
+		overrides: () => overridesRef.current,
+		handlers: {
+			'studio.closeMenu': closeMenu,
+			'global.toggleEdit': () => emit('toggle_edit'), // broadcast: every monitor's overlay toggles
+			'studio.save': commitSave,
+			'studio.undo': undo,
+			'studio.redo': redo,
+			'studio.delete': deleteSelected
+		},
 		nudge: (dx, dy) => {
 			// Compute the translate SYNCHRONOUSLY from current refs and commit only when something
 			// moved (Svelte: `if (translateSelectedFloating(...)) saveLayout()`). The reducer-deferred
@@ -1405,6 +1568,7 @@ export default function Canvas({ studio = false }: Props) {
 	const { marquee, panning, onCanvasMouseDown } = useCanvasPointer({
 		editMode,
 		studio,
+		overrides: () => overridesRef.current,
 		spaceDown: () => spaceDownRef.current,
 		pan: () => panRef.current,
 		setPan,
@@ -1415,11 +1579,14 @@ export default function Canvas({ studio = false }: Props) {
 		clearSelection
 	});
 
+	// Resizable studio panes: column widths as CSS vars on the canvas root, persisted to localStorage.
+	const { vars: paneVars, startResize } = usePaneSizes(studio);
+
 	// Contextual action hints for the studio's bottom powerline bar (item 2).
 	const hasSelection = selectedIds.length > 0 || selectedId !== null;
 	const hints = useMemo(
-		() => studioHints({ hasSelection, spaceDown, panning }),
-		[hasSelection, spaceDown, panning]
+		() => studioHints({ hasSelection, spaceDown, panning }, overrides),
+		[hasSelection, spaceDown, panning, overrides]
 	);
 
 	// Copy a debug snapshot (tree + solved boxes + workArea/zoom, with collapsed/out-of-bounds panes
@@ -1478,6 +1645,7 @@ export default function Canvas({ studio = false }: Props) {
 			<div
 				className={canvasCls.join(' ')}
 				ref={canvasRef}
+				style={paneVars}
 				onContextMenu={onCanvasContextMenu}
 				onMouseDown={onCanvasMouseDown}
 				onDragOver={onCanvasDragOver}
@@ -1533,7 +1701,9 @@ export default function Canvas({ studio = false }: Props) {
 							domId={r.id}
 							defId={r.defId}
 							groupId={r.groupId}
-							editMode={editMode}
+							contentSize={contentLeaves.has(r.id)}
+							onMeasure={onMeasure}
+							editMode={editMode && !previewing}
 							selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
 							highlighted={hoverId !== null && r.selectId === hoverId}
 							grid={GRID}
@@ -1677,6 +1847,30 @@ export default function Canvas({ studio = false }: Props) {
 										</span>
 									))}
 								</div>
+								{/* Draggable pane dividers (widths persist to localStorage). Each only renders where its
+								    panel actually exists — the full-width section panels (sensors/plugins/themes/…)
+								    have nothing to resize, so no handle floats over them. */}
+								{(navSection === 'layouts' || navSection === 'widget-designer') && (
+									<div
+										className="pane-resize left"
+										title="Drag to resize the left panel"
+										onPointerDown={(e) => startResize('left', e)}
+									/>
+								)}
+								{designing && !previewing && (
+									<div
+										className="pane-resize tree"
+										title="Drag to resize the structure tree"
+										onPointerDown={(e) => startResize('tree', e)}
+									/>
+								)}
+								{(navSection === 'layouts' || designing) && !previewing && (
+									<div
+										className="pane-resize right"
+										title="Drag to resize the details panel"
+										onPointerDown={(e) => startResize('right', e)}
+									/>
+								)}
 							</>
 						)}
 						{themeEditorOpen && (
@@ -1718,14 +1912,25 @@ export default function Canvas({ studio = false }: Props) {
 								{dragHint.text}
 							</div>
 						)}
-						{editingDefId && (
-							<div className="def-banner">
-								Designing widget: {editingDefName} · {stageSize.w}×{stageSize.h}
-								<button type="button" onClick={() => handleOp({ op: 'endDefEdit' })}>
-									Done
-								</button>
-							</div>
-						)}
+						{editingDefId &&
+							(previewing ? (
+								<div className="def-banner preview">
+									Previewing: {editingDefName} (read-only) · {stageSize.w}×{stageSize.h}
+									<button type="button" onClick={clonePreview}>
+										Clone to edit
+									</button>
+									<button type="button" onClick={closePreview}>
+										Close
+									</button>
+								</div>
+							) : (
+								<div className="def-banner">
+									Designing widget: {editingDefName} · {stageSize.w}×{stageSize.h}
+									<button type="button" onClick={() => handleOp({ op: 'endDefEdit' })}>
+										Done
+									</button>
+								</div>
+							))}
 						{!studio && <div className="edit-badge">EDIT — Ctrl+E to exit</div>}
 						{studio ? (
 							<>
@@ -1736,7 +1941,7 @@ export default function Canvas({ studio = false }: Props) {
 										if (!designing) setNavSection(id);
 									}}
 								/>
-								{(navSection === 'layouts' || designing) && (
+								{(navSection === 'layouts' || designing) && !previewing && (
 									<Outline
 										root={monitor.root}
 										floating={monitor.floating}
@@ -1803,19 +2008,24 @@ export default function Canvas({ studio = false }: Props) {
 										<div className="rp-hd">Templates</div>
 										<div className="dl-items">
 											{TEMPLATES.map((t) => (
-												<div key={t.id} className="dl-item">
+												<div
+													key={t.id}
+													className={['dl-item', previewDef?.name === t.name && 'cur']
+														.filter(Boolean)
+														.join(' ')}
+												>
 													<button
 														type="button"
 														className="dl-label"
-														title={`${t.description} — clone into a new widget`}
-														onClick={() => newFromTemplate(t.id)}
+														title={`${t.description} — click to preview (read-only)`}
+														onClick={() => previewTemplate(t.id)}
 													>
 														{t.name}
 													</button>
 													<button
 														type="button"
 														className="dl-icon"
-														title="Clone into a new widget"
+														title="Clone into a new editable widget"
 														onClick={() => newFromTemplate(t.id)}
 													>
 														⎘
@@ -1842,24 +2052,77 @@ export default function Canvas({ studio = false }: Props) {
 									</div>
 								)}
 								{navSection === 'plugins' && !designing && (
-									<div className="rail-panel">
-										<div className="rp-hd">Sources</div>
-										<div className="rp-list">
-											{listSources().map((s) => (
-												<div key={s.id} className="rp-row">
-													<span>{s.id}</span>
-													<span className="dim">{(s.catalog?.() ?? []).length} sensors</span>
-												</div>
-											))}
+									<div className="rail-panel plugins-panel">
+										<div className="pl-list">
+											<div className="rp-hd">Plugins</div>
+											{pluginList.length ? (
+												pluginList.map((p) => (
+													<button
+														key={p.id}
+														type="button"
+														className={['pl-item', p.id === selectedPluginId && 'cur']
+															.filter(Boolean)
+															.join(' ')}
+														onClick={() => setSelectedPluginId(p.id)}
+													>
+														{p.name}
+													</button>
+												))
+											) : (
+												<div className="rp-stub">No plugins registered.</div>
+											)}
 										</div>
-										<div className="rp-hd">Widget types</div>
-										<div className="rp-list">
-											{widgetTypes.map((w) => (
-												<div key={w.type} className="rp-row">
-													<span>{w.label}</span>
-													<span className="dim">{w.type}</span>
-												</div>
-											))}
+										<div className="pl-detail">
+											{!selectedPlugin ? (
+												<div className="rp-stub">Select a plugin to view its settings.</div>
+											) : (
+												<>
+													<div className="pl-title">{selectedPlugin.name}</div>
+													{selectedPlugin.description && (
+														<div className="pl-desc">{selectedPlugin.description}</div>
+													)}
+													{SelectedPluginSettings ? (
+														<SelectedPluginSettings />
+													) : (
+														<>
+															{!!selectedPlugin.sources?.length && (
+																<>
+																	<div className="rp-hd">Sources</div>
+																	<div className="rp-list">
+																		{selectedPlugin.sources.map((s) => (
+																			<div key={s.id} className="rp-row">
+																				<span>{s.id}</span>
+																				<span className="dim">
+																					{(s.catalog?.() ?? []).length} sensors
+																				</span>
+																			</div>
+																		))}
+																	</div>
+																</>
+															)}
+															{!!selectedPlugin.widgets?.length && (
+																<>
+																	<div className="rp-hd">Widget types</div>
+																	<div className="rp-list">
+																		{selectedPlugin.widgets.map((w) => (
+																			<div key={w.meta.type} className="rp-row">
+																				<span>{w.meta.label ?? w.meta.type}</span>
+																				<span className="dim">{w.meta.type}</span>
+																			</div>
+																		))}
+																	</div>
+																</>
+															)}
+															{!selectedPlugin.sources?.length &&
+																!selectedPlugin.widgets?.length && (
+																	<div className="rp-stub">
+																		This plugin has no configurable settings.
+																	</div>
+																)}
+														</>
+													)}
+												</>
+											)}
 										</div>
 									</div>
 								)}
@@ -1907,6 +2170,14 @@ export default function Canvas({ studio = false }: Props) {
 										)}
 									</div>
 								)}
+								{navSection === 'controls' && !designing && (
+									<ControlsPanel
+										overrides={overrides}
+										onRebind={(id, trigger) => controls.setOverride(id, { triggers: [trigger] })}
+										onReset={controls.resetOverride}
+										onResetAll={controls.resetAll}
+									/>
+								)}
 								{navSection === 'settings' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Display</div>
@@ -1953,30 +2224,44 @@ export default function Canvas({ studio = false }: Props) {
 								onOp={handleOp}
 							/>
 						)}
-						{(!studio || navSection === 'layouts' || designing) && (
-							<Inspector
-								widget={selectedWidget}
-								container={selectedContainer}
-								groupUnit={selectedGroup}
-								def={selectedDef}
-								defs={library?.defs ?? []}
-								tokens={tokenOverrides}
-								baseWidget={baseWidget}
-								baseContainer={baseContainer}
-								baseGroup={baseGroup}
-								baseTokens={savedBaseline?.tokens ?? null}
-								nodeIsNew={nodeIsNew}
-								isGridCell={isGridCell}
-								containerBox={selectedContainerBox}
-								placement={placement}
-								widgetBasis={selectedLeafBasis}
-								widgetTypes={widgetTypes}
-								configFields={configFields}
-								sensors={sensors}
-								docked={studio}
-								onOp={handleOp}
-							/>
-						)}
+						{(!studio || navSection === 'layouts' || designing) &&
+							!previewing &&
+							(multiSelected ? (
+								<MultiInspector
+									items={multiItems}
+									fields={multiFields}
+									basis={multiBasis}
+									onFocus={focusOne}
+									onPatchConfig={patchSelectedConfig}
+									onSetBasis={setSelectedBasisAll}
+									onDelete={deleteSelected}
+									docked={studio}
+								/>
+							) : (
+								<Inspector
+									widget={selectedWidget}
+									container={selectedContainer}
+									groupUnit={selectedGroup}
+									def={selectedDef}
+									defs={library?.defs ?? []}
+									tokens={tokenOverrides}
+									baseWidget={baseWidget}
+									baseContainer={baseContainer}
+									baseGroup={baseGroup}
+									baseTokens={savedBaseline?.tokens ?? null}
+									nodeIsNew={nodeIsNew}
+									isGridCell={isGridCell}
+									containerBox={selectedContainerBox}
+									placement={placement}
+									widgetBasis={selectedLeafBasis}
+									widgetTypes={widgetTypes}
+									configFields={configFields}
+									sensors={sensors}
+									sensorMeta={sensorMeta}
+									docked={studio}
+									onOp={handleOp}
+								/>
+							))}
 						{menu && menuNode && (
 							<>
 								<button
@@ -2114,6 +2399,24 @@ export default function Canvas({ studio = false }: Props) {
 											>
 												▦ Into 2×2 grid
 											</button>
+											<div className="ctx-sep" />
+											<span className="ctx-hd">Add inside</span>
+											{(['row', 'col', 'grid'] as const).map((kind) => (
+												<button
+													key={kind}
+													type="button"
+													onClick={() =>
+														menu &&
+														menuAct({
+															op: 'addContainer',
+															kind,
+															containerId: menu.id === '__canvas__' ? monitor.root.id : menu.id
+														})
+													}
+												>
+													{kind === 'row' ? '＋ Row' : kind === 'col' ? '＋ Column' : '＋ Grid'}
+												</button>
+											))}
 											{menuCanCollapse && (
 												<button
 													type="button"
@@ -2127,6 +2430,23 @@ export default function Canvas({ studio = false }: Props) {
 												>
 													⊟ Collapse cells
 												</button>
+											)}
+											{menuParentId && (
+												<>
+													<div className="ctx-sep" />
+													<span className="ctx-hd">Add beside</span>
+													{(['row', 'col', 'grid'] as const).map((kind) => (
+														<button
+															key={kind}
+															type="button"
+															onClick={() =>
+																menu && menuAct({ op: 'addBeside', kind, id: menu.id })
+															}
+														>
+															{kind === 'row' ? '＋ Row' : kind === 'col' ? '＋ Column' : '＋ Grid'}
+														</button>
+													))}
+												</>
 											)}
 										</>
 									)}

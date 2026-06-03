@@ -8,7 +8,7 @@ import { isStudioWindow } from './lib/overlay';
 export default function App() {
 	const studio = useMemo(() => isStudioWindow(), []);
 	return (
-		<div className="app">
+		<div className={studio ? 'app studio' : 'app'}>
 			<main>
 				<section>
 					<Canvas studio={studio} />

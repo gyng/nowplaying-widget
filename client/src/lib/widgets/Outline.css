@@ -18,10 +18,14 @@
 /* Studio: the "Layouts" section panel — a full-height rail to the right of the nav strip. */
 .outline.docked {
 	position: fixed;
+	/* border-box so width = the TOTAL footprint (incl. padding + border); otherwise the panel
+	   overflows ~13px past its calc'd edge into the gutter/stage and the divider lands wrong. */
+	box-sizing: border-box;
 	top: var(--bar-h, 36px);
 	left: var(--nav-w, 56px); /* sit to the right of the left nav strip */
 	bottom: var(--bar-b, 0); /* sit above the bottom powerline hint bar */
-	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px));
+	/* leave a --pane-gap gutter before the stage for the resize handle (fallback matches the handle's) */
+	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px) - var(--pane-gap, 6px));
 	max-height: none;
 	border-width: 0 1px 0 0;
 	border-radius: 0;

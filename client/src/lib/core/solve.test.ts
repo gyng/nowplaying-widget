@@ -120,6 +120,21 @@ describe('row / col flex', () => {
 
 // ---- fr distribution -----------------------------------------------------
 
+describe("basis 'content'", () => {
+	it("sizes like 'auto' from the rect (the render layer has substituted the measured size)", () => {
+		// Two leaves in a row: A is 'content' with a measured rect of 72px, B is fixed-auto at 100px.
+		// They sit side-by-side at those widths — proving 'content' uses the rect as its main extent.
+		const s = solveLayout(
+			container('r', 'row', [leaf(prim('A', 72, 18), 'content'), leaf(prim('B', 100, 18))], {
+				align: 'start'
+			}),
+			{ x: 0, y: 0, w: 300, h: 40 }
+		);
+		expect(get(s, 'A')).toEqual({ x: 0, y: 0, w: 72, h: 18 });
+		expect(get(s, 'B')).toEqual({ x: 72, y: 0, w: 100, h: 18 });
+	});
+});
+
 describe('fr distribution', () => {
 	it('single fr child fills the main axis', () => {
 		const s = solveLayout(

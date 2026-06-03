@@ -184,24 +184,45 @@ function addWidgetAt(s: EditorState, type: string, x: number, y: number): Patch 
 	};
 }
 
-function addContainer(s: EditorState, kind: Container['kind']): Patch {
-	const selectedContainer = currentContainer(s);
-	const id = `${kind}-${rand()}`;
-	let c: Container;
+// Build a fresh container of `kind`: an empty row/col, or a 2×2 grid of col cells. Shared by the
+// "Add inside" (addContainer) and "Add beside" (addBeside) paths so both produce identical bands.
+function newContainerOfKind(kind: Container['kind'], id: string): Container {
 	if (kind === 'grid') {
 		const cols = 2;
 		const rows = 2;
 		const cells = Array.from({ length: cols * rows }, () =>
 			container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
 		);
-		c = container(id, 'grid', cells, { cols, rows, basis: { fr: 1 }, align: 'stretch' });
-	} else {
-		c = container(id, kind, [], { basis: { fr: 1 }, align: 'stretch' });
+		return container(id, 'grid', cells, { cols, rows, basis: { fr: 1 }, align: 'stretch' });
 	}
-	const parentId = selectedContainer?.id ?? s.monitor.root.id;
-	let root = insertChild(s.monitor.root, parentId, c);
-	root = updateContainer(root, parentId, { align: 'stretch' });
+	return container(id, kind, [], { basis: { fr: 1 }, align: 'stretch' });
+}
+
+// Insert a new child container of `kind` into `containerId` (or the selected container / root). Used
+// by the Outline's +Row/+Col/+Grid (selected) and the container context menu's Add (right-clicked).
+function addContainer(s: EditorState, kind: Container['kind'], containerId?: string): Patch {
+	const target = containerId ?? currentContainer(s)?.id ?? s.monitor.root.id;
+	// Only a real container can hold children; bail if the id isn't one (e.g. a stale menu target).
+	const targetNode = findNode(s.monitor.root, target);
+	if (!targetNode || !isContainer(targetNode)) return {};
+	const id = `${kind}-${rand()}`;
+	let root = insertChild(s.monitor.root, target, newContainerOfKind(kind, id));
+	root = updateContainer(root, target, { align: 'stretch' });
 	return { monitor: { ...s.monitor, root }, selectedId: id };
+}
+
+// Insert a new sibling container of `kind` directly AFTER node `id`, in id's parent — the context
+// menu's "Add beside". Mirrors addContainer but targets the parent + an index, so the band lands
+// next to the right-clicked one rather than inside it. No-op at the root (it has no siblings) or
+// when the id isn't in the tree.
+function addBeside(s: EditorState, id: string, kind: Container['kind']): Patch {
+	const parent = findParent(s.monitor.root, id);
+	if (!parent) return {};
+	const newId = `${kind}-${rand()}`;
+	const idx = parent.children.findIndex((ch) => ch.id === id);
+	let root = insertChild(s.monitor.root, parent.id, newContainerOfKind(kind, newId), idx + 1);
+	root = updateContainer(root, parent.id, { align: 'stretch' });
+	return { monitor: { ...s.monitor, root }, selectedId: newId };
 }
 
 function splitNode(s: EditorState, id: string, dir: 'rows' | 'cols' | 'grid'): Patch {
@@ -531,6 +552,48 @@ function patchUnit(s: EditorState, id: string, patch: Partial<WidgetInstance>): 
 	};
 }
 
+// The ids of the current selection (the marquee set, else the single primary). Shared by the bulk
+// multi-select edits so they act on exactly what's highlighted, in ONE commit (one undo step).
+function selectionIds(s: EditorState): string[] {
+	return s.selectedIds.length ? s.selectedIds : s.selectedId ? [s.selectedId] : [];
+}
+
+// Set one config key on EVERY selected primitive widget (flow + floating). One commit → one undo.
+function bulkPatchConfig(s: EditorState, key: string, value: unknown): Patch {
+	const ids = new Set(selectionIds(s));
+	if (!ids.size) return {};
+	const apply = (u: WidgetInstance): WidgetInstance => ({
+		...u,
+		config: { ...u.config, [key]: value }
+	});
+	const floating = s.monitor.floating.map((l) =>
+		ids.has(l.id) && !isGroup(l.unit) ? { ...l, unit: apply(l.unit as WidgetInstance) } : l
+	);
+	let root = s.monitor.root;
+	for (const id of ids) {
+		root = updateNode(root, id, (n) =>
+			isLeaf(n) && !isGroup(n.unit) ? { ...n, unit: apply(n.unit as WidgetInstance) } : n
+		);
+	}
+	return { monitor: { ...s.monitor, root, floating } };
+}
+
+// Set the main-axis basis on every selected FLOW leaf (floating leaves ignore basis). One commit.
+function bulkSetBasis(s: EditorState, basis: Length | undefined): Patch {
+	const ids = selectionIds(s);
+	if (!ids.length) return {};
+	let root = s.monitor.root;
+	for (const id of ids) {
+		root = updateNode(root, id, (n) => {
+			const next = { ...n } as LayoutNode & { basis?: Length };
+			if (basis === undefined) delete next.basis;
+			else next.basis = basis;
+			return next;
+		});
+	}
+	return { monitor: { ...s.monitor, root } };
+}
+
 function resetWidget(s: EditorState, id: string): Patch {
 	const node = lookup(id, s.monitor);
 	if (!node || !isLeaf(node) || isGroup(node.unit)) return {};
@@ -582,6 +645,9 @@ type Action =
 	| { type: 'newWidget' } // item 4: create an empty def + floating instance, then enter def-edit
 	| { type: 'cloneDef'; defId: string } // duplicate a widget def + enter def-edit on the copy
 	| { type: 'newFromTemplate'; templateId: string } // a new widget def seeded from a template
+	| { type: 'previewTemplate'; templateId: string } // read-only preview (NOT cloned into the library)
+	| { type: 'endPreview' } // leave a template preview, discarding it
+	| { type: 'clonePreview' } // promote the previewed template into the library + keep editing it
 	| { type: 'endDefEdit' }
 	| { type: 'resetHistory' }
 	| { type: 'setBaseline' }
@@ -615,18 +681,40 @@ function syncPrimary(next: EditorState, patchSetSelectedIds: boolean): EditorSta
 // (usePersistence writes every def), and the user instantiates it via the Inspector library
 // palette. Assumes the caller already refused re-entry while another def is open (would orphan
 // savedMonitor).
+// The scoped monitor for designing/previewing `def`: a clone of its child as the root, with any
+// pad/gap too big for the def's canvas self-healed (see spacingGuard.clampTreeSpacing).
+function scopedMonitorFromDef(def: WidgetDef): MonitorLayout {
+	const rawRoot: Container = isContainer(def.child)
+		? (clone(def.child) as Container)
+		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
+	return { root: clampTreeSpacing(rawRoot, def.size) as Container, floating: [] };
+}
+
+// Build a fresh WidgetDef from a template id (content bounding box → def size). Shared by
+// newFromTemplate (clone into the library) and previewTemplate (read-only preview, not stored).
+function templateDef(templateId: string): WidgetDef | null {
+	const t = getTemplate(templateId);
+	if (!t) return null;
+	const ws = t.widgets();
+	const kids = ws.map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
+	// Size to the template's content bounding box (its widgets flow in a col, so this is approximate).
+	const w = Math.max(40, ...ws.map((u) => Math.round(u.rect.x + u.rect.w)));
+	const h = Math.max(24, ...ws.map((u) => Math.round(u.rect.y + u.rect.h)));
+	const defId = `def-${rand()}`;
+	return {
+		id: defId,
+		name: t.name,
+		size: { w, h },
+		child: container(`${defId}__root`, 'col', kids, { align: 'stretch' })
+	};
+}
+
 function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
 	const library: Library = {
 		version: state.library?.version ?? 1,
 		defs: [...(state.library?.defs ?? []), def]
 	};
-	const rawRoot: Container = isContainer(def.child)
-		? (clone(def.child) as Container)
-		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
-	// Self-heal: clamp any pad/gap that's too big for this widget's canvas, so spacing left over from
-	// a larger context can't collapse the panes out of view (see spacingGuard.clampTreeSpacing).
-	const scopedRoot = clampTreeSpacing(rawRoot, def.size) as Container;
-	const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
+	const scopedMonitor = scopedMonitorFromDef(def);
 	const next: EditorState = {
 		...state,
 		library,
@@ -730,22 +818,54 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 		}
 		case 'newFromTemplate': {
 			if (state.editingDefId != null) return state;
-			const t = getTemplate(action.templateId);
-			if (!t) return state;
-			const ws = t.widgets();
-			const kids = ws.map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
-			// Size the new def to the template's content bounding box (its widgets are flowed in a col,
-			// so this is approximate — but it stops a tall template from being crushed into 120px).
-			const w = Math.max(40, ...ws.map((u) => Math.round(u.rect.x + u.rect.w)));
-			const h = Math.max(24, ...ws.map((u) => Math.round(u.rect.y + u.rect.h)));
-			const defId = `def-${rand()}`;
-			const def: WidgetDef = {
-				id: defId,
-				name: t.name,
-				size: { w, h },
-				child: container(`${defId}__root`, 'col', kids, { align: 'stretch' })
+			const def = templateDef(action.templateId);
+			return def ? enterNewDef(state, def) : state;
+		}
+		case 'previewTemplate': {
+			// Read-only preview: scope to the template like a def edit, but DON'T add it to the library
+			// (it lives in `previewDef`). The Clone button promotes it; Close discards it.
+			if (state.editingDefId != null) return state; // the UI folds any open def/preview first
+			const def = templateDef(action.templateId);
+			if (!def) return state;
+			const next: EditorState = {
+				...state,
+				savedMonitor: state.monitor,
+				monitor: scopedMonitorFromDef(def),
+				defEditBaseline: null,
+				editingDefId: def.id,
+				previewDef: def,
+				selectedId: null
 			};
-			return enterNewDef(state, def);
+			return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
+		}
+		case 'endPreview': {
+			if (!state.previewDef || !state.savedMonitor) return state;
+			const next: EditorState = {
+				...state,
+				monitor: state.savedMonitor,
+				savedMonitor: null,
+				editingDefId: null,
+				previewDef: null,
+				selectedId: null
+			};
+			return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
+		}
+		case 'clonePreview': {
+			// Promote the previewed template into the library and keep editing it (now unlocked).
+			if (!state.previewDef) return state;
+			const def = state.previewDef;
+			const library: Library = {
+				version: state.library?.version ?? 1,
+				defs: [...(state.library?.defs ?? []), def]
+			};
+			let next: EditorState = {
+				...state,
+				library,
+				previewDef: null,
+				defEditBaseline: state.monitor // a real def-edit baseline from here on
+			};
+			next = { ...next, ...commitPatch(next) }; // record + persist the new library def
+			return next;
 		}
 		case 'enterDefEdit': {
 			// Never re-enter while already designing — a nested enter would overwrite savedMonitor with
@@ -753,13 +873,9 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 			if (state.editingDefId != null) return state;
 			const def = state.library?.defs.find((d) => d.id === action.defId);
 			if (!def) return state;
-			const rawRoot: Container = isContainer(def.child)
-				? (clone(def.child) as Container)
-				: container(`${action.defId}__root`, 'col', [clone(def.child)], { align: 'stretch' });
-			// Self-heal oversized pad/gap for this widget's canvas (see clampTreeSpacing) — so opening a
+			// scopedMonitorFromDef self-heals oversized pad/gap for this widget's canvas — so opening a
 			// def whose root was over-padded (e.g. copied from a full-monitor root) shows usable panes.
-			const scopedRoot = clampTreeSpacing(rawRoot, def.size) as Container;
-			const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
+			const scopedMonitor = scopedMonitorFromDef(def);
 			const next: EditorState = {
 				...state,
 				savedMonitor: state.monitor,
@@ -857,6 +973,7 @@ const initial = (studio: boolean, seedMonitor: MonitorLayout): EditorState => ({
 	editingDefId: null,
 	savedMonitor: null,
 	defEditBaseline: null,
+	previewDef: null,
 	undoStack: [],
 	redoStack: [],
 	lastSnap: null,
@@ -902,7 +1019,10 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					commitOp((s) => addWidgetAt(s, op.widgetType, op.x, op.y));
 					return;
 				case 'addContainer':
-					commitOp((s) => addContainer(s, op.kind));
+					commitOp((s) => addContainer(s, op.kind, op.containerId));
+					return;
+				case 'addBeside':
+					commitOp((s) => addBeside(s, op.id, op.kind));
 					return;
 				case 'split':
 					commitOp((s) => splitNode(s, op.id, op.dir));
@@ -1022,4 +1142,14 @@ function floatNode(s: EditorState, id: string, at?: { x: number; y: number }): P
 	};
 }
 
-export { addWidget, splitNode, floatNode, defInUse, DEFAULT_MONITOR };
+export {
+	addWidget,
+	addContainer,
+	addBeside,
+	splitNode,
+	floatNode,
+	defInUse,
+	bulkPatchConfig,
+	bulkSetBasis,
+	DEFAULT_MONITOR
+};

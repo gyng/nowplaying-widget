@@ -15,8 +15,10 @@ export type { Rect, WidgetInstance } from './layout';
 // A child's main-axis sizing inside a container.
 //   number    → fixed px
 //   'auto'    → intrinsic size (a primitive's rect.{w,h} / a group's size.{w,h})
+//   'content' → like 'auto', but the leaf's rect is replaced by its MEASURED rendered size before
+//               solving (the render layer feeds measurements in; the solver itself stays pure)
 //   { fr: n } → share `n` of the leftover main-axis space after fixed/auto children
-export type Length = number | 'auto' | { fr: number };
+export type Length = number | 'auto' | 'content' | { fr: number };
 
 export type Align = 'start' | 'center' | 'end' | 'stretch'; // cross axis
 export type Justify = 'start' | 'center' | 'end' | 'between' | 'around'; // main axis

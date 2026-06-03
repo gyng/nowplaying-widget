@@ -9,7 +9,12 @@ export type LayoutOp =
 	| { op: 'addWidget'; widgetType: string }
 	// Drop a palette widget onto the stage at world coords (x,y) → a new floating widget there.
 	| { op: 'addWidgetAt'; widgetType: string; x: number; y: number }
-	| { op: 'addContainer'; kind: 'row' | 'col' | 'grid' }
+	// Add a child container of `kind`. Targets `containerId` (the container context menu's Add) or,
+	// when omitted, the selected container / root (the Outline's +Row/+Col/+Grid).
+	| { op: 'addContainer'; kind: 'row' | 'col' | 'grid'; containerId?: string }
+	// Add a sibling container of `kind` directly AFTER node `id`, in id's parent (the context
+	// menu's "Add beside"). No-op at the root, which has no siblings.
+	| { op: 'addBeside'; kind: 'row' | 'col' | 'grid'; id: string }
 	// Split a container (cell/pane) in two: 'rows' stacks (a col), 'cols' is side-by-side (a row),
 	// 'grid' makes it a 2×2 grid. Existing content is preserved as the first region. (item 1)
 	| { op: 'split'; id: string; dir: 'rows' | 'cols' | 'grid' }

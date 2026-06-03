@@ -21,6 +21,7 @@ function stub(root: Container): EditorState {
 		editingDefId: null,
 		savedMonitor: null,
 		defEditBaseline: null,
+		previewDef: null,
 		undoStack: [],
 		redoStack: [],
 		lastSnap: null,

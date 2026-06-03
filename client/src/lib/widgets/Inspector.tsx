@@ -43,6 +43,9 @@ type Props = {
 	widgetTypes?: { type: string; label: string }[]; // palette (8a)
 	configFields?: ConfigField[]; // typed config schema for the selected widget (8a)
 	sensors?: string[];
+	// Optional id → display metadata, so HA (and other) sensor ids show a friendly label + unit in
+	// the dropdown instead of the raw id. Missing entries just render the bare id.
+	sensorMeta?: Record<string, { label?: string; unit?: string }>;
 	onOp?: (op: LayoutOp) => void;
 };
 
@@ -139,6 +142,7 @@ export default function Inspector({
 	widgetTypes = [],
 	configFields = [],
 	sensors = [],
+	sensorMeta = {},
 	onOp
 }: Props) {
 	const op = (o: LayoutOp) => onOp?.(o);
@@ -489,9 +493,17 @@ export default function Inspector({
 						/>
 					</label>
 					<datalist id="sensor-list">
-						{sensors.map((s) => (
-							<option key={s} value={s} />
-						))}
+						{sensors.map((s) => {
+							const m = sensorMeta[s];
+							// Show a friendly label (+ unit) when known; the value bound stays the raw id.
+							const label =
+								m?.label && m.label !== s
+									? m.unit
+										? `${m.label} (${m.unit})`
+										: m.label
+									: undefined;
+							return <option key={s} value={s} label={label} />;
+						})}
 					</datalist>
 					{placement === 'floating' && (
 						<div className="row">
@@ -521,19 +533,29 @@ export default function Inspector({
 									</label>
 								))}
 							</div>
-							<label className="check">
-								<input
-									type="checkbox"
-									checked={isFrBasis(widgetBasis)}
-									onChange={(e) =>
+							<label className="full">
+								size along the row / column
+								<select
+									value={
+										isFrBasis(widgetBasis)
+											? 'grow'
+											: widgetBasis === 'content'
+											? 'content'
+											: 'fixed'
+									}
+									onChange={(e) => {
+										const v = e.currentTarget.value;
 										op({
 											op: 'setBasis',
 											id: widget.id,
-											basis: e.currentTarget.checked ? { fr: 1 } : undefined
-										})
-									}
-								/>
-								grow (stretch to fill the row / column)
+											basis: v === 'grow' ? { fr: 1 } : v === 'content' ? 'content' : undefined
+										});
+									}}
+								>
+									<option value="fixed">fixed — use the w/h above</option>
+									<option value="content">fit to content — measure the rendered size</option>
+									<option value="grow">grow — stretch to fill</option>
+								</select>
 							</label>
 						</>
 					)}

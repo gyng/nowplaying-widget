@@ -4,11 +4,12 @@ import { studioHints } from './studioHints';
 const keys = (s: Parameters<typeof studioHints>[0]) => studioHints(s).map((h) => h.key);
 
 describe('studioHints', () => {
-	it('shows the base gestures with no selection', () => {
+	it('shows the base gestures with no selection — including middle-drag pan (the drift fix)', () => {
 		expect(keys({ hasSelection: false, spaceDown: false, panning: false })).toEqual([
 			'Click',
 			'Drag',
 			'Right-click',
+			'Middle-drag',
 			'Shift+Drag',
 			'Scroll'
 		]);
