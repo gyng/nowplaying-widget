@@ -25,6 +25,9 @@ nvml-wrapper = "0.10"
 # HA control + entity catalog over REST. native-tls enables https; self-signed certs are an
 # explicit per-config opt-in (HaConfig.insecure → danger_accept_invalid_certs).
 reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
+# Optional MQTT source (peer to HA). default-features=false + use-native-tls reuses the existing
+# native-tls=0.2 (SChannel) and pulls in NO rustls/aws-lc-rs/ring — keeping the no-NASM/cmake stance.
+rumqttc = { version = "0.25", default-features = false, features = ["use-native-tls"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sysinfo = "0.33"
@@ -41,7 +44,15 @@ tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-works
 
 [target.'cfg(target_os = "windows")'.dependencies]
 win-gsmtc = { version = "0.1.0", features = ["serde"] }
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Media",
+    "Media_Control",
+    "Foundation",
+    "Foundation_Collections",
+] }
 
 [features]
 # by default Tauri runs in production mode

@@ -12,6 +12,8 @@ use serde::Serialize;
 use sysinfo::{Networks, System};
 use tauri::{AppHandle, Emitter, Runtime};
 
+use crate::log;
+
 /// The `telemetry` event name on the Tauri bridge.
 pub const TELEMETRY_EVENT: &str = "telemetry";
 
@@ -99,7 +101,9 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
     let nvml = match Nvml::init() {
         Ok(nvml) => Some(nvml),
         Err(err) => {
-            eprintln!("GPU sensors disabled (NVML init failed): {err}");
+            log::warn("sensors", "GPU sensors disabled (NVML init failed)")
+                .field("error", err)
+                .emit();
             None
         }
     };
@@ -141,7 +145,9 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
         }
 
         if let Err(err) = app.emit(TELEMETRY_EVENT, &batch) {
-            eprintln!("failed to emit telemetry: {err}");
+            log::error("sensors", "failed to emit telemetry")
+                .field("error", err)
+                .emit();
         }
     }
 }

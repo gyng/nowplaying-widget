@@ -22,6 +22,9 @@ pub mod command;
 pub mod event;
 pub mod ha;
 pub mod listener;
+pub mod log;
+pub mod media;
+pub mod mqtt;
 pub mod sensors;
 pub mod state;
 
@@ -63,10 +66,13 @@ async fn main() -> Result<(), ()> {
         })
         .manage(clickthrough::InteractiveRects::default())
         .manage(ha::HaState::default())
+        .manage(mqtt::MqttState::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
             command::save_layout,
+            command::load_controls,
+            command::save_controls,
             command::list_themes,
             command::load_theme,
             command::save_theme,
@@ -77,14 +83,27 @@ async fn main() -> Result<(), ()> {
             command::system_fonts,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area,
+            media::media_control,
+            media::media_capabilities,
+            log::get_logs,
             ha::ha_connect,
             ha::ha_disconnect,
             ha::list_ha_entities,
+            ha::ha_registry_snapshot,
             ha::ha_call_service,
             ha::save_ha_config,
-            ha::ha_config_status
+            ha::ha_config_status,
+            ha::ha_test_connection,
+            mqtt::save_mqtt_config,
+            mqtt::mqtt_config_status,
+            mqtt::mqtt_connect,
+            mqtt::mqtt_disconnect,
+            mqtt::mqtt_catalog
         ])
         .setup(|app| {
+            // Wire structured logging to the app so records also stream to the webview (`log` event).
+            log::init(app.handle().clone());
+
             tauri::async_runtime::spawn(async move {
                 session_listener_windows_gsmtc(rx_session_manager, tx_gsmtc).await
             });
@@ -108,13 +127,24 @@ async fn main() -> Result<(), ()> {
             });
 
             if let Err(err) = command::watch_layout(app.handle().clone()) {
-                eprintln!("failed to start layout watcher: {err}");
+                log::error("startup", "failed to start layout watcher")
+                    .field("error", err)
+                    .emit();
+            }
+
+            // Control remaps (controls.json): live-reload on external edits / cross-window saves.
+            if let Err(err) = command::watch_controls(app.handle().clone()) {
+                log::error("startup", "failed to start controls watcher")
+                    .field("error", err)
+                    .emit();
             }
 
             // Themes (Phase 7c): seed example themes on first run + watch the folder.
             command::seed_themes(&app.handle().clone());
             if let Err(err) = command::watch_themes(app.handle().clone()) {
-                eprintln!("failed to start themes watcher: {err}");
+                log::error("startup", "failed to start themes watcher")
+                    .field("error", err)
+                    .emit();
             }
 
             clickthrough::run_clickthrough_watcher(app.handle().clone());
@@ -159,7 +189,9 @@ async fn main() -> Result<(), ()> {
                         }
                     })
             {
-                eprintln!("failed to register global shortcut: {err}");
+                log::error("startup", "failed to register global shortcut")
+                    .field("error", err)
+                    .emit();
             }
 
             Ok(())

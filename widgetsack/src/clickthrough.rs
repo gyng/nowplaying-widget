@@ -76,7 +76,6 @@ pub fn run_clickthrough_watcher<R: Runtime>(app: AppHandle<R>) {
                 if ignoring.get(label).copied() != Some(want_ignore) {
                     if let Some(win) = app.get_webview_window(label) {
                         let _ = win.set_ignore_cursor_events(want_ignore);
-                        println!("clickthrough[{label}] ignore={want_ignore} over={over}");
                     }
                     ignoring.insert(label.clone(), want_ignore);
                 }

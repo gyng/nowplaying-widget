@@ -26,9 +26,15 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::{connect_async, connect_async_tls_with_config, Connector};
 
+use crate::log;
 use crate::sensors::{SensorSample, SensorValue, TELEMETRY_EVENT};
 
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
+
+/// The concrete tungstenite stream type, so the connector helper can be shared (returning a
+/// generic `impl Stream + Sink` across an `if` is awkward; a named alias keeps it simple).
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Server-side HA config. The token stays in this struct and on disk only — never
 /// serialized back to the webview (see `HaStatus` / `ha_config_status`).
@@ -41,14 +47,28 @@ pub struct HaConfig {
     /// existing `ha.json` files (which omit it) strict.
     #[serde(default)]
     pub insecure: bool,
+    /// Reverse-proxy subpath (e.g. `/homeassistant`), or empty for the host root (default).
+    /// `#[serde(default)]` keeps existing `ha.json` files valid. Only set when the proxy forwards
+    /// the prefix unmodified — most strip it, so leave blank.
+    #[serde(default)]
+    pub base_path: String,
 }
 
-/// What the webview is allowed to learn about the config: whether it exists and the URL.
-/// Deliberately omits the token.
+/// What the webview is allowed to learn about the config: whether it exists, the URL, and the
+/// (non-secret) self-signed opt-in so the settings form can reflect it. Deliberately omits the token.
 #[derive(Debug, Serialize)]
 pub struct HaStatus {
     pub configured: bool,
     pub url: Option<String>,
+    pub insecure: bool,
+    pub base_path: String,
+}
+
+/// Result of a successful WS auth handshake — the server version, for a friendly "connected to
+/// Home Assistant 2026.x" message. The token is an INPUT only and is never echoed back here.
+#[derive(Debug, Serialize)]
+pub struct HaTestResult {
+    pub ha_version: Option<String>,
 }
 
 /// One HA entity row for the inspector's sensor dropdown. The widget binds to the sensor
@@ -59,6 +79,42 @@ pub struct HaEntity {
     pub state: String,
     pub friendly_name: Option<String>,
     pub unit: Option<String>,
+}
+
+/// Registry rows (from the WS `config/*_registry/list` commands) for the area > device > entity
+/// browser. These carry STRUCTURE + names only; `device_class`/`unit`/`friendly_name` come from
+/// the live STATE (the frontend joins the two). The pure tree builder lives in core/haRegistry.ts.
+#[derive(Debug, Serialize)]
+pub struct HaArea {
+    pub area_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HaDevice {
+    pub id: String,
+    pub name: Option<String>, // name_by_user ?? name
+    pub area_id: Option<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HaEntityReg {
+    pub entity_id: String,
+    pub device_id: Option<String>,
+    pub area_id: Option<String>,
+    pub name: Option<String>,          // user override (may be null)
+    pub original_name: Option<String>, // integration-provided default name
+    pub platform: Option<String>,
+}
+
+/// The three registries in one snapshot, so the frontend can build the area > device > entity tree.
+#[derive(Debug, Serialize)]
+pub struct HaRegistry {
+    pub areas: Vec<HaArea>,
+    pub devices: Vec<HaDevice>,
+    pub entities: Vec<HaEntityReg>,
 }
 
 /// Managed state: the running WS task (None when disconnected). Guards against a second
@@ -94,10 +150,21 @@ pub fn load_ha_config<R: Runtime>(app: &AppHandle<R>) -> Result<Option<HaConfig>
 
 // ---- pure seams (unit-tested, no I/O) ----
 
+/// Normalize an optional reverse-proxy base path to `""` or `/foo` (leading slash, no trailing).
+/// Empty (the default) means HA is served at the host root — the common case. Only set this when a
+/// proxy FORWARDS the prefix unmodified (most strip it, so leave it blank — see HaSettings help).
+fn norm_base(base: &str) -> String {
+    let t = base.trim().trim_matches('/');
+    if t.is_empty() {
+        String::new()
+    } else {
+        format!("/{t}")
+    }
+}
+
 /// Derive the WebSocket URL from the configured HTTP base: `http`→`ws`, `https`→`wss`,
-/// strip a trailing slash, append `/api/websocket`. (Reverse-proxy subpaths are out of
-/// scope for v1.)
-fn ws_url_from(url: &str) -> String {
+/// strip a trailing slash, append `<base>/api/websocket`.
+fn ws_url_from(url: &str, base: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     let (scheme, rest) = if let Some(r) = trimmed.strip_prefix("https://") {
         ("wss://", r)
@@ -110,12 +177,12 @@ fn ws_url_from(url: &str) -> String {
     } else {
         ("ws://", trimmed)
     };
-    format!("{scheme}{rest}/api/websocket")
+    format!("{scheme}{rest}{}/api/websocket", norm_base(base))
 }
 
-/// The REST base URL (trailing slash stripped) for `/api/...` calls.
-fn rest_base(url: &str) -> String {
-    url.trim().trim_end_matches('/').to_string()
+/// The REST base URL (trailing slash stripped, base path appended) for `/api/...` calls.
+fn rest_base(url: &str, base: &str) -> String {
+    format!("{}{}", url.trim().trim_end_matches('/'), norm_base(base))
 }
 
 /// A reqwest client honouring the `insecure` opt-in. A normal config builds an ordinary
@@ -155,6 +222,21 @@ fn state_to_samples(entity_id: &str, new_state: &Value, ts_ms: u64) -> Option<Ve
     Some(out)
 }
 
+/// Classify an auth-phase frame: `Some(Ok)` on `auth_ok` (capturing `ha_version`), `Some(Err)`
+/// on `auth_invalid`, `None` for any other frame (keep reading). Pure — unit-tested without I/O.
+fn auth_outcome(v: &Value) -> Option<Result<HaTestResult, String>> {
+    match v["type"].as_str() {
+        Some("auth_ok") => Some(Ok(HaTestResult {
+            ha_version: v["ha_version"].as_str().map(String::from),
+        })),
+        Some("auth_invalid") => {
+            let m = v["message"].as_str().unwrap_or("invalid access token");
+            Some(Err(format!("auth_invalid: {m}")))
+        }
+        _ => None,
+    }
+}
+
 /// Project a `/api/states` row into the inspector's `HaEntity`. `None` if it has no id.
 fn entity_from_state(state: &Value) -> Option<HaEntity> {
     Some(HaEntity {
@@ -166,6 +248,42 @@ fn entity_from_state(state: &Value) -> Option<HaEntity> {
         unit: state["attributes"]["unit_of_measurement"]
             .as_str()
             .map(String::from),
+    })
+}
+
+/// Project a `config/area_registry/list` row. `None` if it has no id. HA may send `name` as null
+/// for an unnamed area (rare); fall back to the id so the tree always has a label.
+fn area_from(v: &Value) -> Option<HaArea> {
+    let area_id = v["area_id"].as_str()?.to_string();
+    let name = v["name"].as_str().unwrap_or(&area_id).to_string();
+    Some(HaArea { area_id, name })
+}
+
+/// Project a `config/device_registry/list` row. `None` if it has no id. Prefers the user-set
+/// `name_by_user` over the integration `name`.
+fn device_from(v: &Value) -> Option<HaDevice> {
+    Some(HaDevice {
+        id: v["id"].as_str()?.to_string(),
+        name: v["name_by_user"]
+            .as_str()
+            .or_else(|| v["name"].as_str())
+            .map(String::from),
+        area_id: v["area_id"].as_str().map(String::from),
+        manufacturer: v["manufacturer"].as_str().map(String::from),
+        model: v["model"].as_str().map(String::from),
+    })
+}
+
+/// Project a `config/entity_registry/list` row. `None` if it has no entity id. Keeps both the
+/// user override `name` and the `original_name` so the frontend can apply display-name precedence.
+fn entity_reg_from(v: &Value) -> Option<HaEntityReg> {
+    Some(HaEntityReg {
+        entity_id: v["entity_id"].as_str()?.to_string(),
+        device_id: v["device_id"].as_str().map(String::from),
+        area_id: v["area_id"].as_str().map(String::from),
+        name: v["name"].as_str().map(String::from),
+        original_name: v["original_name"].as_str().map(String::from),
+        platform: v["platform"].as_str().map(String::from),
     })
 }
 
@@ -230,6 +348,85 @@ where
     Err("stream ended during handshake".into())
 }
 
+/// Open the HA WebSocket, honouring the `insecure` self-signed opt-in. Valid certs (and plain
+/// `ws://`) work transparently via the native-tls backend; `insecure` swaps in a connector that
+/// accepts self-signed certs (explicit opt-in only). Shared by the live client and
+/// `ha_test_connection` so the two TLS paths cannot drift.
+async fn connect_ws(ws_url: &str, insecure: bool) -> Result<WsStream, BoxErr> {
+    if insecure {
+        let tls = native_tls::TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()?;
+        let (ws, _resp) =
+            connect_async_tls_with_config(ws_url, None, false, Some(Connector::NativeTls(tls)))
+                .await?;
+        Ok(ws)
+    } else {
+        let (ws, _resp) = connect_async(ws_url).await?;
+        Ok(ws)
+    }
+}
+
+/// Open a short-lived authenticated WS, issue one or more `type`-only commands (ids 1..=n), collect
+/// their `result` payloads in order, then drop the socket. Used for the registry snapshot
+/// (areas/devices/entities) which is request/response, unlike the long-lived streaming task.
+async fn ws_request_many(
+    ws_url: &str,
+    token: &str,
+    insecure: bool,
+    commands: &[&str],
+) -> Result<Vec<Value>, BoxErr> {
+    let mut ws = connect_ws(ws_url, insecure).await?;
+
+    // Auth phase (same handshake as the streaming client).
+    expect_type(&mut ws, "auth_required").await?;
+    ws.send(Message::Text(
+        json!({ "type": "auth", "access_token": token }).to_string(),
+    ))
+    .await?;
+    expect_type(&mut ws, "auth_ok").await?;
+
+    // Issue every command up front; ids are 1-based and map to the request index.
+    for (i, ty) in commands.iter().enumerate() {
+        let id = (i + 1) as u64;
+        ws.send(Message::Text(json!({ "id": id, "type": ty }).to_string()))
+            .await?;
+    }
+
+    // Collect results by id until all are in.
+    let mut results: Vec<Option<Value>> = vec![None; commands.len()];
+    let mut remaining = commands.len();
+    while remaining > 0 {
+        match ws.next().await {
+            Some(msg) => match msg? {
+                Message::Text(txt) => {
+                    let v: Value = serde_json::from_str(&txt)?;
+                    if v["type"] == "result"
+                        && let Some(id) = v["id"].as_u64()
+                    {
+                        let idx = (id as usize).wrapping_sub(1);
+                        if idx < results.len() && results[idx].is_none() {
+                            if v["success"].as_bool().unwrap_or(false) {
+                                results[idx] = Some(v["result"].clone());
+                            } else {
+                                let code = v["error"]["code"].as_str().unwrap_or("unknown");
+                                return Err(format!("{} failed: {code}", commands[idx]).into());
+                            }
+                            remaining -= 1;
+                        }
+                    }
+                }
+                Message::Ping(p) => ws.send(Message::Pong(p)).await?,
+                Message::Close(_) => return Err("connection closed during registry fetch".into()),
+                _ => {}
+            },
+            None => return Err("stream ended during registry fetch".into()),
+        }
+    }
+    Ok(results.into_iter().map(|r| r.unwrap_or(Value::Null)).collect())
+}
+
 /// One connection lifecycle: connect → auth → seed snapshot → subscribe → stream events.
 /// Returns `Ok` on a clean close, `Err` on any failure (the caller backs off + retries).
 async fn connect_and_stream<R: Runtime>(
@@ -238,17 +435,7 @@ async fn connect_and_stream<R: Runtime>(
     token: &str,
     insecure: bool,
 ) -> Result<(), BoxErr> {
-    // Valid certs (and plain `ws://`) are handled transparently by the native-tls backend.
-    // `insecure` swaps in a connector that accepts self-signed certs — explicit opt-in only.
-    let (mut ws, _resp) = if insecure {
-        let tls = native_tls::TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .danger_accept_invalid_hostnames(true)
-            .build()?;
-        connect_async_tls_with_config(ws_url, None, false, Some(Connector::NativeTls(tls))).await?
-    } else {
-        connect_async(ws_url).await?
-    };
+    let mut ws = connect_ws(ws_url, insecure).await?;
 
     // Auth phase: frames carry no id. auth_required → auth → auth_ok (auth_invalid is fatal).
     expect_type(&mut ws, "auth_required").await?;
@@ -287,7 +474,10 @@ async fn connect_and_stream<R: Runtime>(
                             if id == Some(sub_id) {
                                 return Err(format!("subscribe_events failed: {code}").into());
                             }
-                            eprintln!("HA result error (id {id:?}): {code}");
+                            log::warn("ha", "result error")
+                                .field("id", format!("{id:?}"))
+                                .field("code", code)
+                                .emit();
                         }
                     }
                     Some("event") if v["event"]["event_type"] == "state_changed" => {
@@ -314,7 +504,7 @@ async fn connect_and_stream<R: Runtime>(
 /// considered healthy (so an auth-then-immediate-close flap can't pin a 1s hammer loop).
 /// Runs until the task is aborted by `ha_disconnect`.
 pub async fn run_ha_client<R: Runtime>(app: AppHandle<R>, cfg: HaConfig) {
-    let ws_url = ws_url_from(&cfg.url);
+    let ws_url = ws_url_from(&cfg.url, &cfg.base_path);
     let mut backoff = Duration::from_secs(1);
     const STABLE: Duration = Duration::from_secs(30);
     const CAP: Duration = Duration::from_secs(30);
@@ -324,7 +514,7 @@ pub async fn run_ha_client<R: Runtime>(app: AppHandle<R>, cfg: HaConfig) {
         match connect_and_stream(&app, &ws_url, &cfg.token, cfg.insecure).await {
             Ok(()) => emit_status(&app, "disconnected"),
             Err(err) => {
-                eprintln!("HA client error: {err}");
+                log::warn("ha", "client error").field("error", err).emit();
                 emit_status(&app, "error");
             }
         }
@@ -346,18 +536,69 @@ pub async fn save_ha_config<R: Runtime>(
     url: String,
     token: String,
     insecure: Option<bool>,
+    base_path: Option<String>,
 ) -> Result<(), String> {
     let path = ha_config_path(&app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    // A blank token means "keep the existing one" — the UI never reads the token back (it is
+    // write-only), so editing just the URL/insecure must not silently wipe a saved token.
+    let token = if token.is_empty() {
+        load_ha_config(&app)?.map(|c| c.token).unwrap_or_default()
+    } else {
+        token
+    };
     let cfg = HaConfig {
         url,
         token,
         insecure: insecure.unwrap_or(false),
+        base_path: base_path.unwrap_or_default(),
     };
     let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     std::fs::write(&path, txt).map_err(|e| e.to_string())
+}
+
+/// Validate an UNSAVED url/token/insecure combination by running the WS auth handshake, so the
+/// config UI can tell "bad token" / "cert not trusted" / "unreachable" apart before persisting.
+/// Takes params (not `ha.json`) and uses a throwaway socket that closes when this returns (the
+/// stream is dropped). Reuses the same `connect_ws` + `expect_type` seams as the live client.
+#[tauri::command]
+pub async fn ha_test_connection<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    token: String,
+    insecure: Option<bool>,
+    base_path: Option<String>,
+) -> Result<HaTestResult, String> {
+    // Blank token = "test with the already-saved token" (the UI can't hold it — write-only), so
+    // the user can validate a changed URL/insecure against their existing credential.
+    let token = if token.is_empty() {
+        load_ha_config(&app)?.map(|c| c.token).unwrap_or_default()
+    } else {
+        token
+    };
+    if token.is_empty() {
+        return Err("no access token — enter one to test".into());
+    }
+    let ws_url = ws_url_from(&url, &base_path.unwrap_or_default());
+    let mut ws = connect_ws(&ws_url, insecure.unwrap_or(false))
+        .await
+        .map_err(|e| format!("could not connect: {e}"))?;
+    expect_type(&mut ws, "auth_required")
+        .await
+        .map_err(|e| e.to_string())?;
+    let auth = json!({ "type": "auth", "access_token": token }).to_string();
+    ws.send(Message::Text(auth)).await.map_err(|e| e.to_string())?;
+    while let Some(msg) = ws.next().await {
+        if let Message::Text(txt) = msg.map_err(|e| e.to_string())? {
+            let v: Value = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
+            if let Some(outcome) = auth_outcome(&v) {
+                return outcome; // `ws` is dropped here, closing the throwaway socket.
+            }
+        }
+    }
+    Err("connection closed during authentication".into())
 }
 
 /// Whether HA is configured + its URL — NEVER the token.
@@ -367,10 +608,14 @@ pub fn ha_config_status<R: Runtime>(app: AppHandle<R>) -> Result<HaStatus, Strin
         Some(cfg) => Ok(HaStatus {
             configured: true,
             url: Some(cfg.url),
+            insecure: cfg.insecure,
+            base_path: cfg.base_path,
         }),
         None => Ok(HaStatus {
             configured: false,
             url: None,
+            insecure: false,
+            base_path: String::new(),
         }),
     }
 }
@@ -413,7 +658,7 @@ pub async fn list_ha_entities<R: Runtime>(app: AppHandle<R>) -> Result<Vec<HaEnt
     let cfg = load_ha_config(&app)?.ok_or("HA not configured")?;
     let client = ha_http_client(cfg.insecure)?;
     let resp = client
-        .get(format!("{}/api/states", rest_base(&cfg.url)))
+        .get(format!("{}/api/states", rest_base(&cfg.url, &cfg.base_path)))
         .bearer_auth(&cfg.token)
         .send()
         .await
@@ -423,6 +668,33 @@ pub async fn list_ha_entities<R: Runtime>(app: AppHandle<R>) -> Result<Vec<HaEnt
     }
     let states: Vec<Value> = resp.json().await.map_err(|e| e.to_string())?;
     Ok(states.iter().filter_map(entity_from_state).collect())
+}
+
+/// The HA registries (areas, devices, entities) over a short-lived WS, for the area > device >
+/// entity browser. WS-only commands (no REST equivalent). Token stays server-side; the returned
+/// rows carry no secrets. The frontend joins these with live states into the tree.
+#[tauri::command]
+pub async fn ha_registry_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<HaRegistry, String> {
+    let cfg = load_ha_config(&app)?.ok_or("HA not configured")?;
+    let ws_url = ws_url_from(&cfg.url, &cfg.base_path);
+    let results = ws_request_many(
+        &ws_url,
+        &cfg.token,
+        cfg.insecure,
+        &[
+            "config/area_registry/list",
+            "config/device_registry/list",
+            "config/entity_registry/list",
+        ],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let as_rows = |v: &Value| v.as_array().cloned().unwrap_or_default();
+    Ok(HaRegistry {
+        areas: as_rows(&results[0]).iter().filter_map(area_from).collect(),
+        devices: as_rows(&results[1]).iter().filter_map(device_from).collect(),
+        entities: as_rows(&results[2]).iter().filter_map(entity_reg_from).collect(),
+    })
 }
 
 /// Call an HA service (REST `POST /api/services/<domain>/<service>`). `data` is the body
@@ -444,7 +716,7 @@ pub async fn ha_call_service<R: Runtime>(
     let resp = client
         .post(format!(
             "{}/api/services/{}/{}",
-            rest_base(&cfg.url),
+            rest_base(&cfg.url, &cfg.base_path),
             domain,
             service
         ))
@@ -466,31 +738,44 @@ mod tests {
     #[test]
     fn ws_url_maps_scheme_and_appends_path() {
         assert_eq!(
-            ws_url_from("http://homeassistant.local:8123"),
+            ws_url_from("http://homeassistant.local:8123", ""),
             "ws://homeassistant.local:8123/api/websocket"
         );
         assert_eq!(
-            ws_url_from("https://ha.example.com"),
+            ws_url_from("https://ha.example.com", ""),
             "wss://ha.example.com/api/websocket"
         );
     }
 
     #[test]
     fn ws_url_strips_trailing_slash_and_passes_ws_schemes() {
-        assert_eq!(
-            ws_url_from("http://ha:8123/"),
-            "ws://ha:8123/api/websocket"
-        );
-        assert_eq!(ws_url_from("ws://ha:8123"), "ws://ha:8123/api/websocket");
-        assert_eq!(ws_url_from("wss://ha:8123/"), "wss://ha:8123/api/websocket");
+        assert_eq!(ws_url_from("http://ha:8123/", ""), "ws://ha:8123/api/websocket");
+        assert_eq!(ws_url_from("ws://ha:8123", ""), "ws://ha:8123/api/websocket");
+        assert_eq!(ws_url_from("wss://ha:8123/", ""), "wss://ha:8123/api/websocket");
         // No scheme defaults to ws://.
-        assert_eq!(ws_url_from("ha:8123"), "ws://ha:8123/api/websocket");
+        assert_eq!(ws_url_from("ha:8123", ""), "ws://ha:8123/api/websocket");
+    }
+
+    #[test]
+    fn ws_url_and_rest_base_apply_a_reverse_proxy_subpath() {
+        // Base path is normalized (leading slash, no trailing) and inserted before /api/...
+        assert_eq!(
+            ws_url_from("https://h", "homeassistant"),
+            "wss://h/homeassistant/api/websocket"
+        );
+        assert_eq!(
+            ws_url_from("https://h/", "/homeassistant/"),
+            "wss://h/homeassistant/api/websocket"
+        );
+        assert_eq!(rest_base("https://h", "ha"), "https://h/ha");
+        // Empty base = host root (the common case).
+        assert_eq!(rest_base("https://h/", ""), "https://h");
     }
 
     #[test]
     fn rest_base_strips_trailing_slash() {
-        assert_eq!(rest_base("http://ha:8123/"), "http://ha:8123");
-        assert_eq!(rest_base("http://ha:8123"), "http://ha:8123");
+        assert_eq!(rest_base("http://ha:8123/", ""), "http://ha:8123");
+        assert_eq!(rest_base("http://ha:8123", ""), "http://ha:8123");
     }
 
     #[test]
@@ -540,15 +825,18 @@ mod tests {
 
     #[test]
     fn config_insecure_defaults_false_and_round_trips() {
-        // An existing ha.json without `insecure` must still parse (strict by default).
+        // An existing ha.json without `insecure`/`base_path` must still parse (defaults applied).
         let legacy: HaConfig =
             serde_json::from_str(r#"{ "url": "http://ha:8123", "token": "t" }"#).unwrap();
         assert!(!legacy.insecure);
-        // And the opt-in is honoured when present.
-        let optin: HaConfig =
-            serde_json::from_str(r#"{ "url": "https://ha:8123", "token": "t", "insecure": true }"#)
-                .unwrap();
+        assert_eq!(legacy.base_path, "");
+        // And the opt-ins are honoured when present.
+        let optin: HaConfig = serde_json::from_str(
+            r#"{ "url": "https://ha:8123", "token": "t", "insecure": true, "base_path": "/ha" }"#,
+        )
+        .unwrap();
         assert!(optin.insecure);
+        assert_eq!(optin.base_path, "/ha");
     }
 
     #[test]
@@ -556,10 +844,90 @@ mod tests {
         let v = serde_json::to_value(HaStatus {
             configured: true,
             url: Some("http://ha:8123".to_string()),
+            insecure: true,
+            base_path: "/ha".to_string(),
         })
         .unwrap();
         assert!(v.get("token").is_none());
         assert_eq!(v["configured"], true);
         assert_eq!(v["url"], "http://ha:8123");
+        assert_eq!(v["insecure"], true);
+        assert_eq!(v["base_path"], "/ha");
+    }
+
+    #[test]
+    fn auth_outcome_classifies_handshake_frames() {
+        // auth_ok carries the server version.
+        let ok = auth_outcome(&json!({ "type": "auth_ok", "ha_version": "2026.6.0" }))
+            .unwrap()
+            .unwrap();
+        assert_eq!(ok.ha_version.as_deref(), Some("2026.6.0"));
+
+        // auth_ok without a version is still a success.
+        let ok2 = auth_outcome(&json!({ "type": "auth_ok" })).unwrap().unwrap();
+        assert!(ok2.ha_version.is_none());
+
+        // auth_invalid maps to a descriptive error (so the UI can say "bad token").
+        let err = auth_outcome(&json!({ "type": "auth_invalid", "message": "Invalid access token" }))
+            .unwrap()
+            .unwrap_err();
+        assert!(err.contains("auth_invalid"));
+        assert!(err.contains("Invalid access token"));
+
+        // Any other frame → keep reading (None).
+        assert!(auth_outcome(&json!({ "type": "auth_required" })).is_none());
+        assert!(auth_outcome(&json!({ "type": "result", "id": 1 })).is_none());
+    }
+
+    #[test]
+    fn registry_projections_map_names_and_relationships() {
+        // Area: name present.
+        let a = area_from(&json!({ "area_id": "living", "name": "Living Room" })).unwrap();
+        assert_eq!(a.area_id, "living");
+        assert_eq!(a.name, "Living Room");
+        // Area: null name falls back to the id (so the tree always has a label).
+        let a2 = area_from(&json!({ "area_id": "x", "name": Value::Null })).unwrap();
+        assert_eq!(a2.name, "x");
+        assert!(area_from(&json!({ "name": "no id" })).is_none());
+
+        // Device: name_by_user wins over name; area + maker captured.
+        let d = device_from(&json!({
+            "id": "dev1", "name": "Hue bulb", "name_by_user": "Lamp",
+            "area_id": "living", "manufacturer": "Signify", "model": "LCT001"
+        }))
+        .unwrap();
+        assert_eq!(d.id, "dev1");
+        assert_eq!(d.name.as_deref(), Some("Lamp"));
+        assert_eq!(d.area_id.as_deref(), Some("living"));
+        assert_eq!(d.manufacturer.as_deref(), Some("Signify"));
+        // Device: no name_by_user → falls back to name; missing area is None.
+        let d2 = device_from(&json!({ "id": "dev2", "name": "Sensor" })).unwrap();
+        assert_eq!(d2.name.as_deref(), Some("Sensor"));
+        assert!(d2.area_id.is_none());
+        assert!(device_from(&json!({ "name": "no id" })).is_none());
+
+        // Entity registry: keeps both name + original_name and the device/area links.
+        let e = entity_reg_from(&json!({
+            "entity_id": "light.kitchen", "device_id": "dev1", "area_id": Value::Null,
+            "name": Value::Null, "original_name": "Kitchen", "platform": "hue"
+        }))
+        .unwrap();
+        assert_eq!(e.entity_id, "light.kitchen");
+        assert_eq!(e.device_id.as_deref(), Some("dev1"));
+        assert!(e.area_id.is_none());
+        assert!(e.name.is_none());
+        assert_eq!(e.original_name.as_deref(), Some("Kitchen"));
+        assert_eq!(e.platform.as_deref(), Some("hue"));
+        assert!(entity_reg_from(&json!({ "name": "no id" })).is_none());
+    }
+
+    #[test]
+    fn test_result_never_serializes_a_token() {
+        let v = serde_json::to_value(HaTestResult {
+            ha_version: Some("2026.6.0".to_string()),
+        })
+        .unwrap();
+        assert!(v.get("token").is_none());
+        assert_eq!(v["ha_version"], "2026.6.0");
     }
 }

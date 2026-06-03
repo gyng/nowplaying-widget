@@ -6,7 +6,7 @@ use notify::Watcher;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-use crate::{AppState, SessionRecord};
+use crate::{log, AppState, SessionRecord};
 
 #[derive(Serialize)]
 pub struct UpdateResponse {
@@ -48,6 +48,35 @@ pub async fn load_layout(app: tauri::AppHandle) -> Result<Option<String>, String
 #[tauri::command]
 pub async fn save_layout(app: tauri::AppHandle, contents: String) -> Result<(), String> {
     let path = layout_path(&app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
+/// Path to the persisted control remaps (`controls.json` in the app config dir).
+fn controls_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("controls.json"))
+}
+
+/// Read the saved control overrides, or `None` if none saved yet. The frontend validates/parses
+/// the contents (core/controls.ts `parseControlOverrides`) so this stays dumb I/O — mirrors
+/// `load_layout`, and an absent/garbage file simply falls back to the code defaults.
+#[tauri::command]
+pub async fn load_controls(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = controls_path(&app)?;
+    match fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+/// Write the control overrides file, creating the config directory if needed.
+#[tauri::command]
+pub async fn save_controls(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    let path = controls_path(&app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -256,12 +285,14 @@ pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
         }) {
             Ok(watcher) => watcher,
             Err(err) => {
-                eprintln!("themes watcher init failed: {err}");
+                log::error("watch", "themes watcher init failed")
+                    .field("error", err)
+                    .emit();
                 return;
             }
         };
         if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            eprintln!("themes watch failed: {err}");
+            log::error("watch", "themes watch failed").field("error", err).emit();
             return;
         }
         for res in rx {
@@ -269,7 +300,7 @@ pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
                 Ok(_) => {
                     let _ = app.emit("themes_changed", ());
                 }
-                Err(err) => eprintln!("themes watch error: {err}"),
+                Err(err) => log::warn("watch", "themes watch error").field("error", err).emit(),
             }
         }
     });
@@ -294,12 +325,14 @@ pub fn watch_layout(app: tauri::AppHandle) -> Result<(), String> {
         }) {
             Ok(watcher) => watcher,
             Err(err) => {
-                eprintln!("layout watcher init failed: {err}");
+                log::error("watch", "layout watcher init failed")
+                    .field("error", err)
+                    .emit();
                 return;
             }
         };
         if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            eprintln!("layout watch failed: {err}");
+            log::error("watch", "layout watch failed").field("error", err).emit();
             return;
         }
         // Keep `watcher` alive by blocking on the channel for the app's lifetime.
@@ -310,7 +343,49 @@ pub fn watch_layout(app: tauri::AppHandle) -> Result<(), String> {
                         let _ = app.emit("layout_changed", ());
                     }
                 }
-                Err(err) => eprintln!("layout watch error: {err}"),
+                Err(err) => log::warn("watch", "layout watch error").field("error", err).emit(),
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Watch the config dir for changes to controls.json and emit `controls_changed` so the frontend
+/// can live-reload remaps (e.g. an external edit, or another window saving). Mirrors `watch_layout`.
+pub fn watch_controls(app: tauri::AppHandle) -> Result<(), String> {
+    let path = controls_path(&app)?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| "controls path has no parent".to_string())?
+        .to_path_buf();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    std::thread::spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            let _ = tx.send(res);
+        }) {
+            Ok(watcher) => watcher,
+            Err(err) => {
+                log::error("watch", "controls watcher init failed")
+                    .field("error", err)
+                    .emit();
+                return;
+            }
+        };
+        if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+            log::error("watch", "controls watch failed").field("error", err).emit();
+            return;
+        }
+        for res in rx {
+            match res {
+                Ok(event) => {
+                    if event.paths.iter().any(|p| p.file_name() == path.file_name()) {
+                        let _ = app.emit("controls_changed", ());
+                    }
+                }
+                Err(err) => log::warn("watch", "controls watch error").field("error", err).emit(),
             }
         }
     });

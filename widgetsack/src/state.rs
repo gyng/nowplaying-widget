@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::SystemTime};
 
 use serde::Serialize;
 
-use crate::{event::NpSessionEvent, ManagerEventWrapper, SessionUpdateEventWrapper};
+use crate::{event::NpSessionEvent, log, ManagerEventWrapper, SessionUpdateEventWrapper};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionRecord {
@@ -35,9 +35,9 @@ pub fn updater(
             ("session_create", Some(new_record))
         }
         NpSessionEvent::Create(_session_id_dupe, ev) => {
-            eprintln!(
-                "Got a ManagerEvent::SessionRemoved or CurrentSessionChanged for MpSessionEvent::Create {:?}", ev
-            );
+            log::warn("session", "unexpected manager event for Create")
+                .field("event", format!("{ev:?}"))
+                .emit();
             ("session_create", None)
         }
         NpSessionEvent::Update(session_id, ev) => {
@@ -97,7 +97,10 @@ pub fn updater(
             }
         }
         NpSessionEvent::Unsupported(session_id, label) => {
-            println!("Unsupported event {label}, session_id={:?}", session_id);
+            log::debug("gsmtc", "unsupported event")
+                .field("label", &label)
+                .field("session_id", format!("{session_id:?}"))
+                .emit();
             ("unsupported", None)
         }
     }

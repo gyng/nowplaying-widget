@@ -5,6 +5,7 @@ use tauri::Emitter;
 
 use crate::{
     listener::{ManagerEventWrapper, SessionUpdateEventWrapper},
+    log,
     state::SessionRecord,
 };
 
@@ -18,7 +19,9 @@ pub fn emit_to_bridge<R: tauri::Runtime>(
         }
         (event_type, None) => {
             // FIXME: Might not be true in all cases
-            println!("Skipped emitting event {event_type} as there is no attached SessionRecord");
+            log::debug("bridge", "skipped emit: no session record")
+                .field("event_type", event_type)
+                .emit();
         }
     };
 }

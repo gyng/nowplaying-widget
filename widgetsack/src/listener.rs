@@ -5,6 +5,7 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use crate::event::NpSessionEvent;
+use crate::log;
 
 pub async fn session_listener_windows_gsmtc(
     mut manager_rx: mpsc::UnboundedReceiver<ManagerEvent>,
@@ -23,32 +24,23 @@ pub async fn session_listener_windows_gsmtc(
                     source: source.clone(),
                 };
 
-                println!("Created session: {{id={session_id}, {:?}}}", evt_wrapper);
+                log::info("gsmtc", "session created")
+                    .field("session_id", session_id)
+                    .field("source", &source)
+                    .emit();
 
-                let res_create = tx.send(evt_wrapper.into()).await;
-                println!(
-                    "send create session event x={session_id} res={:?}",
-                    res_create.is_ok()
-                );
+                let _ = tx.send(evt_wrapper.into()).await;
 
                 let tx_child = tx.clone();
                 tokio::spawn(async move {
-                    println!("session spawned {{x={session_id}}}");
                     while let Some(evt_update) = rx.recv().await {
-                        println!("rx received!");
                         let evt_update_wrapper: SessionUpdateEventWrapper = evt_update.into();
-
-                        let res_session_update = tx_child
+                        let _ = tx_child
                             .send(NpSessionEvent::from_session_update_event(
                                 evt_update_wrapper,
                                 session_id,
                             ))
                             .await;
-
-                        println!(
-                            "session event x={session_id} res={}",
-                            res_session_update.is_ok()
-                        );
                     }
                 });
             }
@@ -56,22 +48,22 @@ pub async fn session_listener_windows_gsmtc(
                 let evt_wrapper: ManagerEventWrapper =
                     ManagerEventWrapper::SessionRemoved { session_id };
 
-                let res_session_update = tx.send(evt_wrapper.into()).await;
-
-                println!(
-                    "removed session event x={session_id} res={}",
-                    res_session_update.is_ok()
-                );
+                let _ = tx.send(evt_wrapper.into()).await;
+                log::info("gsmtc", "session removed")
+                    .field("session_id", session_id)
+                    .emit();
             }
             ManagerEvent::CurrentSessionChanged {
                 session_id: Some(id),
             } => {
                 // TODO: reset frontend
-                println!("Current session: {id}")
+                log::debug("gsmtc", "current session changed")
+                    .field("session_id", id)
+                    .emit();
             }
             ManagerEvent::CurrentSessionChanged { session_id: None } => {
                 // TODO: clear frontend
-                println!("No more current session");
+                log::debug("gsmtc", "no current session").emit();
             }
         }
     }
