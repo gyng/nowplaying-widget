@@ -1,5 +1,25 @@
 import type { SessionRecord } from '../../../stores/stores';
 
+// Drop sessions whose source is on the ignore list. `ignoreList` is the newline-separated,
+// (already-lowercased) blocklist from the store; a session is hidden if any non-blank line is a
+// substring of its lowercased source — so typing `foobar2000` blocks `foobar2000.exe`. Pure.
+export const filterIgnored = (
+	sessions: Record<number, SessionRecord>,
+	ignoreList: string
+): Record<number, SessionRecord> => {
+	const terms = ignoreList
+		.split('\n')
+		.map((t) => t.trim().toLowerCase())
+		.filter(Boolean);
+	if (!terms.length) return sessions;
+	const kept: Record<number, SessionRecord> = {};
+	for (const [id, rec] of Object.entries(sessions)) {
+		const source = (rec?.source ?? '').toLowerCase();
+		if (!terms.some((t) => source.includes(t))) kept[Number(id)] = rec;
+	}
+	return kept;
+};
+
 export const sortSessionsByPriority = (
 	currentSessions: Record<number, SessionRecord>,
 	sourcePriority: string

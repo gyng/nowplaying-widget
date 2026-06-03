@@ -1,23 +1,41 @@
 .np-ha-light {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
 	justify-content: center;
-	gap: 2px;
+	gap: 4px;
 	width: 100%;
 	height: 100%;
 	padding: 0 10px;
+	box-sizing: border-box;
 	border: 1px solid var(--np-accent, rgba(119, 196, 211, 0.8));
 	border-radius: var(--np-radius, 4px);
 	background: var(--np-bg, rgba(10, 10, 12, 0.6));
 	color: var(--np-fg, #fff);
 	font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
-	cursor: pointer;
 }
 
 .np-ha-light.on {
 	background: var(--np-accent, rgba(119, 196, 211, 0.85));
 	color: var(--np-bg, #0a0a0c);
+}
+
+/* The toggle fills the meter; it carries the click but inherits the root's look (themes target the
+   root + the inner .label/.state parts, unchanged from when the root itself was the button). */
+.np-ha-light .ha-light-toggle {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 2px;
+	flex: 1;
+	min-height: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
 }
 
 .np-ha-light .label {
@@ -30,4 +48,11 @@
 .np-ha-light .state {
 	font-size: 16px;
 	letter-spacing: 1px;
+}
+
+.np-ha-light .ha-light-dim {
+	width: 100%;
+	margin: 0 0 6px;
+	accent-color: var(--np-bg, #0a0a0c);
+	cursor: pointer;
 }

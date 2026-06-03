@@ -30,3 +30,25 @@
 	opacity: 0.6;
 	text-transform: capitalize;
 }
+
+.np-ha-climate .ha-climate-set {
+	display: flex;
+	gap: 4px;
+	margin-top: 2px;
+}
+
+.np-ha-climate .ha-climate-btn {
+	flex: 1;
+	padding: 1px 0;
+	border: 1px solid var(--np-accent, rgba(119, 196, 211, 0.6));
+	border-radius: var(--np-radius, 3px);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.np-ha-climate .ha-climate-btn:hover {
+	background: var(--np-accent, rgba(119, 196, 211, 0.2));
+}

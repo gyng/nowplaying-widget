@@ -28,11 +28,6 @@ describe('createWidget (registry-driven)', () => {
 		expect(w.interactive).toBe(true);
 	});
 
-	it('seeds defaultCss into a new instance (now playing ships its look as editable css)', () => {
-		const w = createWidget('nowplaying', 'np1');
-		expect(w.css).toContain('.np-title');
-	});
-
 	it('falls back to a generic widget for unknown types', () => {
 		const w = createWidget('mystery', 'm1');
 		expect(w).toMatchObject({ id: 'm1', type: 'mystery', config: {} });
@@ -59,14 +54,12 @@ describe('meta registry', () => {
 			'clock',
 			'analogclock',
 			'button',
-			'nowplaying',
 			'cpu'
 		]);
 		expect(getMeta('gauge')).toMatchObject({ label: 'Gauge', binds: 'scalar' });
 		expect(getMeta('sparkline')?.binds).toBe('series');
 		expect(getMeta('clock')?.binds).toBe('none');
 		expect(getMeta('analogclock')).toMatchObject({ label: 'Analog Clock', binds: 'none' });
-		expect(getMeta('nowplaying')?.binds).toBe('none');
 		expect(getMeta('cpu')?.binds).toBe('none');
 	});
 

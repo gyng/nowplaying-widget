@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createTelemetryHub } from './telemetry';
-import { listSources, registerSource, sourceCatalogIds, startAllSources } from './plugin';
+import {
+	listSources,
+	registerSource,
+	sourceCatalogEntries,
+	sourceCatalogIds,
+	startAllSources
+} from './plugin';
 
 describe('sensor sources', () => {
 	it('starts all registered sources against the hub and stops them', async () => {
@@ -38,5 +44,28 @@ describe('sensor sources', () => {
 		expect(ids).toContain('y');
 		expect(ids).toContain('z');
 		expect(ids.filter((i) => i === 'y')).toHaveLength(1);
+	});
+
+	it('sourceCatalogEntries: uses catalogEntries when present, falls back to bare ids, dedupes', () => {
+		registerSource({
+			id: 'rich',
+			start: async () => () => undefined,
+			catalog: () => ['ha.light.kitchen'],
+			catalogEntries: () => [{ id: 'ha.light.kitchen', label: 'Kitchen Light', unit: undefined }]
+		});
+		registerSource({
+			id: 'plain',
+			start: async () => () => undefined,
+			catalog: () => ['cpu.total', 'ha.light.kitchen'] // overlaps 'rich' — first (rich) wins
+		});
+
+		const entries = sourceCatalogEntries();
+		const kitchen = entries.find((e) => e.id === 'ha.light.kitchen');
+		expect(kitchen?.label).toBe('Kitchen Light'); // rich entry kept, not the plain fallback
+		// A catalog-only source contributes a bare-id entry (no label).
+		const cpu = entries.find((e) => e.id === 'cpu.total');
+		expect(cpu).toEqual({ id: 'cpu.total' });
+		// Deduped: one entry per id.
+		expect(entries.filter((e) => e.id === 'ha.light.kitchen')).toHaveLength(1);
 	});
 });

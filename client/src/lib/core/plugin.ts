@@ -6,12 +6,20 @@
 
 import type { TelemetryHub } from './telemetry';
 
+/** A catalog entry with optional display metadata, so the inspector dropdown can show a friendly
+ * label + unit instead of a bare id (e.g. `ha.light.kitchen` → "Kitchen Light"). The `id` is the
+ * value a widget binds to; `label`/`unit` are presentation only. */
+export type SensorCatalogEntry = { id: string; label?: string; unit?: string };
+
 export type SensorSource = {
 	id: string;
 	/** Connect + start ingesting into `hub`; resolve to an unsubscribe/stop function. */
 	start(hub: TelemetryHub): Promise<() => void>;
 	/** Sensor ids this source provides, for the inspector's sensor dropdown (optional). */
 	catalog?: () => string[];
+	/** Richer catalog with display metadata (optional). Sources that implement this drive the
+	 * friendly-labelled dropdown; sources with only `catalog()` fall back to bare-id entries. */
+	catalogEntries?: () => SensorCatalogEntry[];
 };
 
 const sources = new Map<string, SensorSource>();
@@ -46,4 +54,16 @@ export function sourceCatalogIds(): string[] {
 	const out = new Set<string>();
 	for (const s of listSources()) for (const id of s.catalog?.() ?? []) out.add(id);
 	return Array.from(out);
+}
+
+/** The union of every source's catalog ENTRIES (first id wins on collision), for the friendly
+ * dropdown. A source with only `catalog()` contributes bare-id entries, so this is a superset-safe
+ * replacement for `sourceCatalogIds` when display metadata is wanted. */
+export function sourceCatalogEntries(): SensorCatalogEntry[] {
+	const byId = new Map<string, SensorCatalogEntry>();
+	for (const s of listSources()) {
+		const entries = s.catalogEntries?.() ?? (s.catalog?.() ?? []).map((id) => ({ id }));
+		for (const e of entries) if (!byId.has(e.id)) byId.set(e.id, e);
+	}
+	return Array.from(byId.values());
 }

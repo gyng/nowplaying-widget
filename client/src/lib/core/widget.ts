@@ -54,13 +54,37 @@ export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 	overflow: hidden;
 	font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 	color: var(--np-fg, rgb(255, 255, 255));
+	/* Play/pause fade (ported from the original widget): dim when not playing, full on hover. */
+	transition: opacity 0.2s ease-in;
 }
-.np-thumb {
+.np-nowplaying[data-playing='false'] {
+	opacity: 0.2;
+}
+.np-nowplaying[data-playing='false']:hover {
+	opacity: 1;
+}
+/* Crossfade: album-art layers overlap in the stack; on a track change the new cover fades in over
+   the previous one (removed once it has loaded), so a song change never flashes empty/black. */
+.np-thumb-stack {
+	position: relative;
 	flex: 1 1 0;
 	min-height: 0;
 	width: 100%;
+}
+.np-thumb {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
 	object-fit: contain;
 	object-position: left;
+	/* Crossfade: a snappy opacity fade only (no scaling). */
+	opacity: 0;
+	transition: opacity 0.12s ease-out;
+	will-change: opacity;
+}
+.np-thumb[data-loaded='true'] {
+	opacity: 1;
 }
 .np-title,
 .np-artist {
@@ -234,16 +258,6 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultConfig: { label: 'tap' },
 		interactive: true,
 		configFields: [text('label', 'label')]
-	},
-	{
-		// Self-sourcing media widget: subscribes to the GSMTC media feed internally (binds:none).
-		type: 'nowplaying',
-		binds: 'none',
-		label: 'Now Playing',
-		defaultSize: { w: 160, h: 200 },
-		defaultConfig: {},
-		defaultCss: NOWPLAYING_DEFAULT_CSS,
-		configFields: [text('label', 'label (when idle)')]
 	},
 	{
 		// Self-sourcing CPU widget: reads cpu.total + cpu.core.* from the hub (binds:none). Toggles

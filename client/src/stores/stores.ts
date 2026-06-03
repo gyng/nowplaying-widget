@@ -37,6 +37,9 @@ export type SavedPosition = {
 export type State = {
 	sessions: Record<string, SessionRecord>;
 	sourcePriority: string;
+	// Newline-separated source ids to hide entirely (lowercased). A session is dropped from the
+	// now-playing selection if any non-blank line is a substring of its source — see filterIgnored.
+	ignoreList: string;
 	styleOverride: string;
 	preferredMonitor: MonitorInfo | null;
 	savedPosition: SavedPosition | null;
@@ -46,6 +49,7 @@ export type State = {
 export type SerializedState = Pick<
 	State,
 	| 'sourcePriority'
+	| 'ignoreList'
 	| 'styleOverride'
 	| 'preferredMonitor'
 	| 'savedPosition'
@@ -103,6 +107,7 @@ export const defaultState: State = {
 	sourcePriority: ['SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify', 'foobar2000.exe']
 		.join('\n')
 		.toLowerCase(),
+	ignoreList: '',
 	styleOverride: '',
 	preferredMonitor: null,
 	savedPosition: null,
@@ -119,6 +124,7 @@ try {
 	const raw = JSON.parse(localMediaStoreSerializedState);
 	localMediaStoreDeserializedState = {
 		sourcePriority: raw.sourcePriority,
+		ignoreList: raw.ignoreList ?? '',
 		styleOverride: raw.styleOverride,
 		preferredMonitor: raw.preferredMonitor ?? null,
 		savedPosition: raw.savedPosition ?? null,
@@ -139,6 +145,7 @@ export const mediaStore = createStore<State>(initialState);
 function persist(value: State): void {
 	const toSerialize: SerializedState = {
 		sourcePriority: value.sourcePriority,
+		ignoreList: value.ignoreList,
 		styleOverride: value.styleOverride,
 		preferredMonitor: value.preferredMonitor,
 		savedPosition: value.savedPosition,
@@ -156,11 +163,7 @@ mediaStore.subscribe(() => persist(mediaStore.getSnapshot()));
 
 export type HandleInitializeOpts = { sessions: Record<number, SessionRecord> };
 export function handleInitialize(opts: HandleInitializeOpts) {
-	console.log('store handling session initialization');
-	if (!opts) {
-		console.log('skipping initialization');
-		return;
-	}
+	if (!opts) return;
 
 	mediaStore.update((cur) => {
 		return {
@@ -174,7 +177,6 @@ export type HandleUpdateOpts = {
 	sessionRecord: SessionRecord;
 };
 export function handleUpdate(opts: HandleUpdateOpts) {
-	console.log('store handling update');
 	mediaStore.update((cur) => {
 		return {
 			...cur,
@@ -190,7 +192,6 @@ export type HandleDeleteOpts = {
 	sessionRecord: SessionRecord;
 };
 export function handleDelete(opts: HandleDeleteOpts) {
-	console.log('store handling delete');
 	mediaStore.update((cur) => {
 		const copy = { ...cur };
 		const copySessions = copy.sessions;

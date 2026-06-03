@@ -6,6 +6,7 @@
 
 import { registerPlugin } from '../plugin';
 import { haSource } from './ha-source';
+import HaSettings from './HaSettings';
 import HaSensor from '../meters/HaSensor';
 import HaLight from '../meters/HaLight';
 import HaClimate from '../meters/HaClimate';
@@ -17,7 +18,10 @@ import type { MeterComponent } from '../registry';
 registerPlugin({
 	id: 'home-assistant',
 	name: 'Home Assistant',
+	description:
+		'Sensors, lights and climate from Home Assistant. Configured server-side via plugins/ha.json.',
 	sources: [haSource],
+	settings: HaSettings,
 	widgets: [
 		{
 			meta: {
@@ -47,7 +51,8 @@ registerPlugin({
 				type: 'ha.climate',
 				binds: 'json',
 				label: 'HA Climate',
-				defaultSize: { w: 160, h: 58 },
+				interactive: true,
+				defaultSize: { w: 160, h: 72 },
 				defaultConfig: {},
 				configFields: [{ key: 'label', label: 'label', kind: 'text' }]
 			},

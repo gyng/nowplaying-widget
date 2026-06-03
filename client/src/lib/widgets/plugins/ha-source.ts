@@ -4,32 +4,51 @@
 // ingested by the built-in `system` source's listener, unchanged. So this source only
 // flips the connection on/off and provides the entity catalog for the inspector dropdown;
 // it never opens a socket or sees the token (the more-secure model, locked 2026-06-02).
+//
+// The catalog is curated by the user's "exposed" allowlist (ha-exposed-store): once any entity
+// is exposed, only those surface in the dropdown; an empty allowlist shows everything (opt-in).
 
-import { invoke } from '@tauri-apps/api/core';
-import type { SensorSource } from '../../core/plugin';
+import type { SensorSource, SensorCatalogEntry } from '../../core/plugin';
+import { curate } from '../../core/haExposed';
+import { haConnect, haDisconnect, listHaEntities } from './ha-commands';
+import type { HaEntity } from './ha-types';
+import { haExposedStore } from './ha-exposed-store';
 
-type HaEntity = { entity_id: string; state: string; friendly_name?: string; unit?: string };
+// Full entities cached from the last catalog fetch, so the dropdown can show friendly names +
+// units synchronously alongside the live system sensors. The entity browser reads the same cache.
+let cachedEntities: HaEntity[] = [];
 
-// Entity ids cached from the last catalog fetch, so the inspector dropdown can list HA
-// sensors synchronously alongside the live system sensors.
-let cachedIds: string[] = [];
+const allEntries = (): SensorCatalogEntry[] =>
+	cachedEntities.map((e) => ({
+		id: `ha.${e.entity_id}`,
+		label: e.friendly_name ?? e.entity_id,
+		unit: e.unit
+	}));
+
+/** Re-fetch the entity catalog (used by the settings panel's Refresh, and at source start), so
+ * entities added in HA after launch appear without a restart. Connects first (idempotent), then
+ * caches the entities. Silent on failure (not configured / unreachable) — keeps the prior cache.
+ * Returns the current cache so the browser can render it. */
+export async function refreshHaCatalog(): Promise<HaEntity[]> {
+	try {
+		// Spawns the server-side WS task iff plugins/ha.json exists; a no-op otherwise.
+		await haConnect();
+		cachedEntities = await listHaEntities();
+	} catch {
+		// Not configured / unreachable: keep whatever we had. The user configures HA in the studio's
+		// Plugins panel and refreshes to light them up.
+	}
+	return cachedEntities;
+}
 
 export const haSource: SensorSource = {
 	id: 'home-assistant',
 	start: async () => {
-		try {
-			// Spawns the server-side WS task iff plugins/ha.json exists; a no-op otherwise.
-			await invoke('ha_connect');
-			const entities = await invoke<HaEntity[]>('list_ha_entities');
-			cachedIds = entities.map((e) => `ha.${e.entity_id}`);
-		} catch {
-			// Not configured / unreachable: leave the catalog empty. The widgets still
-			// register; the user adds plugins/ha.json and restarts to light them up.
-			cachedIds = [];
-		}
+		await refreshHaCatalog();
 		return () => {
-			invoke('ha_disconnect').catch(() => undefined);
+			haDisconnect().catch(() => undefined);
 		};
 	},
-	catalog: () => cachedIds
+	catalog: () => curate(allEntries(), (e) => e.id, haExposedStore.getSnapshot()).map((e) => e.id),
+	catalogEntries: () => curate(allEntries(), (e) => e.id, haExposedStore.getSnapshot())
 };

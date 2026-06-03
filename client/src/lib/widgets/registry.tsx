@@ -12,7 +12,6 @@ import Clock from './meters/Clock';
 import AnalogClock from './meters/AnalogClock';
 import Bar from './meters/Bar';
 import Button from './meters/Button';
-import NowPlaying from './meters/NowPlaying';
 import Cpu from './meters/Cpu';
 
 export type { MeterComponent };
@@ -25,7 +24,6 @@ const components: Record<string, MeterComponent> = {
 	analogclock: AnalogClock as unknown as MeterComponent,
 	bar: Bar as unknown as MeterComponent,
 	button: Button as unknown as MeterComponent,
-	nowplaying: NowPlaying as unknown as MeterComponent,
 	cpu: Cpu as unknown as MeterComponent
 };
 

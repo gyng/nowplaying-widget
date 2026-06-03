@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { PlaybackModel, SessionModel, SessionRecord } from '../../../stores/stores';
-import { sortSessionsByPriority } from './priority';
+import { filterIgnored, sortSessionsByPriority } from './priority';
 
 const playback: PlaybackModel = {
 	auto_repeat: 'None',
@@ -139,5 +139,39 @@ describe('priority', () => {
 		expect(sorted.at(2)!.source).toBe('notinlist');
 		expect(sorted.at(1)!.source).toBe('barbaz');
 		expect(sorted.at(0)!.source).toBe('foobar');
+	});
+});
+
+describe('filterIgnored', () => {
+	const make = (sources: Record<number, string>): Record<number, SessionRecord> =>
+		Object.fromEntries(
+			Object.entries(sources).map(([id, source]) => [
+				Number(id),
+				{ ...sessionRecord, session_id: Number(id), source }
+			])
+		);
+
+	it('drops sessions whose source matches an ignore term', () => {
+		const sessions = make({ 0: 'foobar2000.exe', 1: 'spotify.exe' });
+		const kept = filterIgnored(sessions, 'foobar2000');
+		expect(Object.values(kept).map((s) => s.source)).toEqual(['spotify.exe']);
+	});
+
+	it('is a no-op for an empty / blank-only list', () => {
+		const sessions = make({ 0: 'foobar2000.exe', 1: 'spotify.exe' });
+		expect(filterIgnored(sessions, '')).toBe(sessions);
+		expect(filterIgnored(sessions, '   \n\n  ')).toBe(sessions);
+	});
+
+	it('matches case-insensitively', () => {
+		const sessions = make({ 0: 'FooBar2000.EXE', 1: 'spotify.exe' });
+		const kept = filterIgnored(sessions, 'FOOBAR2000');
+		expect(Object.values(kept).map((s) => s.source)).toEqual(['spotify.exe']);
+	});
+
+	it('honours multiple terms, ignoring blank lines', () => {
+		const sessions = make({ 0: 'foobar2000.exe', 1: 'spotify.exe', 2: 'chrome.exe' });
+		const kept = filterIgnored(sessions, 'foobar2000\n\nchrome');
+		expect(Object.values(kept).map((s) => s.source)).toEqual(['spotify.exe']);
 	});
 });
