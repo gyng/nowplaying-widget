@@ -216,6 +216,31 @@ export function isStudioWindow(): boolean {
 	}
 }
 
+/** Copy text to the clipboard. Tries the async Clipboard API first, then falls back to a hidden
+ * textarea + execCommand('copy') for webviews where the async API is unavailable/denied. Returns
+ * whether the copy succeeded. */
+export async function copyToClipboard(text: string): Promise<boolean> {
+	try {
+		await navigator.clipboard.writeText(text);
+		return true;
+	} catch {
+		try {
+			const ta = document.createElement('textarea');
+			ta.value = text;
+			ta.style.position = 'fixed';
+			ta.style.opacity = '0';
+			document.body.appendChild(ta);
+			ta.focus();
+			ta.select();
+			const ok = document.execCommand('copy');
+			document.body.removeChild(ta);
+			return ok;
+		} catch {
+			return false;
+		}
+	}
+}
+
 /** Monitor options for the studio's monitor switcher: each maps to the same per-monitor
  * key the overlays use (the primary monitor → `default`, others → their index). Lets the
  * studio edit any monitor's layout from one window (5s multi-monitor). */

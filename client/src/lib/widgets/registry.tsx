@@ -9,6 +9,7 @@ import Gauge from './meters/Gauge';
 import Sparkline from './meters/Sparkline';
 import Text from './meters/Text';
 import Clock from './meters/Clock';
+import AnalogClock from './meters/AnalogClock';
 import Bar from './meters/Bar';
 import Button from './meters/Button';
 import NowPlaying from './meters/NowPlaying';
@@ -21,6 +22,7 @@ const components: Record<string, MeterComponent> = {
 	sparkline: Sparkline as unknown as MeterComponent,
 	text: Text as unknown as MeterComponent,
 	clock: Clock as unknown as MeterComponent,
+	analogclock: AnalogClock as unknown as MeterComponent,
 	bar: Bar as unknown as MeterComponent,
 	button: Button as unknown as MeterComponent,
 	nowplaying: NowPlaying as unknown as MeterComponent,

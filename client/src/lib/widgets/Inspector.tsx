@@ -9,12 +9,14 @@ import type {
 	Group,
 	Justify,
 	Length,
+	Rect,
 	WidgetDef,
 	WidgetInstance
 } from '../core/layoutTree';
 import { getMeta } from '../core/widget';
 import type { ConfigField } from '../core/widget';
 import type { LayoutOp } from './ops';
+import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
 import './Inspector.css';
 
 type Props = {
@@ -33,6 +35,7 @@ type Props = {
 	baseTokens?: Record<string, string> | null;
 	nodeIsNew?: boolean;
 	isGridCell?: boolean; // the selected container is a grid cell → show cell sizing fields
+	containerBox?: Rect | null; // the selected container's solved box — caps pad/gap to it (guardrail)
 	placement?: 'flow' | 'floating' | null;
 	widgetBasis?: Length; // the selected in-flow leaf's main-axis basis (drives the grow toggle)
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
@@ -129,6 +132,7 @@ export default function Inspector({
 	baseTokens = null,
 	nodeIsNew = false,
 	isGridCell = false,
+	containerBox = null,
 	placement = null,
 	widgetBasis = undefined,
 	docked = false,
@@ -204,6 +208,11 @@ export default function Inspector({
 	function patchContainer(patch: Partial<Container>) {
 		if (container) op({ op: 'patchContainer', id: container.id, patch });
 	}
+
+	// Guardrail: cap pad/gap to the selected container's box so they can't collapse its content out
+	// of existence (a pad larger than the box zeroes every child — panes vanish + become undroppable).
+	const padMax = maxPad(containerBox);
+	const gapMax = maxGap(containerBox);
 
 	// Typed setters (the casts live here, not in the template).
 	const setKind = (v: string) => patchContainer({ kind: v as Container['kind'] });
@@ -341,16 +350,24 @@ export default function Inspector({
 							gap
 							<input
 								type="number"
+								min="0"
+								max={gapMax}
 								value={container.gap ?? 0}
-								onInput={(e) => patchContainer({ gap: Number(e.currentTarget.value) })}
+								onInput={(e) =>
+									patchContainer({ gap: clampSpacing(Number(e.currentTarget.value), gapMax) })
+								}
 							/>
 						</label>
 						<label className={dirtyKeys.has('pad') ? 'dirty' : undefined}>
 							pad
 							<input
 								type="number"
+								min="0"
+								max={padMax}
 								value={typeof container.pad === 'number' ? container.pad : 0}
-								onInput={(e) => patchContainer({ pad: Number(e.currentTarget.value) })}
+								onInput={(e) =>
+									patchContainer({ pad: clampSpacing(Number(e.currentTarget.value), padMax) })
+								}
 							/>
 						</label>
 					</div>

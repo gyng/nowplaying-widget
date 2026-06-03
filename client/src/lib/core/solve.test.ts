@@ -381,6 +381,82 @@ describe('pad', () => {
 		);
 		expect(get(s, 'A')).toEqual({ x: 20, y: 20, w: 0, h: 0 });
 	});
+
+	it('a pad exceeding the box keeps the content ORIGIN inside the bounds', () => {
+		// pad (111) > the box height (98): the leading inset must clamp to the edge, not push the
+		// content origin (and every child) below the box. Regression for the widget-designer bug where
+		// splitting an over-padded def canvas flung the new cells outside it.
+		const s = solveLayout(
+			container('c', 'col', [leaf(prim('A', 0, 0), { fr: 1 })], { pad: 111, align: 'stretch' }),
+			{ x: 0, y: 0, w: 166, h: 98 }
+		);
+		// x: pad (111) < width (166) → 111; y: pad (111) > height (98) → clamps to 98 (bottom edge).
+		expect(get(s, 'A')).toEqual({ x: 111, y: 98, w: 0, h: 0 });
+	});
+});
+
+describe('oversized pad + gap keep split cells inside the canvas (designer regression)', () => {
+	it('two fr cells in an over-padded, over-gapped col stay within the box bounds', () => {
+		// The exact saved shape that broke: a 166×98 widget def whose root col carried pad:111, gap:15
+		// (so the available space collapses to nothing). Both split cells must remain inside [0,166]×
+		// [0,98] instead of solving to (111,111)/(111,126) below-right of the canvas.
+		const box = { x: 0, y: 0, w: 166, h: 98 };
+		const s = solveLayout(
+			container(
+				'root',
+				'col',
+				[
+					container('cell-a', 'col', [], { align: 'stretch', basis: { fr: 1 } }),
+					container('cell-b', 'col', [], { align: 'stretch', basis: { fr: 1 } })
+				],
+				{ pad: 111, gap: 15, align: 'stretch', basis: { fr: 1 } }
+			),
+			box
+		);
+		for (const id of ['cell-a', 'cell-b']) {
+			const r = get(s, id);
+			expect(r.x).toBeGreaterThanOrEqual(box.x);
+			expect(r.y).toBeGreaterThanOrEqual(box.y);
+			expect(r.x + r.w).toBeLessThanOrEqual(box.x + box.w);
+			expect(r.y + r.h).toBeLessThanOrEqual(box.y + box.h);
+		}
+	});
+
+	it('a 2×2 grid split in an over-padded canvas keeps every cell inside the box', () => {
+		const box = { x: 0, y: 0, w: 166, h: 98 };
+		const cells = ['a', 'b', 'c', 'd'].map((k) =>
+			container(`cell-${k}`, 'col', [], { align: 'stretch' })
+		);
+		const s = solveLayout(
+			container('root', 'grid', cells, { cols: 2, rows: 2, pad: 111, gap: 15, align: 'stretch' }),
+			box
+		);
+		for (const c of cells) {
+			const r = get(s, c.id);
+			expect(r.x).toBeGreaterThanOrEqual(box.x);
+			expect(r.y).toBeGreaterThanOrEqual(box.y);
+			expect(r.x + r.w).toBeLessThanOrEqual(box.x + box.w);
+			expect(r.y + r.h).toBeLessThanOrEqual(box.y + box.h);
+		}
+	});
+
+	it('a gap larger than the main axis does not walk children past the box', () => {
+		// Two zero-size fr cells, gap (200) far exceeds the 100px main axis: the gap clamps so the
+		// second cell can't escape below the box.
+		const s = solveLayout(
+			container(
+				'c',
+				'col',
+				[
+					container('p', 'col', [], { basis: { fr: 1 } }),
+					container('q', 'col', [], { basis: { fr: 1 } })
+				],
+				{ gap: 200, align: 'stretch' }
+			),
+			{ x: 0, y: 0, w: 100, h: 100 }
+		);
+		expect(get(s, 'q').y).toBeLessThanOrEqual(100);
+	});
 });
 
 // ---- grid ----------------------------------------------------------------

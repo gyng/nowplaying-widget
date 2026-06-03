@@ -1,0 +1,103 @@
+/* Analog clock meter — pure DOM, fully restylable. The LOOK lives here (no inline styles in the
+   component except the dynamic hand rotation), driven by CSS variables so the editable per-widget
+   `css` field and theme tokens can override everything:
+     --clock-fg     hands / ticks / ring   (default --np-fg)
+     --clock-accent second hand + cap       (default --np-accent)
+     --clock-face   face fill               (default transparent)
+   Sizes are in cqmin (% of the widget's smaller side) so the whole dial scales with the widget. */
+.analog-clock {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	container-type: size;
+	--clock-fg: var(--np-fg, rgb(255, 255, 255));
+	--clock-accent: var(--np-accent, rgb(119, 196, 211));
+	--clock-face: transparent;
+}
+
+/* The dial: a square that fits the smaller side of the widget box (works in any aspect). */
+.analog-clock .np-clock-face {
+	position: relative;
+	width: min(100cqw, 100cqh);
+	height: min(100cqw, 100cqh);
+	box-sizing: border-box;
+	border-radius: 50%;
+	border: 1.5cqmin solid var(--clock-fg);
+	background: var(--clock-face);
+}
+
+/* Each tick / number / hand sits in a full-dial layer that's rotated to place it on the dial. */
+.analog-clock .np-clock-tickwrap,
+.analog-clock .np-clock-numwrap,
+.analog-clock .np-clock-handwrap {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+/* Ticks: a mark hanging from the rim inward; majors (every 5) are longer + bolder. */
+.analog-clock .np-clock-tick {
+	position: absolute;
+	top: 2%;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 0.9cqmin;
+	height: 4%;
+	background: var(--clock-fg);
+	opacity: 0.5;
+}
+.analog-clock .np-clock-tick.major {
+	width: 1.6cqmin;
+	height: 7%;
+	opacity: 0.9;
+}
+
+/* Hour numerals, kept upright by the inner counter-rotation (see the component). */
+.analog-clock .np-clock-num {
+	position: absolute;
+	top: 13%;
+	left: 50%;
+	transform: translateX(-50%);
+	font-family: var(--np-font, system-ui, sans-serif);
+	font-size: 11cqmin;
+	line-height: 1;
+	color: var(--clock-fg);
+}
+
+/* Hands pivot at the dial centre (the wrap rotates around its own centre) and point up at 0°. */
+.analog-clock .np-clock-hand {
+	position: absolute;
+	left: 50%;
+	bottom: 50%;
+	transform: translateX(-50%);
+	transform-origin: 50% 100%;
+	border-radius: 1cqmin;
+	background: var(--clock-fg);
+}
+.analog-clock .np-clock-hour {
+	width: 3.2cqmin;
+	height: 28%;
+}
+.analog-clock .np-clock-minute {
+	width: 2.4cqmin;
+	height: 38%;
+}
+.analog-clock .np-clock-second {
+	width: 1.2cqmin;
+	height: 42%;
+	background: var(--clock-accent);
+}
+
+/* Centre cap over the hand pivots. */
+.analog-clock .np-clock-cap {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 5cqmin;
+	height: 5cqmin;
+	border-radius: 50%;
+	background: var(--clock-accent);
+}

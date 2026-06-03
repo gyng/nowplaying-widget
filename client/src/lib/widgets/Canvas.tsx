@@ -67,6 +67,7 @@ import { snapRectToPeers } from '../core/align';
 import { sensorCatalog } from '../core/sensors';
 import { getMeta } from '../core/widget';
 import {
+	copyToClipboard,
 	ensureFont,
 	listThemes,
 	loadThemeCss,
@@ -83,7 +84,13 @@ import {
 	syncInteractiveRects
 } from '../overlay';
 import { TelemetryHubContext } from './telemetryContext';
-import { useEditorModel, lookup, setSolvedForFloat, editHelpers } from './canvas/useEditorModel';
+import {
+	useEditorModel,
+	lookup,
+	setSolvedForFloat,
+	editHelpers,
+	defInUse
+} from './canvas/useEditorModel';
 import { usePersistence } from './canvas/usePersistence';
 import { useStageSize } from './canvas/useStageSize';
 import { useZoomFit } from './canvas/useZoomFit';
@@ -91,6 +98,7 @@ import { useCanvasPointer } from './canvas/useCanvasPointer';
 import { useKeyboard } from './canvas/useKeyboard';
 import { clampMenuToViewport } from './canvas/menuPosition';
 import { studioHints } from './canvas/studioHints';
+import { buildDebugInfo } from './canvas/debugInfo';
 import type { SectionId } from './canvas/studioSections';
 import { mergeLibrary, packSack, unpackSack } from '../core/sack';
 import { useStudioInit } from './canvas/useStudioInit';
@@ -362,6 +370,9 @@ export default function Canvas({ studio = false }: Props) {
 		[selectedId, monitor]
 	);
 	const selectedContainer = selectedNode && isContainer(selectedNode) ? selectedNode : null;
+	// The selected container's solved box (plain id — flow-tree containers aren't group-namespaced),
+	// so the Inspector can cap pad/gap to it (guardrail against collapsing the content out of view).
+	const selectedContainerBox = selectedContainer ? solved.get(selectedContainer.id) ?? null : null;
 	const isGridCell = !!(
 		selectedContainer && findParent(monitor.root, selectedContainer.id)?.kind === 'grid'
 	);
@@ -854,17 +865,31 @@ export default function Canvas({ studio = false }: Props) {
 		},
 		[foldOpenDef, dispatch]
 	);
-	// Delete a library widget from the list (confirm first). deleteDef is a no-op for the widget
-	// being edited or one that's still placed on a layout (it warns), so this can't orphan instances.
-	const deleteWidget = useCallback(
-		(defId: string, name: string) => {
-			if (defId === editingDefIdRef.current) return;
-			if (
-				window.confirm(`Delete widget “${name}” from your library? (Only if it isn't on a layout.)`)
-			)
-				handleOp({ op: 'deleteDef', defId });
+	// Rename a library widget (prompt). Works on any def, including the one being designed — the name
+	// lives in the library, so renaming mid-edit just updates it (the banner reflects it live).
+	const renameWidget = useCallback(
+		(defId: string, current: string) => {
+			const name = window.prompt('Rename widget:', current);
+			if (name && name.trim()) handleOp({ op: 'renameDef', defId, name: name.trim() });
 		},
 		[handleOp]
+	);
+	// Delete a library widget from the list. A def placed on a layout can't be deleted (it would
+	// orphan instances) — tell the user instead of silently no-op'ing. If it's the one being
+	// designed, fold the def edit first so deleteDef isn't blocked.
+	const deleteWidget = useCallback(
+		(defId: string, name: string) => {
+			if (defInUse(stateRef.current, defId)) {
+				window.alert(
+					`“${name}” is placed on a layout — remove those instances before deleting it.`
+				);
+				return;
+			}
+			if (!window.confirm(`Delete widget “${name}” from your library?`)) return;
+			if (defId === editingDefIdRef.current) foldOpenDef();
+			handleOp({ op: 'deleteDef', defId });
+		},
+		[foldOpenDef, handleOp]
 	);
 
 	// =========================================================================================
@@ -1397,6 +1422,47 @@ export default function Canvas({ studio = false }: Props) {
 		[hasSelection, spaceDown, panning]
 	);
 
+	// Copy a debug snapshot (tree + solved boxes + workArea/zoom, with collapsed/out-of-bounds panes
+	// auto-flagged) to the clipboard, for pasting into a bug report. Also logged to the console.
+	const copyDebug = useCallback(async () => {
+		const text = buildDebugInfo({
+			designing,
+			editingDef: editingDef
+				? { id: editingDef.id, name: editingDef.name, size: editingDef.size }
+				: null,
+			monitorKey: myMonitor,
+			workArea,
+			stageSize,
+			zoom,
+			panX,
+			panY,
+			monitor,
+			solved,
+			selectedId,
+			defs: (library?.defs ?? []).map((d) => ({ id: d.id, name: d.name, size: d.size }))
+		});
+		console.log(text);
+		const ok = await copyToClipboard(text);
+		window.alert(
+			ok
+				? 'Debug info copied — paste it to the assistant.'
+				: 'Copy failed; the debug info was logged to the devtools console (Inspect).'
+		);
+	}, [
+		designing,
+		editingDef,
+		myMonitor,
+		workArea,
+		stageSize,
+		zoom,
+		panX,
+		panY,
+		monitor,
+		solved,
+		selectedId,
+		library
+	]);
+
 	// =========================================================================================
 	// Render.
 	// =========================================================================================
@@ -1593,6 +1659,14 @@ export default function Canvas({ studio = false }: Props) {
 										Fit
 									</button>
 									<span className="zlevel">{Math.round(zoom * 100)}%</span>
+									<span className="lbl">Debug</span>
+									<button
+										type="button"
+										title="Copy a debug snapshot (tree + solved boxes + flagged issues) to the clipboard"
+										onClick={copyDebug}
+									>
+										⧉ Copy debug
+									</button>
 								</div>
 								<div className="monitor-badge">▦ {monName}</div>
 								<div className="powerbar">
@@ -1699,6 +1773,14 @@ export default function Canvas({ studio = false }: Props) {
 														<button
 															type="button"
 															className="dl-icon"
+															title="Rename widget"
+															onClick={() => renameWidget(d.id, d.name)}
+														>
+															✎
+														</button>
+														<button
+															type="button"
+															className="dl-icon"
 															title="Clone to a new widget"
 															onClick={() => cloneDefToEdit(d.id)}
 														>
@@ -1708,7 +1790,6 @@ export default function Canvas({ studio = false }: Props) {
 															type="button"
 															className="dl-icon dl-del"
 															title="Delete widget"
-															disabled={d.id === editingDefId}
 															onClick={() => deleteWidget(d.id, d.name)}
 														>
 															✕
@@ -1886,6 +1967,7 @@ export default function Canvas({ studio = false }: Props) {
 								baseTokens={savedBaseline?.tokens ?? null}
 								nodeIsNew={nodeIsNew}
 								isGridCell={isGridCell}
+								containerBox={selectedContainerBox}
 								placement={placement}
 								widgetBasis={selectedLeafBasis}
 								widgetTypes={widgetTypes}

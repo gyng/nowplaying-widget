@@ -198,6 +198,35 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		]
 	},
 	{
+		// Self-sourcing analog clock (Rainmeter-style face + hands). binds:none; ticks internally.
+		type: 'analogclock',
+		binds: 'none',
+		label: 'Analog Clock',
+		defaultSize: { w: 120, h: 120 },
+		// Defaults to the minimal Enigma "Icon" look: ring + 3 hands, no ticks/numerals/cap, 1s tick.
+		defaultConfig: {
+			showSeconds: true,
+			showTicks: false,
+			showNumbers: false,
+			showCap: false,
+			updateMs: 1000
+		},
+		configFields: [
+			{ key: 'showSeconds', label: 'second hand', kind: 'toggle' },
+			{ key: 'showTicks', label: 'tick marks', kind: 'toggle' },
+			{ key: 'showNumbers', label: 'hour numbers', kind: 'toggle' },
+			{ key: 'showCap', label: 'centre cap', kind: 'toggle' },
+			num('updateMs', 'update (ms)', {
+				min: 16,
+				step: 50,
+				help: 'redraw interval; lower = smoother second hand, higher = lighter'
+			}),
+			color('color', 'hands/ticks', { help: 'hour + minute hands, ticks, ring' }),
+			color('accent', 'second hand'),
+			color('face', 'face', { help: 'face fill (default transparent)' })
+		]
+	},
+	{
 		type: 'button',
 		binds: 'none',
 		label: 'Button',

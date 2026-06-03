@@ -1,6 +1,7 @@
-// Self-sourcing meter: renders local time on a 1s tick. No sensor binding. Themeable
-// via tokens (--np-fg / -font); a per-instance `color` overrides --np-fg.
-import { useEffect, useState } from 'react';
+// Self-sourcing meter: renders local time on a 1s tick. No sensor binding. BARE DOM — the look lives
+// in Clock.css; a per-instance `color` is passed only as the `--clock-color` CSS variable (the class
+// resolves it with a --np-fg/token fallback), so it stays fully restylable via the editable css.
+import { useEffect, useState, type CSSProperties } from 'react';
 import { formatClock } from '../../core/format';
 import './Clock.css';
 
@@ -23,10 +24,10 @@ export default function Clock({ format = 'HH:mm', label = '', color, locale = 'e
 	}, []);
 
 	const display = formatClock(now, format, locale);
-	const colorCss = color ?? 'var(--np-fg, rgb(255, 255, 255))';
+	const vars = color ? ({ '--clock-color': color } as CSSProperties) : undefined;
 
 	return (
-		<div className="clock np-clock" style={{ color: colorCss }}>
+		<div className="clock np-clock" style={vars}>
 			<span className="value" data-part="value">
 				{display}
 			</span>

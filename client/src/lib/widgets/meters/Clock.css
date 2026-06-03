@@ -7,6 +7,9 @@
 	gap: 6px;
 	width: 100%;
 	height: 100%;
+	/* Per-instance `color` arrives as --clock-color (set inline only when given); otherwise fall back
+	   to the theme token. Driving it through the class keeps the widget restylable via the css field. */
+	color: var(--clock-color, var(--np-fg, rgb(255, 255, 255)));
 	font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
 }
 

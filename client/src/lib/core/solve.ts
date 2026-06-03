@@ -145,7 +145,7 @@ function cellFixedH(node: LayoutNode): number | null {
 // fixed cell the tracks are uniform — the original behaviour. Negative leftovers clamp to 0.
 function gridTracks(c: Container, available: number, count: number, horizontal: boolean): number[] {
 	const cols = Math.max(1, c.cols ?? 1);
-	const gap = c.gap ?? 0;
+	const gap = clampGap(c.gap ?? 0, available, count);
 	const fixed: (number | null)[] = new Array(count).fill(null);
 	c.children.forEach((child, i) => {
 		const t = horizontal ? i % cols : Math.floor(i / cols);
@@ -165,6 +165,13 @@ function gridColWidths(c: Container, contentW: number): number[] {
 }
 function gridRowHeights(c: Container, contentH: number): number[] {
 	return gridTracks(c, contentH, gridRows(c), false);
+}
+
+// Clamp a container's own gap to the space spanning `count` tracks/children on an axis, so the gap
+// alone can never walk the trailing track/child past the box (the over-padded designer canvas case,
+// where the available space collapses to ~0). Overflow from oversized children/cells is unaffected.
+function clampGap(gap: number, available: number, count: number): number {
+	return count > 1 ? Math.min(gap, available / (count - 1)) : gap;
 }
 
 // Prefix offsets of each track (col/row) start, given the track sizes + gap.
@@ -209,8 +216,8 @@ export function gridCellRects(c: Container, box: Rect): Rect[] {
 	const gap = c.gap ?? 0;
 	const colW = gridColWidths(c, content.w);
 	const rowH = gridRowHeights(c, content.h);
-	const colX = trackOffsets(colW, gap, content.x);
-	const rowY = trackOffsets(rowH, gap, content.y);
+	const colX = trackOffsets(colW, clampGap(gap, content.w, cols), content.x);
+	const rowY = trackOffsets(rowH, clampGap(gap, content.h, rows), content.y);
 	const cells: Rect[] = [];
 	for (let i = 0; i < cols * rows; i++) {
 		const col = i % cols;
@@ -418,8 +425,11 @@ function solveFlex(
 	const horizontal = c.kind === 'row';
 	const mainSize = horizontal ? content.w : content.h;
 	const crossSize = horizontal ? content.h : content.w;
-	const gap = c.gap ?? 0;
 	const n = c.children.length;
+	// Clamp the gap to the main-axis space so the inter-child gaps can never walk the cursor past the
+	// box (the over-padded designer canvas, where mainSize collapses to ~0). Child overflow from
+	// oversized children is unaffected; only the container's own gap is bounded.
+	const gap = clampGap(c.gap ?? 0, mainSize, n);
 	const totalGap = gap * (n - 1);
 
 	// 1. Measure each child's main extent: fixed/auto resolve now; fr deferred.
@@ -477,13 +487,14 @@ function solveGrid(
 	out: Solved
 ): void {
 	const cols = Math.max(1, c.cols ?? 1);
+	const rows = gridRows(c);
 	const n = c.children.length;
 	const gap = c.gap ?? 0;
 
 	const colW = gridColWidths(c, content.w);
 	const rowH = gridRowHeights(c, content.h);
-	const colX = trackOffsets(colW, gap, content.x);
-	const rowY = trackOffsets(rowH, gap, content.y);
+	const colX = trackOffsets(colW, clampGap(gap, content.w, cols), content.x);
+	const rowY = trackOffsets(rowH, clampGap(gap, content.h, rows), content.y);
 
 	for (let i = 0; i < n; i++) {
 		const r = Math.floor(i / cols);
@@ -655,9 +666,13 @@ function justifyOffsets(
 
 function insetPad(box: Rect, pad: Container['pad']): Rect {
 	const p = resolvePad(pad);
+	// Clamp the LEADING inset to the box so an oversized pad (e.g. a pad larger than the widget's own
+	// size in the designer) collapses the content to zero AT the far edge instead of pushing its
+	// origin — and therefore every child — outside the container's bounds. Width/height still floor
+	// at 0, so the documented "pad larger than the box → zero-size content" behaviour is preserved.
 	return {
-		x: box.x + p.l,
-		y: box.y + p.t,
+		x: box.x + Math.min(p.l, box.w),
+		y: box.y + Math.min(p.t, box.h),
 		w: Math.max(0, box.w - p.l - p.r),
 		h: Math.max(0, box.h - p.t - p.b)
 	};

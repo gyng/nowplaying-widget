@@ -43,6 +43,7 @@ import { intrinsicSize, type Solved } from '../../core/solve';
 import { getTemplate } from '../../core/templates';
 import type { LayoutOp } from '../ops';
 import { dropPlacement } from './dropPlacement';
+import { clampTreeSpacing } from './spacingGuard';
 import type { EditorState, Snap } from './types';
 
 const rand = (): string => Math.random().toString(36).slice(2, 8);
@@ -208,7 +209,10 @@ function splitNode(s: EditorState, id: string, dir: 'rows' | 'cols' | 'grid'): P
 	if (!node || !isContainer(node)) return {};
 	// Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
 	// has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
-	const cell = () => container(`cell-${rand()}`, 'col', [], { align: 'stretch', basis: { fr: 1 } });
+	const cell = (kind: Container['kind']) =>
+		container(`cell-${rand()}`, kind, [], { align: 'stretch', basis: { fr: 1 } });
+	// `keep` wraps the EXISTING content, so it preserves the node's own kind (re-kinding it would
+	// re-flow what's already there). The new empty cells take the BAND orientation (see below).
 	const keep = node.children.length
 		? container(`cell-${rand()}`, node.kind, node.children, {
 				align: node.align ?? 'stretch',
@@ -222,16 +226,19 @@ function splitNode(s: EditorState, id: string, dir: 'rows' | 'cols' | 'grid'): P
 		: null;
 	let patch: Partial<Container>;
 	if (dir === 'grid') {
-		const cells = Array.from({ length: 4 }, () => cell());
+		const cells = Array.from({ length: 4 }, () => cell('col'));
 		if (keep) cells[0] = keep;
 		patch = { kind: 'grid', cols: 2, rows: 2, children: cells };
 	} else {
-		const k: Container['kind'] = dir === 'rows' ? 'col' : 'row';
+		// "into rows" → a COL parent (stacks vertically) holding ROW bands; "into cols" → a ROW parent
+		// holding COL strips. So each band's own kind IS the thing the user asked to create.
+		const parentKind: Container['kind'] = dir === 'rows' ? 'col' : 'row';
+		const bandKind: Container['kind'] = dir === 'rows' ? 'row' : 'col';
 		patch = {
-			kind: k,
+			kind: parentKind,
 			cols: undefined,
 			rows: undefined,
-			children: keep ? [keep, cell()] : [cell(), cell()]
+			children: keep ? [keep, cell(bandKind)] : [cell(bandKind), cell(bandKind)]
 		};
 	}
 	const patched: Container = {
@@ -613,9 +620,12 @@ function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
 		version: state.library?.version ?? 1,
 		defs: [...(state.library?.defs ?? []), def]
 	};
-	const scopedRoot: Container = isContainer(def.child)
+	const rawRoot: Container = isContainer(def.child)
 		? (clone(def.child) as Container)
 		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
+	// Self-heal: clamp any pad/gap that's too big for this widget's canvas, so spacing left over from
+	// a larger context can't collapse the panes out of view (see spacingGuard.clampTreeSpacing).
+	const scopedRoot = clampTreeSpacing(rawRoot, def.size) as Container;
 	const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
 	const next: EditorState = {
 		...state,
@@ -743,9 +753,12 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 			if (state.editingDefId != null) return state;
 			const def = state.library?.defs.find((d) => d.id === action.defId);
 			if (!def) return state;
-			const scopedRoot: Container = isContainer(def.child)
+			const rawRoot: Container = isContainer(def.child)
 				? (clone(def.child) as Container)
 				: container(`${action.defId}__root`, 'col', [clone(def.child)], { align: 'stretch' });
+			// Self-heal oversized pad/gap for this widget's canvas (see clampTreeSpacing) — so opening a
+			// def whose root was over-padded (e.g. copied from a full-monitor root) shows usable panes.
+			const scopedRoot = clampTreeSpacing(rawRoot, def.size) as Container;
 			const scopedMonitor: MonitorLayout = { root: scopedRoot, floating: [] };
 			const next: EditorState = {
 				...state,
@@ -1009,4 +1022,4 @@ function floatNode(s: EditorState, id: string, at?: { x: number; y: number }): P
 	};
 }
 
-export { addWidget, splitNode, floatNode, DEFAULT_MONITOR };
+export { addWidget, splitNode, floatNode, defInUse, DEFAULT_MONITOR };

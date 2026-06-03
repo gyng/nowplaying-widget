@@ -45,6 +45,19 @@
 	right: var(--rail-r);
 	bottom: var(--bar-b); /* leave room for the bottom powerline hint bar */
 	overflow: hidden; /* clip the zoomed world to the stage (don't spill over the rails) */
+	/* The studio is a design surface, not a document: suppress native text/drag selection so dragging
+	   widgets, panning or marquee-selecting never paints a text highlight over labels / widget text /
+	   tool chrome. Real text-editing controls opt back in below. */
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+/* …except where you actually edit text: Inspector fields, the theme CSS editor, prompts, etc. */
+.canvas.studio input,
+.canvas.studio textarea,
+.canvas.studio [contenteditable='true'] {
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 /* The world layer (zoom-to-fit). Overlay: fills the canvas 1:1. Studio (.scaled): sized to
