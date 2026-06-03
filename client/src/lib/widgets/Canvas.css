@@ -35,6 +35,7 @@
 .canvas.studio {
 	--bar-h: 36px;
 	--bar-b: 24px;
+	--nav-w: 56px; /* the left nav strip; the section panel fills the rest of --rail-l */
 	--rail-l: 250px;
 	--rail-r: 264px;
 	background: #0b0b0e;

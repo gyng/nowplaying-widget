@@ -15,7 +15,7 @@ import {
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { createTelemetryHub } from '../core/telemetry';
-import { sourceCatalogIds } from '../core/plugin';
+import { listSources, sourceCatalogIds } from '../core/plugin';
 import '../telemetry/source'; // side-effect: registers the built-in `system` source
 import './plugins/home-assistant'; // side-effect: registers the Home Assistant plugin
 import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
@@ -58,6 +58,7 @@ import {
 import WidgetHost from './WidgetHost';
 import Inspector from './Inspector';
 import Outline from './Outline';
+import NavRail from './NavRail';
 import StyleLayer from './StyleLayer';
 import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
@@ -69,6 +70,9 @@ import {
 	listThemes,
 	loadThemeCss,
 	saveThemeCss,
+	listSacks,
+	readSack,
+	writeSack,
 	monitorParam,
 	monitorWorkArea,
 	openDevtools,
@@ -86,6 +90,8 @@ import { useCanvasPointer } from './canvas/useCanvasPointer';
 import { useKeyboard } from './canvas/useKeyboard';
 import { clampMenuToViewport } from './canvas/menuPosition';
 import { studioHints } from './canvas/studioHints';
+import type { SectionId } from './canvas/studioSections';
+import { mergeLibrary, packSack, unpackSack } from '../core/sack';
 import { useStudioInit } from './canvas/useStudioInit';
 import type { EditorState, Extra, MonitorOption } from './canvas/types';
 import './Canvas.css';
@@ -96,7 +102,8 @@ const GRID = 8;
 const ALIGN_THRESHOLD = 6;
 // Docked-panel selector: a palette-widget drop over any of these is the panel's own (e.g. the
 // Outline's container drop), so the stage-level drop handler bails on it.
-const PANEL_SEL = '.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx';
+const PANEL_SEL =
+	'.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx, .nav-rail, .rail-panel';
 const rand = (): string => Math.random().toString(36).slice(2, 8);
 
 // The demo seed (primary monitor only): a row of per-core CPU sparklines + a System-skin cluster.
@@ -233,6 +240,12 @@ export default function Canvas({ studio = false }: Props) {
 	// Cross-highlight (studio): the id currently hovered in EITHER the Outline tree or on the stage.
 	// Hovering a tree row glows the matching widget/container; hovering a widget glows its tree row.
 	const [hoverId, setHoverId] = useState<string | null>(null);
+
+	// Studio left-rail nav: which section's panel is showing. Transient UI — never in EditorState, so
+	// it doesn't touch undo/redo or the dirty diff.
+	const [navSection, setNavSection] = useState<SectionId>('layouts');
+	// The saved sacks (names), loaded when the Sacks section is open.
+	const [sackNames, setSackNames] = useState<string[]>([]);
 
 	const persistence = usePersistence(state, myMonitor);
 	const { persistToDisk, writeBaseline, schedulePreviewWrite, clearPreviewWrite } = persistence;
@@ -680,6 +693,77 @@ export default function Canvas({ studio = false }: Props) {
 		commitOp(() => ({})); // saveLayout()
 		setThemeEditorOpen(false);
 	}, [themeDraftName, themeDraft, dispatch, commitOp]);
+
+	// --- sacks (item 10): export the studio's shareable state, import + merge one back ---
+	const exportSack = useCallback(async () => {
+		if (editingDefId != null) {
+			// Mid def-edit the in-progress def isn't folded back into `library` yet — exporting now would
+			// pack the stale pre-edit version. Make the user finish first (matches importSack's guard).
+			window.alert('Finish editing the current widget (Done) before exporting a sack.');
+			return;
+		}
+		const name = window.prompt('Export a sack (name):', selectedTheme || 'my-sack');
+		if (!name) return;
+		// Re-read the theme CSS at export time so a not-yet-loaded `themeCss` can't silently drop it.
+		const css = selectedTheme ? await loadThemeCss(selectedTheme) : '';
+		const sack = packSack({
+			name,
+			library,
+			theme: selectedTheme ? { name: selectedTheme, css } : undefined,
+			tokens: tokenOverrides
+		});
+		const path = await writeSack(name, JSON.stringify(sack, null, '\t'));
+		setSackNames(await listSacks());
+		if (path) window.alert(`Saved sack:\n${path}`);
+	}, [editingDefId, selectedTheme, library, tokenOverrides]);
+
+	const importSack = useCallback(
+		async (name: string) => {
+			if (editingDefId != null) {
+				window.alert('Finish editing the current widget (Done) before importing a sack.');
+				return;
+			}
+			const raw = await readSack(name);
+			const sack = raw ? unpackSack(raw) : null;
+			if (!sack) {
+				window.alert('Could not read that sack.');
+				return;
+			}
+			// Theme first: resolve a name collision so an import never clobbers an existing user theme.
+			let themeName: string | null = null;
+			if (sack.theme) {
+				const existing = await listThemes();
+				themeName = existing.includes(sack.theme.name)
+					? `${sack.theme.name}-imported`
+					: sack.theme.name;
+				await saveThemeCss(themeName, sack.theme.css);
+				setThemeList(await listThemes());
+			}
+			// One commit applies the persisted parts: merged library + token overrides + selected theme.
+			commitOp((s) => {
+				const patch: Partial<EditorState> = {};
+				if (sack.library?.defs.length) {
+					patch.library = mergeLibrary(s.library, sack.library.defs).library;
+				}
+				if (sack.tokens && Object.keys(sack.tokens).length) {
+					patch.tokenOverrides = { ...s.tokenOverrides, ...sack.tokens };
+				}
+				if (themeName) patch.selectedTheme = themeName;
+				return patch;
+			});
+			// Live-apply the theme CSS (the commit set selectedTheme; mirror it for the live styles).
+			if (themeName) {
+				stateThemeRef.current = themeName;
+				setThemeCss(await loadThemeCss(themeName));
+			}
+		},
+		[editingDefId, commitOp]
+	);
+
+	// Load the saved sack names when the Sacks section opens.
+	useEffect(() => {
+		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
+	}, [studio, navSection]);
 
 	// --- studio: switch monitor ---
 	const switchMonitor = useCallback(
@@ -1441,48 +1525,6 @@ export default function Canvas({ studio = false }: Props) {
 										Fit
 									</button>
 									<span className="zlevel">{Math.round(zoom * 100)}%</span>
-									<span className="lbl">Widgets</span>
-									<button type="button" onClick={newWidget}>
-										＋ New
-									</button>
-									{library?.defs.length ? (
-										<select onChange={(e) => editExistingDef(e.currentTarget.value)}>
-											<option value="">Edit…</option>
-											{library.defs.map((d) => (
-												<option key={d.id} value={d.id}>
-													{d.name}
-												</option>
-											))}
-										</select>
-									) : null}
-									<span className="lbl">Template</span>
-									<select
-										title="Insert a preset cluster of widgets (preview; Save to keep)"
-										value=""
-										onChange={(e) => {
-											applyTemplate(e.currentTarget.value);
-											e.currentTarget.value = '';
-										}}
-									>
-										<option value="">Insert…</option>
-										{TEMPLATES.map((t) => (
-											<option key={t.id} value={t.id} title={t.description}>
-												{t.name}
-											</option>
-										))}
-									</select>
-									<span className="lbl">Theme</span>
-									<select value={selectedTheme} onChange={(e) => setTheme(e.currentTarget.value)}>
-										<option value="">(default)</option>
-										{themeList.map((t) => (
-											<option key={t} value={t}>
-												{t}
-											</option>
-										))}
-									</select>
-									<button type="button" onClick={openThemeEditor}>
-										Edit
-									</button>
 								</div>
 								<div className="monitor-badge">▦ {monName}</div>
 								<div className="powerbar">
@@ -1543,15 +1585,152 @@ export default function Canvas({ studio = false }: Props) {
 							</div>
 						)}
 						{!studio && <div className="edit-badge">EDIT — Ctrl+E to exit</div>}
-						<Outline
-							root={monitor.root}
-							floating={monitor.floating}
-							selectedId={selectedId}
-							hoverId={hoverId}
-							onHover={setHoverId}
-							docked={studio}
-							onOp={handleOp}
-						/>
+						{studio ? (
+							<>
+								<NavRail active={navSection} onSelect={setNavSection} />
+								{navSection === 'layouts' && (
+									<Outline
+										root={monitor.root}
+										floating={monitor.floating}
+										selectedId={selectedId}
+										hoverId={hoverId}
+										onHover={setHoverId}
+										docked
+										onOp={handleOp}
+									/>
+								)}
+								{navSection === 'widget-designer' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Widget designer</div>
+										<button type="button" onClick={newWidget}>
+											＋ New widget
+										</button>
+										{library?.defs.length ? (
+											<>
+												<div className="rp-hd">Library defs</div>
+												<div className="rp-list">
+													{library.defs.map((d) => (
+														<button key={d.id} type="button" onClick={() => editExistingDef(d.id)}>
+															{d.name}
+														</button>
+													))}
+												</div>
+											</>
+										) : (
+											<div className="rp-stub">
+												No saved widgets yet — use “Make widget” on a selection.
+											</div>
+										)}
+										<div className="rp-hd">Templates</div>
+										<div className="rp-list">
+											{TEMPLATES.map((t) => (
+												<button
+													key={t.id}
+													type="button"
+													title={t.description}
+													onClick={() => applyTemplate(t.id)}
+												>
+													{t.name}
+												</button>
+											))}
+										</div>
+									</div>
+								)}
+								{navSection === 'sensors' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Sensors</div>
+										<div className="rp-list">
+											{sensorCatalog([...hub.sensorIds(), ...sourceCatalogIds()]).map((s) => (
+												<div key={s} className="rp-row">
+													{s}
+												</div>
+											))}
+										</div>
+									</div>
+								)}
+								{navSection === 'plugins' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Sources</div>
+										<div className="rp-list">
+											{listSources().map((s) => (
+												<div key={s.id} className="rp-row">
+													<span>{s.id}</span>
+													<span className="dim">{(s.catalog?.() ?? []).length} sensors</span>
+												</div>
+											))}
+										</div>
+										<div className="rp-hd">Widget types</div>
+										<div className="rp-list">
+											{widgetTypes.map((w) => (
+												<div key={w.type} className="rp-row">
+													<span>{w.label}</span>
+													<span className="dim">{w.type}</span>
+												</div>
+											))}
+										</div>
+									</div>
+								)}
+								{navSection === 'themes' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Theme</div>
+										<select value={selectedTheme} onChange={(e) => setTheme(e.currentTarget.value)}>
+											<option value="">(default)</option>
+											{themeList.map((t) => (
+												<option key={t} value={t}>
+													{t}
+												</option>
+											))}
+										</select>
+										<button type="button" onClick={openThemeEditor}>
+											Edit theme CSS…
+										</button>
+									</div>
+								)}
+								{navSection === 'sacks' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Sacks</div>
+										<div className="rp-stub">
+											Bundle this monitor’s widget library + theme + tokens to share or reuse.
+										</div>
+										<button type="button" onClick={exportSack}>
+											⤓ Export current…
+										</button>
+										<div className="rp-hd">Import</div>
+										{sackNames.length ? (
+											<div className="rp-list">
+												{sackNames.map((n) => (
+													<button
+														key={n}
+														type="button"
+														title="Merge this sack's widgets + theme into the studio"
+														onClick={() => importSack(n)}
+													>
+														⤒ {n}
+													</button>
+												))}
+											</div>
+										) : (
+											<div className="rp-stub">No sacks yet — export one above.</div>
+										)}
+									</div>
+								)}
+								{navSection === 'settings' && (
+									<div className="rail-panel">
+										<div className="rp-hd">Settings</div>
+										<div className="rp-stub">Coming soon.</div>
+									</div>
+								)}
+							</>
+						) : (
+							<Outline
+								root={monitor.root}
+								floating={monitor.floating}
+								selectedId={selectedId}
+								hoverId={hoverId}
+								onHover={setHoverId}
+								onOp={handleOp}
+							/>
+						)}
 						<Inspector
 							widget={selectedWidget}
 							container={selectedContainer}

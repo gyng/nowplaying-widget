@@ -15,13 +15,13 @@
 	pointer-events: auto;
 }
 
-/* Studio: a full-height left rail in the reserved margin (no overlap with the stage). */
+/* Studio: the "Layouts" section panel — a full-height rail to the right of the nav strip. */
 .outline.docked {
 	position: fixed;
 	top: var(--bar-h, 36px);
-	left: 0;
+	left: var(--nav-w, 56px); /* sit to the right of the left nav strip */
 	bottom: var(--bar-b, 0); /* sit above the bottom powerline hint bar */
-	width: var(--rail-l, 250px);
+	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px));
 	max-height: none;
 	border-width: 0 1px 0 0;
 	border-radius: 0;

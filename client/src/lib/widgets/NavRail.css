@@ -1,0 +1,142 @@
+/* The studio left nav strip: a fixed vertical column in the leftmost slice of the left rail
+   (--nav-w), between the top studio-bar and the bottom powerbar. The active section's panel
+   (.outline.docked under "Layouts", or a .rail-panel) fills the rest of the rail to its right. */
+.canvas .nav-rail {
+	position: fixed;
+	top: var(--bar-h, 36px);
+	left: 0;
+	bottom: var(--bar-b, 0);
+	width: var(--nav-w, 56px);
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	padding: 4px 0;
+	background: rgba(8, 8, 10, 0.96);
+	border-right: 1px solid rgba(119, 196, 211, 0.5);
+	z-index: 6;
+	pointer-events: auto;
+}
+
+.canvas .nav-rail .nav-spacer {
+	flex: 1 1 auto;
+}
+
+.canvas .nav-rail .nav-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1px;
+	width: 100%;
+	padding: 6px 2px;
+	border: none;
+	border-left: 2px solid transparent;
+	background: transparent;
+	color: #aaa;
+	font-family: monospace;
+	cursor: pointer;
+}
+
+.canvas .nav-rail .nav-item:hover {
+	color: #eee;
+	background: rgba(119, 196, 211, 0.1);
+}
+
+.canvas .nav-rail .nav-item.active {
+	color: rgb(150, 214, 228);
+	background: rgba(119, 196, 211, 0.16);
+	border-left-color: rgb(119, 196, 211);
+}
+
+.canvas .nav-rail .nav-icon {
+	font-size: 16px;
+	line-height: 1.1;
+}
+
+.canvas .nav-rail .nav-short {
+	font-size: 8px;
+	letter-spacing: 0.3px;
+	text-transform: uppercase;
+}
+
+/* A section panel (everything except Layouts, which uses .outline.docked) — the same fixed box as
+   the docked Outline, shifted right of the nav strip. */
+.canvas .rail-panel {
+	position: fixed;
+	top: var(--bar-h, 36px);
+	left: var(--nav-w, 56px);
+	bottom: var(--bar-b, 0);
+	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px));
+	box-sizing: border-box;
+	overflow-y: auto;
+	padding: 6px;
+	background: rgba(10, 10, 12, 0.92);
+	border-right: 1px solid rgba(119, 196, 211, 0.5);
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	z-index: 6;
+	pointer-events: auto;
+}
+
+.canvas .rail-panel .rp-hd {
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	margin: 2px 0 4px;
+}
+
+.canvas .rail-panel .rp-hd:not(:first-child) {
+	margin-top: 10px;
+	border-top: 1px solid #333;
+	padding-top: 6px;
+}
+
+.canvas .rail-panel button {
+	background: #1a1a1e;
+	border: 1px solid #444;
+	color: #eee;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 6px;
+	margin: 0 2px 2px 0;
+	cursor: pointer;
+}
+
+.canvas .rail-panel button:hover {
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .rail-panel select {
+	width: 100%;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 4px;
+	margin-bottom: 4px;
+}
+
+.canvas .rail-panel .rp-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.canvas .rail-panel .rp-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 6px;
+	padding: 1px 2px;
+	color: #ccc;
+	white-space: nowrap;
+}
+
+.canvas .rail-panel .rp-row .dim {
+	color: #777;
+}
+
+.canvas .rail-panel .rp-stub {
+	color: #777;
+	padding: 8px 2px;
+}
