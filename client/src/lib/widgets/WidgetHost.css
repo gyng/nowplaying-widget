@@ -110,3 +110,14 @@
 	font-size: 11px;
 	color: rgba(255, 120, 120, 0.9);
 }
+
+/* A widget whose render crashed (caught by WidgetErrorBoundary). Subtle on the desktop but legible,
+   so one bad widget reads as a small marker instead of blanking the overlay. */
+.widget-error {
+	font-family: monospace;
+	font-size: 11px;
+	color: rgba(255, 170, 90, 0.9);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}

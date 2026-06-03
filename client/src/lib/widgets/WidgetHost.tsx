@@ -3,6 +3,7 @@
 // the widget and corner/edge handles resize it; both report rect changes up via the `onChange`
 // callback. The seven Svelte dispatch events become seven callback props.
 import {
+	useMemo,
 	useRef,
 	useState,
 	type MouseEvent as ReactMouseEvent,
@@ -15,6 +16,7 @@ import { getMeta } from '../core/widget';
 import { registry } from './registry';
 import { useSensor } from './useSensor';
 import { dragMoveIntent } from './canvas/dragIntent';
+import WidgetErrorBoundary from './WidgetErrorBoundary';
 import './WidgetHost.css';
 
 type Props = {
@@ -99,6 +101,13 @@ export default function WidgetHost({
 		sensorState.value && sensorState.value.kind === 'scalar' ? sensorState.value.value : null;
 	const rawValue = sensorState.value ? sensorState.value.value : null;
 	const history = sensorState.history;
+	// Error-boundary reset key: the widget's user-editable definition (type + config). Changing it
+	// in the studio clears a caught crash and re-renders; the live sensor value is intentionally
+	// excluded (see WidgetErrorBoundary). type prefixes the JSON object so the pair can't collide.
+	const resetKey = useMemo(
+		() => `${instance.type} ${JSON.stringify(instance.config)}`,
+		[instance.type, instance.config]
+	);
 
 	// Authoritative drag bookkeeping in a ref (read synchronously by move/end — no stale closures);
 	// only the render-affecting bits (active class + ghost transform) live in state.
@@ -250,13 +259,15 @@ export default function WidgetHost({
 			onMouseLeave={onHover ? () => onHover(null) : undefined}
 		>
 			{Comp ? (
-				!instance.sensor || binds === 'none' ? (
-					<Comp {...instance.config} onControl={handleControl} />
-				) : binds === 'json' || binds === 'text' ? (
-					<Comp value={rawValue} {...instance.config} onControl={handleControl} />
-				) : (
-					<Comp value={scalar} history={history} {...instance.config} onControl={handleControl} />
-				)
+				<WidgetErrorBoundary resetKey={resetKey} label={instance.type}>
+					{!instance.sensor || binds === 'none' ? (
+						<Comp {...instance.config} onControl={handleControl} />
+					) : binds === 'json' || binds === 'text' ? (
+						<Comp value={rawValue} {...instance.config} onControl={handleControl} />
+					) : (
+						<Comp value={scalar} history={history} {...instance.config} onControl={handleControl} />
+					)}
+				</WidgetErrorBoundary>
 			) : (
 				<div className="missing">?{instance.type}</div>
 			)}
