@@ -14,6 +14,7 @@ import { moveRect, resizeRect, type ResizeHandle } from '../core/geometry';
 import { getMeta } from '../core/widget';
 import { registry } from './registry';
 import { useSensor } from './useSensor';
+import { dragMoveIntent } from './canvas/dragIntent';
 import './WidgetHost.css';
 
 type Props = {
@@ -37,14 +38,22 @@ type Props = {
 	defId?: string;
 	groupId?: string;
 	onChange?: (e: { id: string; rect: Rect }) => void;
-	onCommit?: () => void;
+	// `skipFlow` (set by a right-button free-move) tells the Canvas not to dock this drag into the
+	// flow/grid, regardless of the studio "into grids" toggle.
+	onCommit?: (e?: { skipFlow?: boolean }) => void;
 	onSelect?: (e: { id: string }) => void;
-	onDragOver?: (e: { id: string; x: number; y: number }) => void;
+	onDragOver?: (e: { id: string; x: number; y: number; skipFlow?: boolean }) => void;
 	onDrop?: (e: { id: string; x: number; y: number }) => void;
 	onContextMenu?: (e: { id: string; x: number; y: number }) => void;
 	onControl?: (e: { id: string; sensor?: string; domain: string; service: string }) => void;
 	// Report hover enter/leave (selectId) so the Canvas can cross-highlight the Outline row.
 	onHover?: (id: string | null) => void;
+	// Right-button free-move suppresses the trailing contextmenu. Because Chromium fires the
+	// contextmenu on whatever is under the cursor at right-up (NOT necessarily this widget, after a
+	// grid-snap drift), suppression is armed canvas-side: end() calls onSuppressContextMenu after a
+	// real right-drag, and every contextmenu entry point consults suppressContextMenu (consume-once).
+	onSuppressContextMenu?: () => void;
+	suppressContextMenu?: () => boolean;
 };
 
 const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -73,7 +82,9 @@ export default function WidgetHost({
 	onDrop,
 	onContextMenu,
 	onControl,
-	onHover
+	onHover,
+	onSuppressContextMenu,
+	suppressContextMenu
 }: Props) {
 	const rect = rectProp ?? instance.rect;
 	const selectId = selectIdProp ?? instance.id;
@@ -97,7 +108,15 @@ export default function WidgetHost({
 		startY: number;
 		startRect: Rect;
 		moved: boolean;
-	}>({ action: null, startX: 0, startY: 0, startRect: instance.rect, moved: false });
+		skipFlow: boolean; // a right-button move-drag never docks (free-move)
+	}>({
+		action: null,
+		startX: 0,
+		startY: 0,
+		startRect: instance.rect,
+		moved: false,
+		skipFlow: false
+	});
 	const [action, setAction] = useState<'move' | 'flow' | ResizeHandle | null>(null);
 	const [ghost, setGhost] = useState({ dx: 0, dy: 0 });
 
@@ -110,16 +129,23 @@ export default function WidgetHost({
 		if (!editMode) return;
 		e.preventDefault();
 		e.stopPropagation();
+		// Swallow the contextmenu that trails a right-button free-move (consume-once, canvas-armed).
+		if (suppressContextMenu?.()) return;
 		onSelect?.({ id: selectId });
 		onContextMenu?.({ id: selectId, x: e.clientX, y: e.clientY });
 	};
 
 	function begin(kind: 'move' | ResizeHandle, e: ReactPointerEvent) {
-		if (e.button !== 0) return; // left-button only; middle-drag is reserved for panning
+		// Left starts a normal (dockable) drag; right starts a free-move (skipFlow) but only for a
+		// movable widget's MOVE — resize handles + in-flow ghost-drag stay left-only. Middle/other: no-op.
+		const intent = dragMoveIntent(e.button);
+		if (!intent || !intent.start) return; // middle-drag is reserved for panning
+		if (intent.skipFlow && !(movable && kind === 'move')) return;
 		if (!editMode) return;
 		onSelect?.({ id: selectId });
 		const d = drag.current;
 		d.moved = false;
+		d.skipFlow = intent.skipFlow;
 		if (!movable) {
 			// In-flow widgets ghost-drag to reorder/reparent; the solver owns their base position, so
 			// we translate a ghost and only mutate the tree on drop (5e).
@@ -139,7 +165,10 @@ export default function WidgetHost({
 		d.startRect = rect;
 		setAction(kind);
 		e.currentTarget.setPointerCapture(e.pointerId);
-		e.preventDefault();
+		// Don't preventDefault a right-button (free-move) press — preventDefault on a right pointerdown
+		// must never be allowed to cancel the trailing native contextmenu (a stationary right-click
+		// still has to open the menu). Left-button keeps preventDefault (suppresses text-selection).
+		if (!d.skipFlow) e.preventDefault();
 		e.stopPropagation();
 	}
 
@@ -167,8 +196,10 @@ export default function WidgetHost({
 				? moveRect(d.startRect, dx, dy, grid)
 				: resizeRect(d.startRect, d.action, dx, dy, grid);
 		onChange?.({ id: instance.id, rect: next });
-		// A floating widget dragged over the flow tree can dock there (checked on commit).
-		if (d.action === 'move') onDragOver?.({ id: selectId, x: e.clientX, y: e.clientY });
+		// A floating widget dragged over the flow tree can dock there (checked on commit) — unless this
+		// is a right-button free-move (skipFlow), which the Canvas keeps floating.
+		if (d.action === 'move')
+			onDragOver?.({ id: selectId, x: e.clientX, y: e.clientY, skipFlow: d.skipFlow });
 	}
 
 	function end(e: ReactPointerEvent) {
@@ -185,7 +216,10 @@ export default function WidgetHost({
 			return;
 		}
 		// Likewise a click on a floating widget selects without a no-op move/commit.
-		if (didMove) onCommit?.();
+		if (didMove) onCommit?.({ skipFlow: d.skipFlow });
+		// A real right-button free-move arms canvas-side suppression of the contextmenu that follows
+		// (a right-CLICK without movement must still open the menu, so only arm when it actually moved).
+		if (didMove && d.skipFlow) onSuppressContextMenu?.();
 	}
 
 	const cls = ['widget'];

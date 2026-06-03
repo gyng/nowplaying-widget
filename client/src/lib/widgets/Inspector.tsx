@@ -11,6 +11,7 @@ import type {
 	WidgetDef,
 	WidgetInstance
 } from '../core/layoutTree';
+import { getMeta } from '../core/widget';
 import type { ConfigField } from '../core/widget';
 import type { LayoutOp } from './ops';
 import './Inspector.css';
@@ -189,6 +190,11 @@ export default function Inspector({
 	function setConfig(key: string, value: unknown) {
 		if (widget) patchWidget({ config: { ...widget.config, [key]: value } });
 	}
+
+	// A field's reset value: its own explicit `default`, else the widget type's defaultConfig[key].
+	const widgetMeta = widget ? getMeta(widget.type) : undefined;
+	const fieldDefault = (f: ConfigField): unknown =>
+		f.default !== undefined ? f.default : widgetMeta?.defaultConfig?.[f.key];
 
 	function patchContainer(patch: Partial<Container>) {
 		if (container) op({ op: 'patchContainer', id: container.id, patch });
@@ -479,52 +485,70 @@ export default function Inspector({
 							))}
 						</div>
 					)}
-					{configFields.map((f) => (
-						<label
-							key={f.key}
-							className={['full', dirtyKeys.has('config.' + f.key) && 'dirty']
-								.filter(Boolean)
-								.join(' ')}
-						>
-							{f.label}
-							{f.kind === 'number' ? (
-								<input
-									type="number"
-									value={cfgStr(widget.config[f.key])}
-									onInput={(e) =>
-										setConfig(
-											f.key,
-											e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)
-										)
-									}
-								/>
-							) : f.kind === 'toggle' ? (
-								<input
-									type="checkbox"
-									checked={cfgBool(widget.config[f.key])}
-									onChange={(e) => setConfig(f.key, e.currentTarget.checked)}
-								/>
-							) : f.kind === 'select' ? (
-								<select
-									value={cfgStr(widget.config[f.key])}
-									onChange={(e) => setConfig(f.key, e.currentTarget.value)}
+					{configFields.map((f) => {
+						// The reset button lives OUTSIDE the <label> (positioned over its top-right) so the
+						// field's input stays the label's labeled control — a nested button would otherwise
+						// become the label's control (a11y regression + clicking the label would reset it).
+						const def = fieldDefault(f);
+						return (
+							<div className="cfg-field" key={f.key}>
+								<button
+									type="button"
+									className="reset-field"
+									title="Reset to default"
+									disabled={def === undefined}
+									onClick={() => setConfig(f.key, def)}
 								>
-									{f.options.map((o) => (
-										<option key={o} value={o}>
-											{o}
-										</option>
-									))}
-								</select>
-							) : (
-								<input
-									type="text"
-									value={cfgStr(widget.config[f.key])}
-									placeholder={f.kind === 'color' ? 'css color' : ''}
-									onInput={(e) => setConfig(f.key, e.currentTarget.value || undefined)}
-								/>
-							)}
-						</label>
-					))}
+									↺
+								</button>
+								<label
+									title={f.help}
+									className={['full', dirtyKeys.has('config.' + f.key) && 'dirty']
+										.filter(Boolean)
+										.join(' ')}
+								>
+									{f.label}
+									{f.kind === 'number' ? (
+										<input
+											type="number"
+											value={cfgStr(widget.config[f.key])}
+											onInput={(e) =>
+												setConfig(
+													f.key,
+													e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)
+												)
+											}
+										/>
+									) : f.kind === 'toggle' ? (
+										<input
+											type="checkbox"
+											checked={cfgBool(widget.config[f.key])}
+											onChange={(e) => setConfig(f.key, e.currentTarget.checked)}
+										/>
+									) : f.kind === 'select' ? (
+										<select
+											value={cfgStr(widget.config[f.key])}
+											onChange={(e) => setConfig(f.key, e.currentTarget.value)}
+										>
+											{f.options.map((o) => (
+												<option key={o} value={o}>
+													{o}
+												</option>
+											))}
+										</select>
+									) : (
+										<input
+											type="text"
+											value={cfgStr(widget.config[f.key])}
+											placeholder={f.kind === 'color' ? 'css color' : ''}
+											onInput={(e) => setConfig(f.key, e.currentTarget.value || undefined)}
+										/>
+									)}
+									{f.help ? <small className="field-help">{f.help}</small> : null}
+								</label>
+							</div>
+						);
+					})}
 					<label className={['full', configDirty && 'dirty'].filter(Boolean).join(' ')}>
 						config (JSON)
 						<textarea

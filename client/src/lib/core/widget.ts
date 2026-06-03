@@ -7,13 +7,24 @@
 
 import type { WidgetInstance } from './layout';
 
-// A typed config field, so the inspector can render a real input instead of raw JSON.
+// A typed config field, so the inspector can render a real input instead of raw JSON. `help` is a
+// one-line description surfaced in the inspector; `default` is the field's own reset value (falls
+// back to the widget type's defaultConfig[key] when omitted) — together these make the config UI
+// fully self-describing from the widget meta (item: "config should be ui driven").
+type FieldMeta = { help?: string; default?: unknown };
 export type ConfigField =
-	| { key: string; label: string; kind: 'number'; min?: number; max?: number; step?: number }
-	| { key: string; label: string; kind: 'text' }
-	| { key: string; label: string; kind: 'color' }
-	| { key: string; label: string; kind: 'toggle' }
-	| { key: string; label: string; kind: 'select'; options: string[] };
+	| ({
+			key: string;
+			label: string;
+			kind: 'number';
+			min?: number;
+			max?: number;
+			step?: number;
+	  } & FieldMeta)
+	| ({ key: string; label: string; kind: 'text' } & FieldMeta)
+	| ({ key: string; label: string; kind: 'color' } & FieldMeta)
+	| ({ key: string; label: string; kind: 'toggle' } & FieldMeta)
+	| ({ key: string; label: string; kind: 'select'; options: string[] } & FieldMeta);
 
 export type SensorKind = 'scalar' | 'series' | 'text' | 'json' | 'none';
 
@@ -82,10 +93,15 @@ export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 	gap: 8px;
 }`;
 
-const num = (key: string, label: string, extra: Partial<ConfigField> = {}): ConfigField =>
-	({ key, label, kind: 'number', ...extra } as ConfigField);
-const text = (key: string, label: string): ConfigField => ({ key, label, kind: 'text' });
-const color = (key: string, label: string): ConfigField => ({ key, label, kind: 'color' });
+const num = (
+	key: string,
+	label: string,
+	extra: { min?: number; max?: number; step?: number } & FieldMeta = {}
+): ConfigField => ({ key, label, kind: 'number', ...extra } as ConfigField);
+const text = (key: string, label: string, extra: FieldMeta = {}): ConfigField =>
+	({ key, label, kind: 'text', ...extra } as ConfigField);
+const color = (key: string, label: string, extra: FieldMeta = {}): ConfigField =>
+	({ key, label, kind: 'color', ...extra } as ConfigField);
 
 // The built-in meters as data (reproduces the old createWidget switch exactly, so the
 // default look/behaviour is unchanged). Components are attached in registry.ts.
@@ -99,11 +115,11 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultConfig: { label: 'CPU', unit: '%', min: 0, max: 100 },
 		configFields: [
 			text('label', 'label'),
-			text('unit', 'unit'),
-			num('min', 'min'),
-			num('max', 'max'),
+			text('unit', 'unit', { help: 'suffix after the value, e.g. % or °C' }),
+			num('min', 'min', { help: 'value mapped to an empty gauge' }),
+			num('max', 'max', { help: 'value mapped to a full gauge' }),
 			color('color', 'color'),
-			color('track', 'track')
+			color('track', 'track', { help: 'color of the unfilled arc' })
 		]
 	},
 	{
@@ -115,16 +131,17 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultConfig: { min: 0, max: 100, label: 'MEM' },
 		configFields: [
 			text('label', 'label'),
-			num('min', 'min'),
-			num('max', 'max'),
+			num('min', 'min', { help: 'value mapped to an empty bar' }),
+			num('max', 'max', { help: 'value mapped to a full bar' }),
 			{
 				key: 'orientation',
 				label: 'orientation',
 				kind: 'select',
-				options: ['horizontal', 'vertical']
+				options: ['horizontal', 'vertical'],
+				help: 'fill direction'
 			},
 			color('color', 'color'),
-			color('track', 'track')
+			color('track', 'track', { help: 'color of the unfilled track' })
 		]
 	},
 	{
@@ -136,9 +153,14 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultConfig: { seconds: 60 },
 		configFields: [
 			color('color', 'color'),
-			{ key: 'fill', label: 'fill', kind: 'toggle' },
-			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' },
-			num('seconds', 'history (s)', { min: 5, step: 5 })
+			{ key: 'fill', label: 'fill', kind: 'toggle', help: 'fill the area under the line' },
+			{
+				key: 'histogram',
+				label: 'histogram (bars)',
+				kind: 'toggle',
+				help: 'draw bars instead of a line'
+			},
+			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' })
 		]
 	},
 	{
@@ -148,7 +170,13 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultSensor: 'net.down',
 		defaultSize: { w: 100, h: 18 },
 		defaultConfig: { format: 'rate', label: '↓' },
-		configFields: [text('label', 'label'), text('format', 'format'), color('color', 'color')]
+		configFields: [
+			text('label', 'label'),
+			text('format', 'format', {
+				help: "'rate' = bytes/s (e.g. 1.2 MB/s); otherwise the raw value"
+			}),
+			color('color', 'color')
+		]
 	},
 	{
 		type: 'clock',
@@ -157,8 +185,14 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultSize: { w: 160, h: 40 },
 		defaultConfig: { format: 'HH:mm:ss' },
 		configFields: [
-			text('format', 'format'),
-			{ key: 'locale', label: 'locale', kind: 'select', options: ['en', 'ja'] },
+			text('format', 'format', { help: 'date-fns pattern, e.g. HH:mm:ss or dddd D MMMM' }),
+			{
+				key: 'locale',
+				label: 'locale',
+				kind: 'select',
+				options: ['en', 'ja'],
+				help: 'month/day names'
+			},
 			text('label', 'label'),
 			color('color', 'color')
 		]
@@ -191,15 +225,34 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		defaultSize: { w: 160, h: 90 },
 		defaultConfig: { mode: 'cores', cols: 8 },
 		configFields: [
-			{ key: 'mode', label: 'mode', kind: 'select', options: ['cores', 'combined'] },
-			num('cols', 'cols (per-core grid)', { min: 1 }),
-			num('seconds', 'history (s)', { min: 5, step: 5 }),
-			{ key: 'histogram', label: 'histogram (bars)', kind: 'toggle' },
+			{
+				key: 'mode',
+				label: 'mode',
+				kind: 'select',
+				options: ['cores', 'combined'],
+				help: 'per-core sparkline grid vs one combined gauge'
+			},
+			num('cols', 'cols (per-core grid)', { min: 1, help: 'columns in the per-core grid' }),
+			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' }),
+			{
+				key: 'histogram',
+				label: 'histogram (bars)',
+				kind: 'toggle',
+				help: 'draw bars instead of lines'
+			},
 			text('label', 'label (combined)'),
 			color('color', 'color')
 		]
 	}
 ];
+
+// The defaultConfig keys with no matching ConfigField — i.e. config a user could only reach via the
+// raw-JSON escape hatch. A regression guard for "fully UI-driven config": every meaningful key
+// should be a real control. Pure + unit-tested (asserts [] for every built-in meta).
+export function configCompleteness(meta: WidgetMeta): string[] {
+	const have = new Set((meta.configFields ?? []).map((f) => f.key));
+	return Object.keys(meta.defaultConfig ?? {}).filter((k) => !have.has(k));
+}
 
 const metas = new Map<string, WidgetMeta>();
 

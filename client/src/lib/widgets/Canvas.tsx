@@ -837,6 +837,9 @@ export default function Canvas({ studio = false }: Props) {
 		[translateSelectedFloating, mutateNoSave]
 	);
 
+	// (A right-button free-move passes {skipFlow} here, but it's intentionally ignored: skipFlow is
+	// already enforced upstream in onDragOver — allowDock && !skipFlow keeps dropIndicatorRef null —
+	// so the dock branch below is simply never taken for a free-move.)
 	const onCommit = useCallback(() => {
 		setGuideXs([]);
 		setGuideYs([]);
@@ -865,13 +868,15 @@ export default function Canvas({ studio = false }: Props) {
 	}, [commitOp]);
 
 	const onDragOver = useCallback(
-		(e: { id: string; x: number; y: number }) => {
+		(e: { id: string; x: number; y: number; skipFlow?: boolean }) => {
 			const { id } = e;
 			const w = toWorld(e.x, e.y);
 			const c = toCanvas(e.x, e.y);
 			draggingIdRef.current = id;
 			const mon = monitorForDragRef.current;
-			const allowDock = !mon.floating.some((l) => l.id === id) || dropIntoFlowRef.current;
+			// A right-button free-move (skipFlow) never docks, regardless of the "into grids" toggle.
+			const allowDock =
+				(!mon.floating.some((l) => l.id === id) || dropIntoFlowRef.current) && !e.skipFlow;
 			const drop = allowDock
 				? dropTarget(mon.root, solvedRef.current, w, id, dropIntoCellsRef.current)
 				: null;
@@ -1067,6 +1072,25 @@ export default function Canvas({ studio = false }: Props) {
 		return [...widgets, ...containers];
 	}, [menu, studio, widgetsAt, toWorld]);
 
+	// A right-button free-move (WidgetHost) arms this so the contextmenu that trails the drag is
+	// swallowed exactly once — by whichever entry point it lands on (the widget's handleContextMenu
+	// via the suppressContextMenu prop, or onCanvasContextMenu if grid-snap drift lands it on bare
+	// canvas). The setTimeout safety-clears it if no contextmenu follows on this platform.
+	const suppressNextCtxRef = useRef(false);
+	const armSuppressCtx = useCallback(() => {
+		suppressNextCtxRef.current = true;
+		setTimeout(() => {
+			suppressNextCtxRef.current = false;
+		}, 0);
+	}, []);
+	const consumeSuppressCtx = useCallback(() => {
+		if (suppressNextCtxRef.current) {
+			suppressNextCtxRef.current = false;
+			return true;
+		}
+		return false;
+	}, []);
+
 	const onWidgetContextMenu = useCallback((e: { id: string; x: number; y: number }) => {
 		setMenu({ x: e.x, y: e.y, id: e.id });
 	}, []);
@@ -1074,11 +1098,12 @@ export default function Canvas({ studio = false }: Props) {
 		(event: React.MouseEvent) => {
 			if (!editModeRef.current) return;
 			event.preventDefault();
+			if (consumeSuppressCtx()) return; // swallow the contextmenu trailing a right-drag free-move
 			const mon = monitorForDragRef.current;
 			const id = studio ? containerAt(toWorld(event.clientX, event.clientY)) : mon.root.id;
 			setMenu({ x: event.clientX, y: event.clientY, id: id === mon.root.id ? '__canvas__' : id });
 		},
-		[studio, containerAt, toWorld]
+		[studio, containerAt, toWorld, consumeSuppressCtx]
 	);
 	// Drag a palette widget (the Inspector "Add" buttons set text/x-widget-type) onto the stage to
 	// drop a new floating widget at the cursor (item 7). Drops over a docked rail belong to that
@@ -1305,6 +1330,8 @@ export default function Canvas({ studio = false }: Props) {
 							onContextMenu={onWidgetContextMenu}
 							onControl={onWidgetControl}
 							onHover={editMode ? setHoverId : undefined}
+							onSuppressContextMenu={armSuppressCtx}
+							suppressContextMenu={consumeSuppressCtx}
 						/>
 					))}
 					{editMode && (

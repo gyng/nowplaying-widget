@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createWidget, getMeta, listMetas, registerMeta } from './widget';
+import {
+	BUILTIN_METAS,
+	configCompleteness,
+	createWidget,
+	getMeta,
+	listMetas,
+	registerMeta
+} from './widget';
 
 describe('createWidget (registry-driven)', () => {
 	it('builds a sensor-bound gauge with the built-in defaults', () => {
@@ -72,5 +79,40 @@ describe('meta registry', () => {
 		const w = createWidget('demo.widget', 'd1');
 		expect(w).toMatchObject({ type: 'demo.widget', sensor: 'demo.x', config: { k: 1 } });
 		expect(w.rect).toMatchObject({ w: 50, h: 60 });
+	});
+});
+
+describe('configCompleteness (UI-driven config guard)', () => {
+	it('every built-in widget exposes a config field for each default-config key', () => {
+		// No built-in config should be reachable only via the raw-JSON escape hatch.
+		for (const meta of BUILTIN_METAS) {
+			expect({ type: meta.type, missing: configCompleteness(meta) }).toEqual({
+				type: meta.type,
+				missing: []
+			});
+		}
+	});
+
+	it('reports default-config keys that have no field', () => {
+		expect(
+			configCompleteness({
+				type: 't',
+				defaultConfig: { a: 1, b: 2 },
+				configFields: [{ key: 'a', label: 'a', kind: 'number' }]
+			})
+		).toEqual(['b']);
+	});
+
+	it('treats a field default as independent of defaultConfig (a field with no default-config key still counts)', () => {
+		expect(
+			configCompleteness({
+				type: 't',
+				defaultConfig: { a: 1 },
+				configFields: [
+					{ key: 'a', label: 'a', kind: 'number' },
+					{ key: 'extra', label: 'extra', kind: 'text', default: 'x' }
+				]
+			})
+		).toEqual([]);
 	});
 });
