@@ -37,16 +37,23 @@ async fn main() -> Result<(), ()> {
     let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(1);
 
     tauri::Builder::default()
-        // Persist window size/position, but DO NOT let the plugin manage DECORATIONS: our
-        // overlays are intentionally borderless (config `decorations:false`), and the default
-        // `StateFlags::all()` would restore a stale saved `decorations:true` at startup —
-        // re-adding a title bar/border that our JS never counters (it only re-asserts shadow).
-        // Excluding the flag makes config the single source of truth for decorations.
+        // Persist window size/position, but DO NOT let the plugin manage DECORATIONS or VISIBLE:
+        // - DECORATIONS: our overlays are intentionally borderless (config `decorations:false`),
+        //   and the default `StateFlags::all()` would restore a stale saved `decorations:true` at
+        //   startup — re-adding a title bar/border that our JS never counters (it only re-asserts
+        //   shadow).
+        // - VISIBLE: the main window is born hidden (config `visible:false`) and only revealed by
+        //   the frontend AFTER it has been sized/positioned to fill the primary monitor and the
+        //   layout has rendered (overlay.ts `setMainWindowVisible` via `syncPrimaryOverlays`).
+        //   Restoring the saved `visible:true` here would un-hide it at its stale boot geometry,
+        //   reintroducing the startup flash of mis-placed/blank content this is meant to prevent.
+        // Excluding both flags makes config + JS the single source of truth for them.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::all()
-                        & !tauri_plugin_window_state::StateFlags::DECORATIONS,
+                        & !tauri_plugin_window_state::StateFlags::DECORATIONS
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
                 )
                 .build(),
         )

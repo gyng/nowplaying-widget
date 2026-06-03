@@ -13,6 +13,7 @@ import {
 	monitorParam,
 	openStudio,
 	setClickThrough,
+	setMainWindowVisible,
 	studioMonitorOptions
 } from '../../overlay';
 import type { MonitorOption } from './types';
@@ -121,7 +122,15 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				unlistenStudio?.();
 				unlistenEdit?.();
 			}
-		})();
+		})().catch((err) => {
+			// The primary main window is born hidden (config `visible:false`) and only revealed once
+			// init reaches `syncPrimaryOverlays`. If init throws before that, reveal it anyway so a
+			// failure can never strand the app permanently invisible (its old always-visible default).
+			console.warn('overlay init failed', err);
+			if (!cancelled && !d.current.studio && !monitorParam()) {
+				void setMainWindowVisible(true).catch(() => undefined);
+			}
+		});
 
 		return () => {
 			cancelled = true;

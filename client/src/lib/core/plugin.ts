@@ -25,10 +25,20 @@ export function listSources(): SensorSource[] {
 	return Array.from(sources.values());
 }
 
-/** Start every registered source against `hub`; returns a single stop-all function. */
+/** Start every registered source against `hub`; returns a single stop-all function.
+ * Each source starts independently: one source that fails to start (e.g. an unreachable
+ * Home Assistant) is logged and skipped rather than rejecting — a failed data source must
+ * not abort app init, which now gates the (born-hidden) overlay's first reveal. */
 export async function startAllSources(hub: TelemetryHub): Promise<() => void> {
-	const unsubs = await Promise.all(listSources().map((s) => s.start(hub)));
-	return () => unsubs.forEach((u) => u());
+	const results = await Promise.all(
+		listSources().map((s) =>
+			s.start(hub).catch((err): (() => void) => {
+				console.warn(`source "${s.id}" failed to start`, err);
+				return () => undefined;
+			})
+		)
+	);
+	return () => results.forEach((u) => u());
 }
 
 /** The union of every source's catalog ids (deduped), for the sensor dropdown. */
