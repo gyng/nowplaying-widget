@@ -11,6 +11,8 @@
 
 import {
 	isContainer,
+	isGroup,
+	isLeaf,
 	resolvePad,
 	type Align,
 	type AlignH,
@@ -128,9 +130,15 @@ export function itemStyle(node: LayoutNode, parentKind: Container['kind']): Styl
 		s.flexShrink = 0;
 		s.flexBasis = `${Math.max(0, basis)}px`;
 	} else {
+		// 'auto' / 'content' / unset: a LEAF takes its STORED main extent (primitive rect / group
+		// size) as the flex-basis, so a fill-meter (width/height:100%, no intrinsic size) keeps the
+		// authored box the solver used to give it via intrinsicMain — otherwise flex:0 0 auto would
+		// collapse it toward 0. A CONTAINER shrink-wraps its children (flex-basis:auto). The cross
+		// axis is filled by the container's default align-items:stretch.
 		s.flexGrow = 0;
 		s.flexShrink = 0;
-		s.flexBasis = 'auto';
+		const size = isLeaf(node) ? (isGroup(node.unit) ? node.unit.size : node.unit.rect) : null;
+		s.flexBasis = size ? `${parentKind === 'row' ? size.w : size.h}px` : 'auto';
 	}
 
 	const ha = (node as { halign?: AlignH }).halign;

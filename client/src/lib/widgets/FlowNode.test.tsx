@@ -83,16 +83,21 @@ describe('FlowNode — emitted CSS', () => {
 		expect(el.style.alignItems).toBe('center');
 	});
 
-	it('an fr leaf slot grows; an auto leaf slot is content-sized', () => {
-		const mon = container('r', 'row', [leaf(prim('A'), { fr: 1 }), leaf(prim('B'))], {
-			align: 'stretch'
-		});
+	it('an fr leaf slot grows; an auto leaf slot keeps its stored main size', () => {
+		const mon = container(
+			'r',
+			'row',
+			[leaf(prim('A', 30, 20), { fr: 1 }), leaf(prim('B', 50, 20))],
+			{
+				align: 'stretch'
+			}
+		);
 		const view = render(<FlowNode node={mon} parentKind="col" renderLeaf={renderLeaf} />);
 		const a = view.container.querySelector('[data-id="A"]') as HTMLElement;
 		const b = view.container.querySelector('[data-id="B"]') as HTMLElement;
 		expect(a.style.flexGrow).toBe('1');
 		expect(b.style.flexGrow).toBe('0');
-		expect(b.style.flexBasis).toBe('auto');
+		expect(b.style.flexBasis).toBe('50px'); // row → main axis is width (stored 50)
 	});
 
 	it('a grid container emits grid template columns', () => {

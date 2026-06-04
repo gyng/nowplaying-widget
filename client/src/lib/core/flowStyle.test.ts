@@ -97,13 +97,20 @@ describe('itemStyle (sizing)', () => {
 		expect(s).toMatchObject({ flexGrow: 0, flexShrink: 0, flexBasis: '120px' });
 	});
 
-	it("basis 'auto' / unset → content-sized", () => {
-		expect(itemStyle({ ...leaf(prim('A')) }, 'col')).toMatchObject({
+	it("basis 'auto' / unset → a LEAF keeps its stored size (no collapse); axis-aware", () => {
+		// prim default size is 10x10. In a col the main axis is height; in a row it's width.
+		expect(itemStyle({ ...leaf(prim('A', 40, 20)) }, 'col')).toMatchObject({
 			flexGrow: 0,
 			flexShrink: 0,
-			flexBasis: 'auto'
+			flexBasis: '20px'
 		});
-		expect(itemStyle({ ...leaf(prim('A'), 'content') }, 'col').flexBasis).toBe('auto');
+		expect(itemStyle({ ...leaf(prim('A', 40, 20)) }, 'row').flexBasis).toBe('40px');
+		// 'content' also falls back to the stored size (true measure-fit isn't available in pure CSS).
+		expect(itemStyle({ ...leaf(prim('A', 40, 20), 'content') }, 'row').flexBasis).toBe('40px');
+	});
+
+	it('a CONTAINER with auto basis shrink-wraps (flex-basis:auto)', () => {
+		expect(itemStyle(container('c', 'col', []), 'row').flexBasis).toBe('auto');
 	});
 });
 
