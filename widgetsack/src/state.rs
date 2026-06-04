@@ -105,3 +105,106 @@ pub fn updater(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gsmtc::SessionModel;
+
+    /// A minimal `SessionModel` for building `SessionUpdateEventWrapper` events without any media
+    /// hardware. Only `source` is meaningful here; the rest are absent (None/empty).
+    fn model(source: &str) -> SessionModel {
+        SessionModel {
+            playback: None,
+            timeline: None,
+            media: None,
+            source: source.to_string(),
+        }
+    }
+
+    #[test]
+    fn create_yields_session_create_with_record_and_inserts() {
+        let mut sessions = HashMap::new();
+        let ev = NpSessionEvent::Create(
+            7,
+            ManagerEventWrapper::SessionCreated {
+                session_id: 7,
+                source: "fooplayer".to_string(),
+            },
+        );
+        let (kind, delta) = updater(&mut sessions, ev);
+        assert_eq!(kind, "session_create");
+        let record = delta.expect("create should yield a record");
+        assert_eq!(record.session_id, 7);
+        assert_eq!(record.source.as_deref(), Some("fooplayer"));
+        // The session is now tracked.
+        assert!(sessions.contains_key(&7));
+    }
+
+    #[test]
+    fn update_after_create_yields_session_update_and_keeps_source() {
+        let mut sessions = HashMap::new();
+        let _ = updater(
+            &mut sessions,
+            NpSessionEvent::Create(
+                7,
+                ManagerEventWrapper::SessionCreated {
+                    session_id: 7,
+                    source: "fooplayer".to_string(),
+                },
+            ),
+        );
+
+        let ev = NpSessionEvent::Update(7, SessionUpdateEventWrapper::Model(model("fooplayer")));
+        let (kind, delta) = updater(&mut sessions, ev);
+        assert_eq!(kind, "session_update");
+        let record = delta.expect("update should yield a record");
+        assert_eq!(record.session_id, 7);
+        // Source carried over from the create; a model update populates last_model_update.
+        assert_eq!(record.source.as_deref(), Some("fooplayer"));
+        assert!(record.last_model_update.is_some());
+        assert!(record.timestamp_updated.is_some());
+    }
+
+    #[test]
+    fn delete_yields_session_delete_with_record_and_removes() {
+        let mut sessions = HashMap::new();
+        let _ = updater(
+            &mut sessions,
+            NpSessionEvent::Create(
+                7,
+                ManagerEventWrapper::SessionCreated {
+                    session_id: 7,
+                    source: "fooplayer".to_string(),
+                },
+            ),
+        );
+
+        let ev = NpSessionEvent::Delete(7, ManagerEventWrapper::SessionRemoved { session_id: 7 });
+        let (kind, delta) = updater(&mut sessions, ev);
+        assert_eq!(kind, "session_delete");
+        assert!(delta.is_some(), "deleting a tracked session returns its record");
+        // …and it is gone from the map afterwards.
+        assert!(!sessions.contains_key(&7));
+    }
+
+    #[test]
+    fn delete_unknown_session_yields_session_delete_without_record() {
+        let mut sessions = HashMap::new();
+        let ev = NpSessionEvent::Delete(42, ManagerEventWrapper::SessionRemoved { session_id: 42 });
+        let (kind, delta) = updater(&mut sessions, ev);
+        assert_eq!(kind, "session_delete");
+        assert!(delta.is_none());
+    }
+
+    #[test]
+    fn unsupported_event_yields_unsupported_without_record() {
+        let mut sessions = HashMap::new();
+        let ev = NpSessionEvent::Unsupported(Some(3), "CurrentSessionChanged".to_string());
+        let (kind, delta) = updater(&mut sessions, ev);
+        assert_eq!(kind, "unsupported");
+        assert!(delta.is_none());
+        // An unsupported event must not register a session.
+        assert!(sessions.is_empty());
+    }
+}

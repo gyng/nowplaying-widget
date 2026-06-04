@@ -8,7 +8,7 @@ use state::SessionRecord;
 use std::collections::HashMap;
 use tauri::async_runtime::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::sync::mpsc;
@@ -34,12 +34,32 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
+    // Route panics through the logging pipeline (stderr + rotating file + webview) so a panic on
+    // any thread is never silent. Installed before anything else, so even a panic during startup
+    // (before `log::init` wires the app handle) still hits stderr + the file.
+    std::panic::set_hook(Box::new(log::log_panic));
+
     let rx_session_manager = gsmtc::SessionManager::create()
         .await
         .expect("{failed to create gsmtc::SessionManager");
-    let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(1);
+    // Capacity 16 (was 1): a burst of media events (e.g. a track change firing several
+    // SessionUpdateEvents) can't briefly block the gsmtc listener task on a full channel.
+    let (tx_gsmtc, mut rx_gsmtc) = mpsc::channel(16);
 
     tauri::Builder::default()
+        // Single-instance MUST be the first plugin (its callback fires synchronously on a second
+        // launch, before windows exist). A second launch focuses the running app by emitting
+        // open_studio (the primary overlay opens the studio), then that process exits.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Emitter;
+            let _ = app.emit("open_studio", ());
+        }))
+        // "Launch at login" support. The Settings toggle enables/disables it via the granted
+        // autostart:* commands (overlay.json capability); registering it here just makes them work.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ))
         // Persist window size/position, but DO NOT let the plugin manage DECORATIONS or VISIBLE:
         // - DECORATIONS: our overlays are intentionally borderless (config `decorations:false`),
         //   and the default `StateFlags::all()` would restore a stale saved `decorations:true` at
@@ -173,6 +193,18 @@ async fn main() -> Result<(), ()> {
                     }
                     "quit" => app.exit(0),
                     _ => {}
+                })
+                // Left-click (primary button release) opens the designer; right-click still shows
+                // the menu above. Match on the button-up edge so a single click fires once.
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let _ = tray.app_handle().emit("open_studio", ());
+                    }
                 })
                 .build(app)?;
 

@@ -16,6 +16,9 @@
     "core:window:allow-hide",
     "core:window:allow-close",
     "core:window:allow-current-monitor",
-    "core:window:allow-available-monitors"
+    "core:window:allow-available-monitors",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

@@ -39,7 +39,9 @@ pub fn set_interactive_rects(
     label: String,
     rects: Vec<ScreenRect>,
 ) {
-    let mut map = state.0.lock().unwrap();
+    // Recover from a poisoned lock (a prior panic while holding it) instead of panicking again —
+    // the stored rects are plain data, so a poisoned guard is still safe to use.
+    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
     if rects.is_empty() {
         map.remove(&label);
     } else {
@@ -56,7 +58,9 @@ pub fn run_clickthrough_watcher<R: Runtime>(app: AppHandle<R>) {
         loop {
             let map = {
                 let guard = app.state::<InteractiveRects>();
-                let map = guard.0.lock().unwrap();
+                // Recover a poisoned lock rather than panicking — a transient poison must not kill
+                // the watcher thread (which would silently break per-widget click-through).
+                let map = guard.0.lock().unwrap_or_else(|e| e.into_inner());
                 map.clone()
             };
             if map.is_empty() {

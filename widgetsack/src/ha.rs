@@ -530,14 +530,19 @@ pub async fn run_ha_client<R: Runtime>(app: AppHandle<R>, cfg: HaConfig) {
 // ---- Tauri commands ----
 
 /// Persist `plugins/ha.json` (creates `plugins/`). The token is written server-side only.
+/// Studio-only: a settings WRITE must come from the designer window, not a click-through overlay.
 #[tauri::command]
-pub async fn save_ha_config<R: Runtime>(
-    app: AppHandle<R>,
+pub async fn save_ha_config(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
     url: String,
     token: String,
     insecure: Option<bool>,
     base_path: Option<String>,
 ) -> Result<(), String> {
+    if window.label() != "studio" {
+        return Err("save_ha_config is only allowed from the studio window".into());
+    }
     let path = ha_config_path(&app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -564,13 +569,17 @@ pub async fn save_ha_config<R: Runtime>(
 /// Takes params (not `ha.json`) and uses a throwaway socket that closes when this returns (the
 /// stream is dropped). Reuses the same `connect_ws` + `expect_type` seams as the live client.
 #[tauri::command]
-pub async fn ha_test_connection<R: Runtime>(
-    app: AppHandle<R>,
+pub async fn ha_test_connection(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
     url: String,
     token: String,
     insecure: Option<bool>,
     base_path: Option<String>,
 ) -> Result<HaTestResult, String> {
+    if window.label() != "studio" {
+        return Err("ha_test_connection is only allowed from the studio window".into());
+    }
     // Blank token = "test with the already-saved token" (the UI can't hold it — write-only), so
     // the user can validate a changed URL/insecure against their existing credential.
     let token = if token.is_empty() {

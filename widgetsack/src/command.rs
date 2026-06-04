@@ -163,7 +163,7 @@ pub fn list_themes(app: tauri::AppHandle) -> Result<Vec<String>, String> {
 /// The CSS of theme `name` (a bare file stem), or `None` if it doesn't exist.
 #[tauri::command]
 pub fn load_theme(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
-    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+    if !valid_name(&name) {
         return Err("invalid theme name".to_string());
     }
     let path = themes_dir(&app)?.join(format!("{name}.css"));
@@ -177,7 +177,7 @@ pub fn load_theme(app: tauri::AppHandle, name: String) -> Result<Option<String>,
 /// Write theme `name` (used by the studio's token panel, Phase 7d). Creates `themes/`.
 #[tauri::command]
 pub fn save_theme(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
-    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+    if !valid_name(&name) {
         return Err("invalid theme name".to_string());
     }
     let dir = themes_dir(&app)?;
@@ -195,8 +195,23 @@ fn sacks_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("sacks"))
 }
 
+/// Shared filename allowlist for user-named config files (themes, sacks). The name becomes a
+/// path segment, so it must be a safe, bounded token: 1–64 chars of `[A-Za-z0-9 _-]` only. This
+/// rejects control chars, path separators, `..`, and Windows-reserved characters by construction;
+/// the explicit empty/`..`/separator checks below are kept as a defensive backstop.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_' || c == '-')
+}
+
 fn valid_sack_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.contains("..")
+    valid_name(name)
 }
 
 /// The sack names (file stems of `sacks/*.sack.json`), sorted.
@@ -391,4 +406,31 @@ pub fn watch_controls(app: tauri::AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_name;
+
+    #[test]
+    fn valid_name_accepts_plain_tokens() {
+        assert!(valid_name("amber"));
+        assert!(valid_name("My Theme 2"));
+        assert!(valid_name("dark_mode-v2"));
+        assert!(valid_name(&"x".repeat(64)));
+    }
+
+    #[test]
+    fn valid_name_rejects_unsafe_or_oversized() {
+        assert!(!valid_name("")); // empty
+        assert!(!valid_name("..")); // traversal
+        assert!(!valid_name("a/b")); // separator
+        assert!(!valid_name("a\\b")); // separator
+        assert!(!valid_name("a..b")); // contains ..
+        assert!(!valid_name("name.css")); // dot (extension is added by the caller)
+        assert!(!valid_name("a:b")); // reserved char
+        assert!(!valid_name("tab\tname")); // control char
+        assert!(!valid_name("café")); // non-ASCII
+        assert!(!valid_name(&"x".repeat(65))); // too long
+    }
 }

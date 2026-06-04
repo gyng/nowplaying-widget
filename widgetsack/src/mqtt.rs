@@ -334,8 +334,9 @@ pub async fn run_mqtt_client<R: Runtime>(
 /// (write-only over the bridge, like HA's token).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn save_mqtt_config<R: Runtime>(
-    app: AppHandle<R>,
+pub async fn save_mqtt_config(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
     host: String,
     port: u16,
     username: String,
@@ -346,6 +347,9 @@ pub async fn save_mqtt_config<R: Runtime>(
     insecure: bool,
     discovery: bool,
 ) -> Result<(), String> {
+    if window.label() != "studio" {
+        return Err("save_mqtt_config is only allowed from the studio window".into());
+    }
     let path = mqtt_config_path(&app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
