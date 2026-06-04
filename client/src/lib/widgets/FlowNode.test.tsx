@@ -8,7 +8,7 @@ import {
 	type MonitorLayout,
 	type WidgetInstance
 } from '../core/layoutTree';
-import { collectContainerRects, collectRenderables, solveMonitor } from '../core/solve';
+import { collectContainerRects, collectRenderables, type Solved } from '../core/solve';
 import FlowNode, { type RenderLeaf } from './FlowNode';
 
 const prim = (id: string, w = 10, h = 10): WidgetInstance => ({
@@ -40,11 +40,10 @@ function tree(): MonitorLayout {
 	};
 }
 
-const wa = { x: 0, y: 0, w: 800, h: 600 };
 const lib: Library = { version: 1, defs: [] };
 
-describe('FlowNode — data-id parity with the solver (drop-in guard)', () => {
-	it('renders a data-id for every solver Map key (renderables + container boxes)', () => {
+describe('FlowNode — data-id parity with the collectors (drop-in guard)', () => {
+	it('renders a data-id for every collector key (renderables + container boxes)', () => {
 		const mon = tree();
 		const view = render(
 			<FlowNode node={mon.root} parentKind="col" renderLeaf={renderLeaf} library={lib} />
@@ -55,7 +54,19 @@ describe('FlowNode — data-id parity with the solver (drop-in guard)', () => {
 			)
 		);
 
-		const solved = solveMonitor(mon, wa, lib);
+		// A hand-built measured Map with every id in `tree()`: containers (root/row1/grid1 — group
+		// internals are NOT surfaced by collectContainerRects), the flow leaves (A/B/D), and the
+		// group descendant (G/C, namespaced by the group leaf id). Rects are arbitrary — the
+		// collectors only key off presence in the map. No solver involved.
+		const solved: Solved = new Map([
+			['root', { x: 0, y: 0, w: 800, h: 600 }],
+			['row1', { x: 0, y: 0, w: 800, h: 200 }],
+			['A', { x: 0, y: 0, w: 400, h: 200 }],
+			['B', { x: 400, y: 0, w: 400, h: 200 }],
+			['G/C', { x: 0, y: 200, w: 40, h: 40 }],
+			['grid1', { x: 0, y: 240, w: 800, h: 360 }],
+			['D', { x: 0, y: 240, w: 400, h: 360 }]
+		]);
 		const leafKeys = collectRenderables(mon, solved, lib).map((r) => r.id);
 		const containerKeys = collectContainerRects(mon, solved).map((c) => c.id);
 
@@ -63,7 +74,7 @@ describe('FlowNode — data-id parity with the solver (drop-in guard)', () => {
 		for (const k of [...leafKeys, ...containerKeys]) {
 			expect(rendered.has(k), `missing data-id "${k}"`).toBe(true);
 		}
-		// The group descendant is namespaced exactly like the solver (G/C).
+		// The group descendant is namespaced by the group leaf id (G/C).
 		expect(rendered.has('G/C')).toBe(true);
 	});
 });

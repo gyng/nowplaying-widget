@@ -1,26 +1,22 @@
-// The HEART of the layout engine: a pure, recursive solver. Given a node and the
-// absolute content rect it occupies, produce a flat Map<id, Rect> of every rendered
-// primitive's ABSOLUTE rect (plus each placed group's own box). Containers distribute
-// the main axis by basis/fr, place the cross axis by align, and apply gap/pad/justify.
-// A group solves its child inside its own box (a leaf to the solver, a container-root
-// internally); its descendant ids are namespaced by the group leaf id so many
-// instances of one def never collide. The floating layer positions each leaf by its
-// own absolute rect. ZERO Svelte/Tauri, no DOM, no text measurement — intrinsic size
-// is a primitive's rect.{w,h} / a group's size. Results are EXACT floats (like
-// align.ts); the render layer paints them verbatim, so adjacent flow children share an
-// exact edge (no 1px snap seam). Co-located vitest tests in solve.test.ts.
+// Pure layout UTILITIES that the CSS-rendered editor/overlay leans on (the recursive
+// solver engine that once lived here is gone — native CSS now positions the flow tree).
+// What remains, all pure (ZERO Svelte/Tauri, no DOM, no text measurement):
+//   • collectors — collectRenderables / collectContainerRects / collectGridPlaceholders:
+//     walk a monitor tree + a measured Map<id, Rect> and pair every rendered primitive,
+//     container box, and empty grid cell with its rect (mirroring the old id namespacing).
+//   • grid geometry — gridCellRects: every cell rect of a grid within a given box.
+//   • group resolution — resolveGroup: a group instance → its concrete child subtree +
+//     box, applying params onto a CLONED child (the def/inline tree is never mutated).
+//   • intrinsic sizing — intrinsicSize: a node's natural {w,h}, used when turning a
+//     subtree into a reusable WidgetDef.
+// Co-located vitest tests in solve.test.ts.
 
 import type { Rect, WidgetInstance } from './layout';
 import {
-	type Align,
 	type Container,
 	type Group,
-	type Justify,
 	type LayoutNode,
-	type Leaf,
-	type Length,
 	type Library,
-	type LayoutV2,
 	type MonitorLayout,
 	type WidgetDef,
 	isContainer,
@@ -46,9 +42,10 @@ export type Renderable = {
 
 /**
  * Pair every rendered primitive (flow tree + floating layer + group descendants) with
- * its solved rect, mirroring the solver's id namespacing. Group descendants carry their
- * group's id as `selectId` (the group is the selectable unit) and are never movable.
- * Pure — `solved` comes from solveMonitor; this only walks + looks up.
+ * its measured rect, mirroring the namespaced ids the CSS render layer emits (a group
+ * leaf prefixes its child ids with `${leaf.id}/`). Group descendants carry their group's
+ * id as `selectId` (the group is the selectable unit) and are never movable. Pure —
+ * `solved` is the measured Map<id, Rect>; this only walks + looks up.
  */
 export function collectRenderables(
 	monitor: MonitorLayout,
@@ -111,7 +108,7 @@ export type ContainerBox = { id: string; rect: Rect; kind: Container['kind'] };
  * Collect every flow-tree container's solved box (the root and its nested row/col/grid
  * panes), so the designer can outline the layout structure. Group internals (def subtrees)
  * are intentionally NOT descended into — only the monitor's own containers are surfaced.
- * Pure; `solved` must come from solveMonitor/solveLayout (which now emit container boxes).
+ * Pure; `solved` is the measured Map<id, Rect> (which carries each container's own box).
  */
 export function collectContainerRects(monitor: MonitorLayout, solved: Solved): ContainerBox[] {
 	const out: ContainerBox[] = [];
@@ -185,30 +182,8 @@ function trackOffsets(sizes: number[], gap: number, start: number): number[] {
 	return offs;
 }
 
-// Largest w:h-ratio box fitting in `cell`, positioned by `align` (center by default). Used to
-// shape a grid cell that has an `aspect` within its (possibly fixed-size) cell box.
-function aspectFitInCell(cell: Rect, aspect: number, align: Align): Rect {
-	let w = cell.w;
-	let h = w / aspect;
-	if (h > cell.h) {
-		h = cell.h;
-		w = h * aspect;
-	}
-	let x = cell.x + (cell.w - w) / 2;
-	let y = cell.y + (cell.h - h) / 2;
-	if (align === 'start') {
-		x = cell.x;
-		y = cell.y;
-	} else if (align === 'end') {
-		x = cell.x + cell.w - w;
-		y = cell.y + cell.h - h;
-	}
-	return { x, y, w, h };
-}
-
-// Every cell rect of a grid container (cols × rows, row-major), mirroring solveGrid — now with
-// per-cell fixed widths/heights (non-uniform tracks). Exported for the designer's cell outlines
-// and drop targeting.
+// Every cell rect of a grid container (cols × rows, row-major), with per-cell fixed widths/heights
+// (non-uniform tracks). Exported for the designer's cell outlines and drop targeting.
 export function gridCellRects(c: Container, box: Rect): Rect[] {
 	const content = insetPad(box, c.pad);
 	const cols = Math.max(1, c.cols ?? 1);
@@ -230,7 +205,7 @@ export function gridCellRects(c: Container, box: Rect): Rect[] {
 /**
  * Empty grid cells across the flow tree (the trailing cells a grid has no child for), so the
  * designer can outline where the next widgets land — including showing the columns of a grid
- * that's still empty. Pure; needs container boxes from solveMonitor.
+ * that's still empty. Pure; needs each grid container's measured box in `solved`.
  */
 export function collectGridPlaceholders(monitor: MonitorLayout, solved: Solved): Rect[] {
 	const out: Rect[] = [];
@@ -250,49 +225,6 @@ export function collectGridPlaceholders(monitor: MonitorLayout, solved: Solved):
 }
 
 type Size = { w: number; h: number };
-
-// ---- public entry points -------------------------------------------------
-
-/**
- * Solve `node` inside the absolute `contentRect`, returning a Map from id → absolute
- * Rect for every primitive (and every placed group box) reachable below it. Pure and
- * deterministic. A container's own `bounds` is ignored here in favour of the
- * caller-supplied `contentRect` (the monitor caller passes `root.bounds ?? workArea`).
- * `library` is needed only when the tree contains group instances that reference a def.
- */
-export function solveLayout(node: LayoutNode, contentRect: Rect, library?: Library): Solved {
-	const out: Solved = new Map();
-	solveNode(node, contentRect, '', library, out);
-	return out;
-}
-
-/**
- * Solve a whole monitor: the in-flow `root` inside its bounds (defaulting to
- * `workArea`), then the floating layer (each leaf positioned by its own absolute rect).
- * Floating is solved last, so it wins on id collisions — ids are expected unique across
- * both layers.
- */
-export function solveMonitor(monitor: MonitorLayout, workArea: Rect, library?: Library): Solved {
-	const out: Solved = new Map();
-	const rootBounds = monitor.root.bounds ?? workArea;
-	solveNode(monitor.root, rootBounds, '', library, out);
-	for (const f of monitor.floating) solveFloating(f, library, out);
-	return out;
-}
-
-/** Solve every monitor in a v2 layout. `workAreas[id]` is that monitor's work area. */
-export function solveLayoutV2(
-	layout: LayoutV2,
-	workAreas: Record<string, Rect>,
-	library?: Library
-): Record<string, Solved> {
-	const result: Record<string, Solved> = {};
-	for (const [id, mon] of Object.entries(layout.monitors)) {
-		const wa = workAreas[id] ?? mon.root.bounds ?? { x: 0, y: 0, w: 0, h: 0 };
-		result[id] = solveMonitor(mon, wa, library);
-	}
-	return result;
-}
 
 /**
  * Resolve a group instance to the concrete child subtree + box to solve inside. Looks
@@ -320,249 +252,7 @@ export function intrinsicSize(node: LayoutNode, library?: Library): { w: number;
 	return { w: intrinsicMain(node, true, library), h: intrinsicMain(node, false, library) };
 }
 
-// ---- recursion core ------------------------------------------------------
-
-// `prefix` namespaces every id emitted below it (empty at the monitor root). A group
-// leaf appends `${leaf.id}/` before solving its child so the same def instantiated many
-// times never overwrites itself in the Map.
-function solveNode(
-	node: LayoutNode,
-	box: Rect,
-	prefix: string,
-	library: Library | undefined,
-	out: Solved
-): void {
-	if (isContainer(node)) {
-		solveContainer(node, box, prefix, library, out);
-		return;
-	}
-	if (isLeaf(node)) {
-		solveLeaf(node, box, prefix, library, out);
-	}
-}
-
-/**
- * Solve a leaf occupying `box`. A primitive emits its id → box. A group emits its own
- * box (for selection/hit-testing) then recurses, solving its child inside the same box
- * with the descendant ids namespaced by the group leaf id.
- */
-function solveLeaf(
-	lf: Leaf,
-	box: Rect,
-	prefix: string,
-	library: Library | undefined,
-	out: Solved
-): void {
-	const unit = lf.unit;
-	const placed = placeLeafInBox(lf, box, library);
-	out.set(prefix + lf.id, placed);
-	if (isGroup(unit)) {
-		const { child } = resolveGroup(unit, library);
-		solveNode(child, placed, prefix + lf.id + '/', library, out);
-	}
-}
-
-// Position a leaf WITHIN the box the layout handed it, per its halign/valign (default 'fill' =
-// span the box, the historical behaviour). A non-'fill' axis sizes the leaf to its intrinsic
-// extent (capped to the box) and pins it start/center/end. Pure; only moves the leaf when the
-// box is bigger than the leaf (a grown/grid/overlap cell) — otherwise it's an exact no-op.
-function placeLeafInBox(lf: Leaf, box: Rect, library: Library | undefined): Rect {
-	const ha = lf.halign ?? 'fill';
-	const va = lf.valign ?? 'fill';
-	if (ha === 'fill' && va === 'fill') return { ...box };
-	let { x, y, w, h } = box;
-	if (ha !== 'fill') {
-		w = Math.min(intrinsicMain(lf, true, library), box.w);
-		if (ha === 'center') x = box.x + (box.w - w) / 2;
-		else if (ha === 'right') x = box.x + box.w - w;
-	}
-	if (va !== 'fill') {
-		h = Math.min(intrinsicMain(lf, false, library), box.h);
-		if (va === 'middle') y = box.y + (box.h - h) / 2;
-		else if (va === 'bottom') y = box.y + box.h - h;
-	}
-	return { x, y, w, h };
-}
-
-/** A floating leaf is positioned absolutely: a primitive by its own rect, a group by
- * its `config.x`/`config.y` anchor (default 0,0) and its resolved size. */
-function solveFloating(lf: Leaf, library: Library | undefined, out: Solved): void {
-	const unit = lf.unit;
-	if (isGroup(unit)) {
-		const { child, size } = resolveGroup(unit, library);
-		const x = numCfg(unit.config, 'x', 0);
-		const y = numCfg(unit.config, 'y', 0);
-		// A floating group's box defaults to its def size, but a per-instance size override
-		// (config.w / config.h) lets the same custom widget be sized freely where it's placed —
-		// its fr/stretch internals then scale to fill the larger box.
-		const w = numCfg(unit.config, 'w', size.w);
-		const h = numCfg(unit.config, 'h', size.h);
-		const box: Rect = { x, y, w, h };
-		out.set(lf.id, box);
-		solveNode(child, box, lf.id + '/', library, out);
-		return;
-	}
-	out.set(lf.id, { ...unit.rect });
-}
-
-// ---- containers ----------------------------------------------------------
-
-function solveContainer(
-	c: Container,
-	box: Rect,
-	prefix: string,
-	library: Library | undefined,
-	out: Solved
-): void {
-	// Record the container's own (outer) box — like a group leaf does — so the editor can
-	// outline + select panes, INCLUDING empty ones: a freshly added pane has no children yet
-	// and must still be visible/selectable to drop into (collectContainerRects).
-	out.set(prefix + c.id, { ...box });
-	const content = insetPad(box, c.pad);
-	if (c.children.length === 0) return;
-	// Overlap (layer) mode: every child occupies the SAME content box (z-ordered by array order),
-	// so widgets can share a grid cell / pane. `align` controls each child within the box
-	// (stretch = fill the cell, else intrinsic-sized + positioned). Item: same-cell overlap.
-	if (c.overlap) {
-		for (const child of c.children) {
-			solveNode(
-				child,
-				alignInCell(child, c.align ?? 'stretch', content, library),
-				prefix,
-				library,
-				out
-			);
-		}
-		return;
-	}
-	if (c.kind === 'grid') {
-		solveGrid(c, content, prefix, library, out);
-	} else {
-		solveFlex(c, content, prefix, library, out);
-	}
-}
-
-// row/col single-line flex.
-function solveFlex(
-	c: Container,
-	content: Rect,
-	prefix: string,
-	library: Library | undefined,
-	out: Solved
-): void {
-	const horizontal = c.kind === 'row';
-	const mainSize = horizontal ? content.w : content.h;
-	const crossSize = horizontal ? content.h : content.w;
-	const n = c.children.length;
-	// Clamp the gap to the main-axis space so the inter-child gaps can never walk the cursor past the
-	// box (the over-padded designer canvas, where mainSize collapses to ~0). Child overflow from
-	// oversized children is unaffected; only the container's own gap is bounded.
-	const gap = clampGap(c.gap ?? 0, mainSize, n);
-	const totalGap = gap * (n - 1);
-
-	// 1. Measure each child's main extent: fixed/auto resolve now; fr deferred.
-	const mains = new Array<number>(n).fill(0);
-	const frShares = new Array<number>(n).fill(0);
-	let fixedSum = 0;
-	let frSum = 0;
-	for (let i = 0; i < n; i++) {
-		const basis = leafBasis(c.children[i]);
-		if (isFr(basis)) {
-			frShares[i] = Math.max(0, basis.fr);
-			frSum += frShares[i];
-		} else {
-			const m = resolveMain(c.children[i], basis, horizontal, library);
-			mains[i] = m;
-			fixedSum += m;
-		}
-	}
-
-	// 2. Distribute leftover main space to fr children by share.
-	const leftover = Math.max(0, mainSize - totalGap - fixedSum);
-	if (frSum > 0) {
-		for (let i = 0; i < n; i++) {
-			if (frShares[i] > 0) mains[i] = (leftover * frShares[i]) / frSum;
-		}
-	}
-
-	// 3. justify → leading offset + extra inter-child spacing. Only meaningful when
-	//    there is free space AND no fr child consumed the leftover.
-	const usedMain = sum(mains) + totalGap;
-	const free = frSum > 0 ? 0 : Math.max(0, mainSize - usedMain);
-	const { lead, between } = justifyOffsets(c.justify ?? 'start', free, n);
-
-	// 4. Walk, placing each child on the main axis; align on the cross axis.
-	let cursor = (horizontal ? content.x : content.y) + lead;
-	for (let i = 0; i < n; i++) {
-		const main = mains[i];
-		const cross = resolveCross(c.children[i], c.align ?? 'start', crossSize, horizontal, library);
-		const childBox: Rect = horizontal
-			? { x: cursor, y: content.y + cross.offset, w: main, h: cross.size }
-			: { x: content.x + cross.offset, y: cursor, w: cross.size, h: main };
-		solveNode(c.children[i], childBox, prefix, library, out);
-		cursor += main + gap + between;
-	}
-}
-
-// uniform-cell, row-major grid. cols default 1; rows derived from child count. align
-// applies inside each cell (stretch = fill the cell). Cells are clamped to >= 0 so an
-// oversized gap can never produce a negative box that cascades into nested solves.
-function solveGrid(
-	c: Container,
-	content: Rect,
-	prefix: string,
-	library: Library | undefined,
-	out: Solved
-): void {
-	const cols = Math.max(1, c.cols ?? 1);
-	const rows = gridRows(c);
-	const n = c.children.length;
-	const gap = c.gap ?? 0;
-
-	const colW = gridColWidths(c, content.w);
-	const rowH = gridRowHeights(c, content.h);
-	const colX = trackOffsets(colW, clampGap(gap, content.w, cols), content.x);
-	const rowY = trackOffsets(rowH, clampGap(gap, content.h, rows), content.y);
-
-	for (let i = 0; i < n; i++) {
-		const r = Math.floor(i / cols);
-		const col = i % cols;
-		const cell: Rect = { x: colX[col], y: rowY[r], w: colW[col], h: rowH[r] };
-		const child = c.children[i];
-		// A cell with an `aspect` is shaped (aspect-fit) within its box; otherwise it aligns/fills.
-		const childBox =
-			isContainer(child) && typeof child.aspect === 'number' && child.aspect > 0
-				? aspectFitInCell(cell, child.aspect, c.align ?? 'stretch')
-				: alignInCell(child, c.align ?? 'stretch', cell, library);
-		solveNode(child, childBox, prefix, library, out);
-	}
-}
-
 // ---- sizing helpers ------------------------------------------------------
-
-function leafBasis(node: LayoutNode): Length {
-	// Both Leaf and Container carry an optional `basis` (a container can be an `fr`/px
-	// pane that itself holds widgets). Unspecified → 'auto' (the node's intrinsic extent).
-	const b = (node as { basis?: Length }).basis;
-	return b !== undefined ? b : 'auto';
-}
-
-function isFr(b: Length): b is { fr: number } {
-	return typeof b === 'object' && b !== null && typeof (b as { fr: number }).fr === 'number';
-}
-
-function resolveMain(
-	node: LayoutNode,
-	basis: Length,
-	horizontal: boolean,
-	library: Library | undefined
-): number {
-	if (typeof basis === 'number') return Math.max(0, basis);
-	// 'content' resolves like 'auto' here — the caller has already substituted the leaf's measured
-	// size into its rect (see canvas/measure.ts), so the intrinsic extent IS the measured one.
-	if (basis === 'auto' || basis === 'content') return intrinsicMain(node, horizontal, library);
-	return 0; // fr handled by the caller
-}
 
 // Intrinsic main extent of a node (used for basis 'auto' and cross-axis clamping).
 function intrinsicMain(
@@ -630,69 +320,7 @@ function intrinsicContainer(
 	return padAlong + Math.max(...extents);
 }
 
-// Cross-axis size + offset for one child given the container's align.
-function resolveCross(
-	node: LayoutNode,
-	align: Align,
-	crossSize: number,
-	horizontal: boolean,
-	library: Library | undefined
-): { offset: number; size: number } {
-	if (align === 'stretch') return { offset: 0, size: crossSize };
-	const intrinsic = intrinsicMain(node, !horizontal, library);
-	const size = Math.min(intrinsic, crossSize);
-	let offset = 0;
-	if (align === 'center') offset = (crossSize - size) / 2;
-	else if (align === 'end') offset = crossSize - size;
-	return { offset, size };
-}
-
-// Align an intrinsic-sized child inside a uniform grid cell (stretch = fill the cell).
-function alignInCell(
-	node: LayoutNode,
-	align: Align,
-	cell: Rect,
-	library: Library | undefined
-): Rect {
-	if (align === 'stretch') return { ...cell };
-	const w = Math.min(intrinsicMain(node, true, library), cell.w);
-	const h = Math.min(intrinsicMain(node, false, library), cell.h);
-	let x = cell.x;
-	let y = cell.y;
-	if (align === 'center') {
-		x = cell.x + (cell.w - w) / 2;
-		y = cell.y + (cell.h - h) / 2;
-	} else if (align === 'end') {
-		x = cell.x + (cell.w - w);
-		y = cell.y + (cell.h - h);
-	}
-	return { x, y, w, h };
-}
-
-// ---- justify / pad -------------------------------------------------------
-
-function justifyOffsets(
-	justify: Justify,
-	free: number,
-	n: number
-): { lead: number; between: number } {
-	if (free <= 0) return { lead: 0, between: 0 };
-	switch (justify) {
-		case 'center':
-			return { lead: free / 2, between: 0 };
-		case 'end':
-			return { lead: free, between: 0 };
-		case 'between':
-			return n > 1 ? { lead: 0, between: free / (n - 1) } : { lead: 0, between: 0 };
-		case 'around': {
-			const slot = free / n;
-			return { lead: slot / 2, between: slot };
-		}
-		case 'start':
-		default:
-			return { lead: 0, between: 0 };
-	}
-}
+// ---- pad ------------------------------------------------------------------
 
 function insetPad(box: Rect, pad: Container['pad']): Rect {
 	const p = resolvePad(pad);
@@ -742,11 +370,6 @@ function setPath(root: Record<string, unknown>, path: string, value: unknown): v
 
 function emptyContainer(id: string): Container {
 	return { id, kind: 'col', children: [] };
-}
-
-function numCfg(config: Record<string, unknown> | undefined, key: string, dflt: number): number {
-	const v = config?.[key];
-	return typeof v === 'number' ? v : dflt;
 }
 
 // Structural deep clone — nodes are plain JSON-shaped data (no functions/cycles), so
