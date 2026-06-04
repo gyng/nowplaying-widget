@@ -62,6 +62,7 @@ import {
 import WidgetHost from './WidgetHost';
 import FlowNode, { type RenderLeaf } from './FlowNode';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
+import { useOverlayPrefs } from './canvas/overlayPrefs';
 import Inspector from './Inspector';
 import ControlsPanel from './ControlsPanel';
 import Outline from './Outline';
@@ -406,6 +407,8 @@ export default function Canvas({ studio = false }: Props) {
 	// Look up a flow primitive's renderable (for selectId / group + def hooks) when FlowNode hands us
 	// a leaf by its namespaced id.
 	const renderablesById = useMemo(() => new Map(renderables.map((r) => [r.id, r])), [renderables]);
+	// Overlay rendering prefs (taskbar awareness). Set from studio Settings, read on the overlay.
+	const [overlayPrefs, setOverlayPrefs] = useOverlayPrefs();
 
 	const tokenCss = useMemo(
 		() => (Object.keys(tokenOverrides).length ? tokensToCss(tokenOverrides) : ''),
@@ -1796,13 +1799,31 @@ export default function Canvas({ studio = false }: Props) {
 						renderables.map((r) => renderHost(r, false))
 					) : (
 						<>
-							<FlowNode
-								node={monitor.root}
-								parentKind="col"
-								renderLeaf={renderFlowLeaf}
-								library={library}
-								fill
-							/>
+							{/* Taskbar awareness: the flow tree fills the monitor WORK AREA (excludes the
+							    taskbar) by default; toggling it off covers the whole monitor. .world itself
+							    stays window-filling so measured rects rebase to monitor-local (click-through). */}
+							<div
+								className="overlay-flow"
+								style={
+									overlayPrefs.respectWorkArea
+										? {
+												position: 'absolute',
+												left: `${workArea.x}px`,
+												top: `${workArea.y}px`,
+												width: `${workArea.w}px`,
+												height: `${workArea.h}px`
+										  }
+										: { position: 'absolute', inset: 0 }
+								}
+							>
+								<FlowNode
+									node={monitor.root}
+									parentKind="col"
+									renderLeaf={renderFlowLeaf}
+									library={library}
+									fill
+								/>
+							</div>
 							{floatingRenderables.map((r) => renderHost(r, false))}
 						</>
 					)}
@@ -2285,6 +2306,17 @@ export default function Canvas({ studio = false }: Props) {
 												</span>
 											</div>
 										</div>
+										<div className="rp-hd">Overlay</div>
+										<label className="rp-row" style={{ cursor: 'pointer' }}>
+											<span>respect taskbar (work area)</span>
+											<input
+												type="checkbox"
+												checked={overlayPrefs.respectWorkArea}
+												onChange={(e) =>
+													setOverlayPrefs({ respectWorkArea: e.currentTarget.checked })
+												}
+											/>
+										</label>
 										<div className="rp-hd">View</div>
 										<button type="button" onClick={fit}>
 											⤢ Fit to screen ({Math.round(zoom * 100)}%)
