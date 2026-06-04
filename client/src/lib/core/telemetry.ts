@@ -52,6 +52,10 @@ export interface TelemetryHub {
 	sensor(id: string): SensorObservable;
 	/** Ids of sensors seen so far (i.e. that have emitted at least one sample). */
 	sensorIds(): string[];
+	/** Ids that currently have ≥1 live UI subscriber (demand-gating, AGENTS.md #9). */
+	activeSensorIds(): string[];
+	/** Fire `cb` whenever the active set changes (a sensor goes 0→1 or 1→0 listeners). */
+	onActiveChange(cb: () => void): () => void;
 }
 
 /** Create a hub that routes samples to per-sensor state and notifies subscribers. `historyLen`
@@ -60,8 +64,14 @@ export interface TelemetryHub {
 export function createTelemetryHub(historyLen = 600): TelemetryHub {
 	const states = new Map<string, SensorState>();
 	const listeners = new Map<string, Set<() => void>>();
+	// Callbacks notified when the active (subscribed) set transitions, not on every sample.
+	const activeListeners = new Set<() => void>();
 
 	const stateOf = (id: string): SensorState => states.get(id) ?? EMPTY;
+
+	const notifyActive = (): void => {
+		activeListeners.forEach((cb) => cb());
+	};
 
 	const ingest = (sample: SensorSample): void => {
 		states.set(sample.sensor, appendSample(stateOf(sample.sensor), sample, historyLen));
@@ -72,6 +82,16 @@ export function createTelemetryHub(historyLen = 600): TelemetryHub {
 		ingest,
 		ingestBatch: (batch) => batch.forEach(ingest),
 		sensorIds: () => Array.from(states.keys()),
+		activeSensorIds: () =>
+			Array.from(listeners.entries())
+				.filter(([, set]) => set.size > 0)
+				.map(([id]) => id),
+		onActiveChange(cb) {
+			activeListeners.add(cb);
+			return () => {
+				activeListeners.delete(cb);
+			};
+		},
 		sensor: (id) => ({
 			subscribe(cb) {
 				let set = listeners.get(id);
@@ -79,9 +99,12 @@ export function createTelemetryHub(historyLen = 600): TelemetryHub {
 					set = new Set();
 					listeners.set(id, set);
 				}
+				const wasEmpty = set.size === 0;
 				set.add(cb);
+				if (wasEmpty) notifyActive();
 				return () => {
-					set?.delete(cb);
+					if (!set?.delete(cb)) return;
+					if (set.size === 0) notifyActive();
 				};
 			},
 			getSnapshot: () => stateOf(id)

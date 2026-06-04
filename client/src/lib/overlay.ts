@@ -74,6 +74,9 @@ export async function monitorWorkArea(): Promise<Rect | null> {
 	}
 }
 
+// Guard so repeat fillPrimaryMonitor() calls don't stack duplicate onScaleChanged listeners.
+let scaleListenerWired = false;
+
 /** Size and position the main window to exactly cover the PRIMARY monitor. The main window
  * renders the `default` layout key, and the studio maps `default` → primary, so the launcher
  * must sit on the primary (not wherever it happened to open) or `default` would render on the
@@ -92,8 +95,29 @@ export async function fillPrimaryMonitor(): Promise<void> {
 	try {
 		await win.setDecorations(false);
 		await win.setShadow(false);
+		// #13: other always-on-top windows can silently steal topmost; re-assert it here.
+		await win.setAlwaysOnTop(true);
 	} catch (err) {
-		console.warn('setDecorations/setShadow failed', err);
+		console.warn('setDecorations/setShadow/setAlwaysOnTop failed', err);
+	}
+	// #12: DPI/scale hot-plug. When the primary monitor's scale factor changes at runtime
+	// (resolution/scale change, or this window moving to a differently-scaled display), the
+	// physical position/size must be recomputed against the now-primary monitor and the
+	// borderless/topmost state re-asserted. Registered once (guarded) so repeated
+	// fillPrimaryMonitor() calls don't stack listeners. Scale-change only — physical monitor
+	// add/remove is out of scope here (handled by reconcileOverlays on layout change).
+	if (!scaleListenerWired) {
+		scaleListenerWired = true;
+		try {
+			await win.onScaleChanged(() => {
+				fillPrimaryMonitor().catch((err) =>
+					console.warn('fillPrimaryMonitor on scale change failed', err)
+				);
+			});
+		} catch (err) {
+			console.warn('onScaleChanged registration failed', err);
+			scaleListenerWired = false; // allow a retry on a later fill
+		}
 	}
 }
 
@@ -361,6 +385,17 @@ export async function reconcileOverlays(): Promise<void> {
 				await w.setShadow(false);
 				await w.setIgnoreCursorEvents(true);
 				await w.show();
+				// #13: re-assert topmost after show — other always-on-top windows can steal it.
+				await w.setAlwaysOnTop(true);
+				// #12: DPI/scale hot-plug. Re-fit this overlay to monitor `m` (captured) when its
+				// scale factor changes at runtime. Scale-change only — physical monitor add/remove
+				// is out of scope here (reconcileOverlays handles open/close on layout change).
+				await w.onScaleChanged(() => {
+					(async () => {
+						await w.setPosition(new PhysicalPosition(m.position.x, m.position.y));
+						await w.setSize(new PhysicalSize(m.size.width, m.size.height));
+					})().catch((err) => console.warn('overlay re-fit on scale change failed', label, err));
+				});
 			} catch (err) {
 				console.warn('overlay window setup failed', label, err);
 			}

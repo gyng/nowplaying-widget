@@ -5,12 +5,14 @@
 //! `SensorValue` / `SensorSample` domain types below cross the bridge and mirror the
 //! TS types in `client/src/lib/core/telemetry.ts`. Keep both sides in sync.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, Nvml};
 use serde::Serialize;
 use sysinfo::{Networks, System};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::log;
 
@@ -83,6 +85,46 @@ fn core_sensor_id(index: usize) -> String {
     format!("cpu.core.{index}")
 }
 
+/// Per-window record of which sensor ids are currently being consumed, keyed by
+/// `window.label()`. Demand-gating reads this to decide whether the expensive NVML
+/// queries are worth running this tick (see `gpu_wanted`).
+///
+/// A plain `std::sync::Mutex` (locks are brief and synchronous — never held across an
+/// `.await`). Managed in `main.rs` and updated by the `set_active_sensors` command.
+#[derive(Default)]
+pub struct ActiveSensors(pub Mutex<HashMap<String, HashSet<String>>>);
+
+/// The three GPU sensor ids the NVML block produces.
+const GPU_SENSOR_IDS: [&str; 3] = ["gpu.util", "gpu.vram", "gpu.temp"];
+
+/// Record the set of sensor ids window `window.label()` is currently consuming.
+///
+/// The frontend calls `invoke("set_active_sensors", { ids })` whenever its set of
+/// mounted sensors changes; a set containing `"*"` is a sentinel meaning "everything".
+#[tauri::command]
+pub async fn set_active_sensors<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, ActiveSensors>,
+    ids: Vec<String>,
+) -> Result<(), ()> {
+    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    map.insert(window.label().to_string(), ids.into_iter().collect());
+    Ok(())
+}
+
+/// Should the GPU be sampled this tick? Default-ON for safety: GPU is wanted iff the
+/// union of every window's reported set is EMPTY (nobody has reported yet), OR any
+/// window asked for everything (`"*"`), OR any window asked for one of the `gpu.*` ids.
+fn gpu_wanted(active: &HashMap<String, HashSet<String>>) -> bool {
+    // Nobody has reported a set yet → sample everything (don't blank out GPU at startup).
+    if active.values().all(|ids| ids.is_empty()) {
+        return true;
+    }
+    active
+        .values()
+        .any(|ids| ids.contains("*") || GPU_SENSOR_IDS.iter().any(|gpu| ids.contains(*gpu)))
+}
+
 /// Poll system sensors on an interval and emit a `telemetry` batch each tick.
 ///
 /// `cpu.total`, `cpu.core.N`, `mem.used`, `swap.used` (percentages),
@@ -132,7 +174,16 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
             batch.push(SensorSample::scalar(core_sensor_id(i), ts, f64::from(cpu.cpu_usage())));
         }
 
-        if let Some(device) = &gpu {
+        // Demand-gate the expensive NVML queries: cpu/mem/swap/net/per-core above are cheap
+        // and always emit, but utilization_rates/memory_info/temperature are not. Lock the
+        // ActiveSensors map only long enough to compute the gate, then DROP it before any NVML
+        // I/O — the std Mutex must never be held across an await or a blocking driver call.
+        let wanted = {
+            let active: tauri::State<ActiveSensors> = app.state();
+            let g = active.0.lock().unwrap_or_else(|e| e.into_inner());
+            gpu_wanted(&g)
+        };
+        if wanted && let Some(device) = &gpu {
             if let Ok(util) = device.utilization_rates() {
                 batch.push(SensorSample::scalar("gpu.util", ts, f64::from(util.gpu)));
             }
@@ -190,5 +241,53 @@ mod tests {
     fn core_sensor_id_is_zero_indexed() {
         assert_eq!(core_sensor_id(0), "cpu.core.0");
         assert_eq!(core_sensor_id(7), "cpu.core.7");
+    }
+
+    /// Build an `ActiveSensors` map from `(label, &[ids])` pairs.
+    fn active(entries: &[(&str, &[&str])]) -> HashMap<String, HashSet<String>> {
+        let mut map = HashMap::new();
+        for (label, ids) in entries {
+            let set: HashSet<String> = ids.iter().map(|s| s.to_string()).collect();
+            map.insert(label.to_string(), set);
+        }
+        map
+    }
+
+    #[test]
+    fn gpu_wanted_defaults_on_when_nobody_reported() {
+        // Empty map: no window has reported yet → sample everything for safety.
+        assert!(gpu_wanted(&HashMap::new()));
+        // A window that reported an empty set is treated like "not reported yet".
+        assert!(gpu_wanted(&active(&[("main", &[])])));
+    }
+
+    #[test]
+    fn gpu_wanted_false_when_only_cheap_sensors() {
+        assert!(!gpu_wanted(&active(&[("main", &["cpu.total"])])));
+        assert!(!gpu_wanted(&active(&[
+            ("main", &["cpu.total", "mem.used"]),
+            ("overlay-1", &["net.down"])
+        ])));
+    }
+
+    #[test]
+    fn gpu_wanted_true_when_a_gpu_id_present() {
+        assert!(gpu_wanted(&active(&[("main", &["gpu.util"])])));
+        assert!(gpu_wanted(&active(&[("main", &["gpu.vram"])])));
+        assert!(gpu_wanted(&active(&[("main", &["gpu.temp"])])));
+    }
+
+    #[test]
+    fn gpu_wanted_true_for_star_sentinel() {
+        assert!(gpu_wanted(&active(&[("studio", &["*"])])));
+    }
+
+    #[test]
+    fn gpu_wanted_true_when_union_has_gpu() {
+        // Multi-window union: one consumer asking for a gpu sensor wins.
+        assert!(gpu_wanted(&active(&[
+            ("main", &["cpu.total"]),
+            ("overlay-1", &["gpu.temp"])
+        ])));
     }
 }

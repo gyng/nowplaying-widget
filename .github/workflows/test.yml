@@ -54,7 +54,7 @@ jobs:
       checks: write
 
   client_test:
-    name: Tests and linting for Svelte client
+    name: Tests and linting for React client
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -78,6 +78,13 @@ async fn main() -> Result<(), ()> {
                         & !tauri_plugin_window_state::StateFlags::DECORATIONS
                         & !tauri_plugin_window_state::StateFlags::VISIBLE,
                 )
+                // Don't persist/restore the "main" window's geometry: it is ALWAYS re-filled to
+                // the primary monitor at startup (overlay.ts `fillPrimaryMonitor`), so restoring
+                // stale saved geometry is pointless and risks a startup flash at the wrong spot.
+                // A denylisted window is skipped entirely (no restore AND no save). "studio" still
+                // persists (remembering a normal window's size/pos is the point), and dynamic
+                // "overlay-N" windows re-assert exact geometry in their created handler.
+                .with_denylist(&["main"])
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -87,6 +94,7 @@ async fn main() -> Result<(), ()> {
         .manage(clickthrough::InteractiveRects::default())
         .manage(ha::HaState::default())
         .manage(mqtt::MqttState::default())
+        .manage(sensors::ActiveSensors::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
@@ -103,6 +111,7 @@ async fn main() -> Result<(), ()> {
             command::system_fonts,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area,
+            sensors::set_active_sensors,
             media::media_control,
             media::media_capabilities,
             log::get_logs,

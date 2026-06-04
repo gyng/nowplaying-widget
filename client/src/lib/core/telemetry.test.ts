@@ -80,3 +80,58 @@ describe('createTelemetryHub', () => {
 		expect(hub.sensorIds()).not.toContain('mem.used');
 	});
 });
+
+describe('active-sensor tracking (demand-gating)', () => {
+	it('subscribing a new id makes it active and fires onActiveChange once', () => {
+		const hub = createTelemetryHub();
+		let changes = 0;
+		hub.onActiveChange(() => changes++);
+
+		expect(hub.activeSensorIds()).toEqual([]);
+		hub.sensor('gpu.util').subscribe(() => {});
+		expect(hub.activeSensorIds()).toEqual(['gpu.util']);
+		expect(changes).toBe(1);
+	});
+
+	it('a second subscriber to the same id does not fire onActiveChange', () => {
+		const hub = createTelemetryHub();
+		let changes = 0;
+		hub.onActiveChange(() => changes++);
+
+		hub.sensor('gpu.vram').subscribe(() => {});
+		expect(changes).toBe(1);
+		hub.sensor('gpu.vram').subscribe(() => {});
+		expect(changes).toBe(1);
+		expect(hub.activeSensorIds()).toEqual(['gpu.vram']);
+	});
+
+	it('unsubscribing the last listener removes the id and fires onActiveChange', () => {
+		const hub = createTelemetryHub();
+		let changes = 0;
+		hub.onActiveChange(() => changes++);
+
+		const a = hub.sensor('gpu.temp').subscribe(() => {});
+		const b = hub.sensor('gpu.temp').subscribe(() => {});
+		expect(changes).toBe(1);
+
+		a(); // one of two listeners gone — still active, no transition
+		expect(hub.activeSensorIds()).toEqual(['gpu.temp']);
+		expect(changes).toBe(1);
+
+		b(); // last listener gone — 1→0 transition
+		expect(hub.activeSensorIds()).toEqual([]);
+		expect(changes).toBe(2);
+	});
+
+	it('onActiveChange unsubscribe stops further notifications', () => {
+		const hub = createTelemetryHub();
+		let changes = 0;
+		const off = hub.onActiveChange(() => changes++);
+
+		hub.sensor('cpu.total').subscribe(() => {});
+		expect(changes).toBe(1);
+		off();
+		hub.sensor('mem.used').subscribe(() => {});
+		expect(changes).toBe(1);
+	});
+});
