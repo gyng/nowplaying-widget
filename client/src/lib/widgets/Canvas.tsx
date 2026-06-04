@@ -63,6 +63,7 @@ import WidgetHost from './WidgetHost';
 import FlowNode, { type RenderLeaf } from './FlowNode';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
 import { useOverlayPrefs } from './canvas/overlayPrefs';
+import { screenRectToLayout } from '../core/measureMath';
 import Inspector from './Inspector';
 import ControlsPanel from './ControlsPanel';
 import Outline from './Outline';
@@ -124,6 +125,11 @@ type Props = { studio?: boolean };
 
 const GRID = 8;
 const ALIGN_THRESHOLD = 6;
+// What counts as a widget's interactive control for passive click-through (its rendered rect, if
+// visible, becomes a catch region). A widget with none of these but marked interactive catches over
+// its whole box. data-seekable="true" is the now-playing seek bar; data-interactive is an opt-in.
+const INTERACTIVE_SELECTOR =
+	'button, a[href], input, select, textarea, [data-interactive], [data-seekable="true"]';
 // Docked-panel selector: a palette-widget drop over any of these is the panel's own (e.g. the
 // Outline's container drop), so the stage-level drop handler bails on it.
 const PANEL_SEL =
@@ -587,16 +593,41 @@ export default function Canvas({ studio = false }: Props) {
 			pendingExtras.length > 0);
 
 	// --- interactive rects (passive click-through) ---
-	const interactiveItems = useCallback(
-		(): { rect: Rect; interactive?: boolean }[] =>
-			renderables.map((r) => ({
-				// Overlay flow widgets are CSS-laid-out → take their MEASURED rect (falls back to the
-				// solved rect for floating widgets, which have no data-id, and for the studio role).
-				rect: (studio ? undefined : measuredRef.current?.get(r.id)) ?? r.rect,
-				interactive: r.instance.interactive || getMeta(r.instance.type)?.interactive
-			})),
-		[renderables, studio, measuredRef]
-	);
+	// Click-through catches a click only over a widget's ACTUAL interactive controls (buttons, the
+	// seek bar, …), derived by measuring those sub-elements in the rendered DOM — not the widget's
+	// whole box. So a now-playing widget whose transport controls are hidden, or the empty letterbox
+	// around contain-fit art, passes clicks through to the desktop. A widget that declares NO discrete
+	// controls but is marked interactive still catches over its whole box (whole-widget interactivity).
+	const interactiveItems = useCallback((): { rect: Rect; interactive?: boolean }[] => {
+		const world = worldRef.current;
+		const w0 = world?.getBoundingClientRect();
+		const z = studio ? zoom : 1;
+		const out: { rect: Rect; interactive?: boolean }[] = [];
+		for (const r of renderables) {
+			if (!(r.instance.interactive || getMeta(r.instance.type)?.interactive)) continue;
+			const el = world?.querySelector<HTMLElement>(`[data-w="${r.id}"]`);
+			if (!el || !w0) {
+				// Pre-measure / not in the DOM → fall back to the widget box.
+				out.push({ rect: measuredRef.current?.get(r.id) ?? r.rect, interactive: true });
+				continue;
+			}
+			const targets = el.querySelectorAll<HTMLElement>(INTERACTIVE_SELECTOR);
+			if (targets.length === 0) {
+				out.push({
+					rect: screenRectToLayout(el.getBoundingClientRect(), w0, z),
+					interactive: true
+				});
+				continue;
+			}
+			targets.forEach((t) => {
+				const b = t.getBoundingClientRect();
+				if (b.width >= 1 && b.height >= 1) {
+					out.push({ rect: screenRectToLayout(b, w0, z), interactive: true });
+				}
+			});
+		}
+		return out;
+	}, [renderables, studio, zoom, measuredRef]);
 	// Latest values for callbacks that run outside the render (listeners / async).
 	const interactiveItemsRef = useRef(interactiveItems);
 	interactiveItemsRef.current = interactiveItems;

@@ -33,10 +33,6 @@ type Props = {
 	onControl?: (e: { domain: string; service: string; data?: Record<string, unknown> }) => void;
 };
 
-// Safety cap on stacked art layers. Normally a layer is dropped the moment the cover above it
-// finishes fading in (transitionend), so at most two coexist; this only bounds the pathological case
-// where the opacity transition never runs (e.g. a theme sets `transition: none`) and thus never ends.
-const MAX_LAYERS = 6;
 // Grace period before clearing the cover when a track has no art: long enough that a new track's art
 // (which often lags its metadata) crossfades in instead, short enough that a genuinely art-less track
 // doesn't keep showing the previous cover. If no art arrives in time, the stale cover fades out.
@@ -136,19 +132,17 @@ export default function NowPlaying({ label, onControl }: Props) {
 		const id = seqRef.current + 1;
 		seqRef.current = id;
 		setLayers((prev) => {
-			// Start fading the current cover(s) out IMMEDIATELY on the track transition (don't wait for
-			// the new image to decode); the incoming layer fades in on load. Outgoing layers self-remove
-			// on their transitionend — together a true simultaneous crossfade that also keeps a larger
-			// old cover from peeking around a smaller new one.
-			const fadingOut = prev.map((l) => ({ ...l, loaded: false }));
-			const next = [...fadingOut, { id, url, loaded: false }];
-			// Drop+revoke anything beyond the cap (oldest first) — a leak guard only (see MAX_LAYERS).
-			const overflow = next.length - MAX_LAYERS;
-			if (overflow > 0) {
-				next.slice(0, overflow).forEach((l) => URL.revokeObjectURL(l.url));
-				return next.slice(overflow);
-			}
-			return next;
+			// Keep ONLY the most-recent VISIBLE cover to fade out under the incoming one, and drop +
+			// revoke every other layer (older covers, plus never-shown ones still at opacity:0) right
+			// now. Relying solely on each layer's transitionend to self-remove let covers ACCUMULATE
+			// and a previous cover peek around / over the current one — especially when art changes
+			// faster than a fade completes, or a fade-out transitionend never fires. Bounding to one
+			// outgoing + one incoming layer keeps at most two on screen: a clean crossfade, no stack.
+			let lastVisible: ArtLayer | null = null;
+			for (const l of prev) if (l.loaded) lastVisible = l;
+			for (const l of prev) if (l !== lastVisible) URL.revokeObjectURL(l.url);
+			const outgoing = lastVisible ? [{ ...lastVisible, loaded: false }] : [];
+			return [...outgoing, { id, url, loaded: false }];
 		});
 	}, [artKey, hasSession]);
 
