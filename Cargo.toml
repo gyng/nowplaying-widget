@@ -5,3 +5,13 @@ resolver = "2"
 members = [
     "widgetsack",
 ]
+
+# Release tuning for the shipped overlay binary (idle RAM/disk matter for an always-resident app).
+# panic stays at the default `unwind` ON PURPOSE — a panic in a spawned loop (sensors/HA/gsmtc/
+# clickthrough) should not abort the whole resident overlay; the panic hook logs it instead.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
