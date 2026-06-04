@@ -365,38 +365,45 @@ export default function Canvas({ studio = false }: Props) {
 	}, []);
 	const contentLeaves = useMemo(() => contentLeafIds(monitor), [monitor]);
 
-	// --- derived layout (pure) ---
+	// --- derived layout (CSS-layout pivot) ---
+	// The SOLVER still runs, but only to (a) size the floating layer — which is absolutely positioned
+	// and has no measurable data-id — and (b) seed the first frame before the DOM is measured. The
+	// FLOW tree is laid out by the browser (FlowNode) and read back by measuring the DOM
+	// (useMeasuredRects). `combinedSolved` overlays the measured flow rects onto the solver map, so
+	// every consumer (renderables / container rects / grid placeholders / drag / snap / click-through)
+	// keeps reading ONE drop-in Solved map keyed exactly as before.
 	const solvedMonitor = useMemo(() => applyMeasured(monitor, measured), [monitor, measured]);
 	const solved = useMemo(
 		() => solveMonitor(solvedMonitor, workArea, library),
 		[solvedMonitor, workArea, library]
 	);
-	// floatNode (via handleOp) reads the live solved map; keep the module ref current.
-	setSolvedForFloat(solved);
-	const renderables = useMemo(
-		() => collectRenderables(monitor, solved, library),
-		[monitor, solved, library]
-	);
-	const containerRects = useMemo(
-		() => (studio ? collectContainerRects(monitor, solved) : []),
-		[studio, monitor, solved]
-	);
-	const gridPlaceholders = useMemo(
-		() => (studio ? collectGridPlaceholders(monitor, solved) : []),
-		[studio, monitor, solved]
-	);
-
-	// --- CSS-layout render path (pivot) ---
-	// The overlay renders its flow tree as native CSS (FlowNode) and reads rects back by measuring
-	// the DOM (useMeasuredRects → a Solved map mirroring the solver's keys). The studio still uses
-	// the solver for now (enabled:!studio). The floating layer stays absolutely positioned either way.
 	const worldRef = useRef<HTMLDivElement | null>(null);
 	const { measured: measuredDom, measuredRef } = useMeasuredRects({
 		worldRef,
 		zoom: studio ? zoom : 1,
-		deps: [monitor, workArea],
-		enabled: !studio
+		deps: [monitor, workArea]
 	});
+	const combinedSolved = useMemo(() => {
+		if (measuredDom.size === 0) return solved; // pre-measure first frame → solver fallback
+		const m = new Map(solved);
+		for (const [k, v] of measuredDom) m.set(k, v); // measured flow rects win; solver keeps floating
+		return m;
+	}, [solved, measuredDom]);
+	// floatNode (via handleOp) reads the live map; keep the module ref current.
+	setSolvedForFloat(combinedSolved);
+	const renderables = useMemo(
+		() => collectRenderables(monitor, combinedSolved, library),
+		[monitor, combinedSolved, library]
+	);
+	const containerRects = useMemo(
+		() => (studio ? collectContainerRects(monitor, combinedSolved) : []),
+		[studio, monitor, combinedSolved]
+	);
+	const gridPlaceholders = useMemo(
+		() => (studio ? collectGridPlaceholders(monitor, combinedSolved) : []),
+		[studio, monitor, combinedSolved]
+	);
+
 	const floatingRenderables = useMemo(
 		() =>
 			renderables.filter((r) =>
@@ -445,7 +452,9 @@ export default function Canvas({ studio = false }: Props) {
 	const selectedContainer = selectedNode && isContainer(selectedNode) ? selectedNode : null;
 	// The selected container's solved box (plain id — flow-tree containers aren't group-namespaced),
 	// so the Inspector can cap pad/gap to it (guardrail against collapsing the content out of view).
-	const selectedContainerBox = selectedContainer ? solved.get(selectedContainer.id) ?? null : null;
+	const selectedContainerBox = selectedContainer
+		? combinedSolved.get(selectedContainer.id) ?? null
+		: null;
 	const isGridCell = !!(
 		selectedContainer && findParent(monitor.root, selectedContainer.id)?.kind === 'grid'
 	);
@@ -1102,8 +1111,10 @@ export default function Canvas({ studio = false }: Props) {
 	);
 
 	// Latest live values for the drag math (read synchronously — no stale closure).
-	const solvedRef = useRef(solved);
-	solvedRef.current = solved;
+	// The combined (measured-flow + solver-floating) map drives drag/drop/hit-test, so targeting
+	// aligns with what the browser actually laid out.
+	const solvedRef = useRef(combinedSolved);
+	solvedRef.current = combinedSolved;
 	const renderablesRef = useRef(renderables);
 	renderablesRef.current = renderables;
 	const monitorForDragRef = useRef(monitor);
@@ -1644,7 +1655,7 @@ export default function Canvas({ studio = false }: Props) {
 			panX,
 			panY,
 			monitor,
-			solved,
+			solved: combinedSolved,
 			selectedId,
 			defs: (library?.defs ?? []).map((d) => ({ id: d.id, name: d.name, size: d.size }))
 		});
@@ -1665,7 +1676,7 @@ export default function Canvas({ studio = false }: Props) {
 		panX,
 		panY,
 		monitor,
-		solved,
+		combinedSolved,
 		selectedId,
 		library
 	]);
@@ -1714,32 +1725,16 @@ export default function Canvas({ studio = false }: Props) {
 		/>
 	);
 
-	// Render a FlowNode primitive leaf (overlay CSS path): a slot-filling WidgetHost wired for
-	// passive interaction (onControl), selection + context menu (id-based, correct without measured
-	// rects). The rect-dependent drag/reorder is intentionally NOT wired here — it lands in phase D
-	// once the editor reads measured rects (until then in-flow editing stays in the studio).
+	// Render a FlowNode primitive leaf as a slot-filling WidgetHost, FULLY wired (incl. edit-mode
+	// drag) via the shared renderHost — flow-drag/drop + selection now target the MEASURED rects, so
+	// they align with the CSS render. A bare passive host is the fallback before the renderable
+	// (which needs a measured/solved rect) exists.
 	const renderFlowLeaf: RenderLeaf = (lf, id) => {
 		const r = renderablesById.get(id);
-		const sid = r?.selectId ?? id;
-		return (
-			<WidgetHost
-				flow
-				hub={hub}
-				instance={lf.unit as WidgetInstance}
-				domId={id}
-				selectId={sid}
-				defId={r?.defId}
-				groupId={r?.groupId}
-				editMode={editMode && !previewing}
-				selected={sid === selectedId || selectedSet.has(sid)}
-				highlighted={hoverId !== null && sid === hoverId}
-				onSelect={onSelect}
-				onContextMenu={onWidgetContextMenu}
-				onControl={onWidgetControl}
-				onHover={editMode ? setHoverId : undefined}
-				onSuppressContextMenu={armSuppressCtx}
-				suppressContextMenu={consumeSuppressCtx}
-			/>
+		return r ? (
+			renderHost(r, true)
+		) : (
+			<WidgetHost flow hub={hub} instance={lf.unit as WidgetInstance} domId={id} selectId={id} />
 		);
 	};
 
@@ -1793,40 +1788,33 @@ export default function Canvas({ studio = false }: Props) {
 							))}
 						</>
 					)}
-					{studio ? (
-						// Studio: solver-positioned absolute widgets (CSS-layout migration switches this in
-						// phase D). Overlay below: native CSS flow + absolute floating only.
-						renderables.map((r) => renderHost(r, false))
-					) : (
-						<>
-							{/* Taskbar awareness: the flow tree fills the monitor WORK AREA (excludes the
-							    taskbar) by default; toggling it off covers the whole monitor. .world itself
-							    stays window-filling so measured rects rebase to monitor-local (click-through). */}
-							<div
-								className="overlay-flow"
-								style={
-									overlayPrefs.respectWorkArea
-										? {
-												position: 'absolute',
-												left: `${workArea.x}px`,
-												top: `${workArea.y}px`,
-												width: `${workArea.w}px`,
-												height: `${workArea.h}px`
-										  }
-										: { position: 'absolute', inset: 0 }
-								}
-							>
-								<FlowNode
-									node={monitor.root}
-									parentKind="col"
-									renderLeaf={renderFlowLeaf}
-									library={library}
-									fill
-								/>
-							</div>
-							{floatingRenderables.map((r) => renderHost(r, false))}
-						</>
-					)}
+					{/* The flow tree, laid out natively by the browser (FlowNode). The frame insets it to
+					    the WORK AREA — the full stage in the studio, taskbar-excluded on the overlay
+					    (unless the "respect taskbar" pref is off). .world stays window/stage-filling so
+					    measured rects rebase to a stable origin (monitor-local for click-through). */}
+					<div
+						className="flow-frame"
+						style={
+							studio || overlayPrefs.respectWorkArea
+								? {
+										position: 'absolute',
+										left: `${workArea.x}px`,
+										top: `${workArea.y}px`,
+										width: `${workArea.w}px`,
+										height: `${workArea.h}px`
+								  }
+								: { position: 'absolute', inset: 0 }
+						}
+					>
+						<FlowNode
+							node={monitor.root}
+							parentKind="col"
+							renderLeaf={renderFlowLeaf}
+							library={library}
+							fill
+						/>
+					</div>
+					{floatingRenderables.map((r) => renderHost(r, false))}
 					{editMode && (
 						<>
 							{guideXs.map((gx) => (
