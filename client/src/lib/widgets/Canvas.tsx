@@ -44,7 +44,7 @@ import {
 	collectRenderables,
 	gridCellRects,
 	type Renderable,
-	solveMonitor
+	resolveGroup
 } from '../core/solve';
 import { assembleStyles } from '../core/style';
 import { DEFAULT_TOKENS, firstFontFamily, tokensToCss } from '../core/tokens';
@@ -111,7 +111,6 @@ import { useControls } from './canvas/useControls';
 import { clampMenuToViewport } from './canvas/menuPosition';
 import { studioHints } from './canvas/studioHints';
 import { buildDebugInfo } from './canvas/debugInfo';
-import { applyMeasured, contentLeafIds, type Measured } from './canvas/measure';
 import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
 import { usePaneSizes } from './canvas/usePaneSizes';
 import MultiInspector from './MultiInspector';
@@ -360,41 +359,40 @@ export default function Canvas({ studio = false }: Props) {
 		setWorkArea(wa ?? { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
 	}, [studio]);
 
-	// --- content-fit measurement (basis 'content'): the render layer measures these leaves and we
-	// substitute the measured size into the tree just for solving (applyMeasured), so the solver stays
-	// pure and the stored layout keeps the user's own w/h. ---
-	const [measured, setMeasured] = useState<Measured>({});
-	const onMeasure = useCallback((id: string, size: { w: number; h: number }) => {
-		setMeasured((prev) =>
-			prev[id] && prev[id].w === size.w && prev[id].h === size.h ? prev : { ...prev, [id]: size }
-		);
-	}, []);
-	const contentLeaves = useMemo(() => contentLeafIds(monitor), [monitor]);
-
-	// --- derived layout (CSS-layout pivot) ---
-	// The SOLVER still runs, but only to (a) size the floating layer — which is absolutely positioned
-	// and has no measurable data-id — and (b) seed the first frame before the DOM is measured. The
-	// FLOW tree is laid out by the browser (FlowNode) and read back by measuring the DOM
-	// (useMeasuredRects). `combinedSolved` overlays the measured flow rects onto the solver map, so
-	// every consumer (renderables / container rects / grid placeholders / drag / snap / click-through)
-	// keeps reading ONE drop-in Solved map keyed exactly as before.
-	const solvedMonitor = useMemo(() => applyMeasured(monitor, measured), [monitor, measured]);
-	const solved = useMemo(
-		() => solveMonitor(solvedMonitor, workArea, library),
-		[solvedMonitor, workArea, library]
-	);
 	const worldRef = useRef<HTMLDivElement | null>(null);
 	const { measured: measuredDom, measuredRef } = useMeasuredRects({
 		worldRef,
 		zoom: studio ? zoom : 1,
 		deps: [monitor, workArea]
 	});
+
+	// --- derived layout (CSS-native; the solver is no longer used) ---
+	// The browser lays out the flow tree AND floating GROUPS (FlowNode), and every rect is read back
+	// by measuring the DOM (measuredDom). The only non-measured rects are floating PRIMITIVES, which
+	// sit absolutely at their own stored rect. combinedSolved unions them into the single Solved-map
+	// shape every consumer (renderables / containers / grid / drag / snap / click-through / float)
+	// already reads — keyed exactly as the old solver keyed it.
+	const floatingGroupBox = useCallback(
+		(lf: Leaf): Rect => {
+			const g = lf.unit as Group;
+			const { size } = resolveGroup(g, library);
+			const cfg = g.config ?? {};
+			const num = (k: string, d: number) => (typeof cfg[k] === 'number' ? (cfg[k] as number) : d);
+			return { x: num('x', 0), y: num('y', 0), w: num('w', size.w), h: num('h', size.h) };
+		},
+		[library]
+	);
 	const combinedSolved = useMemo(() => {
-		if (measuredDom.size === 0) return solved; // pre-measure first frame → solver fallback
-		const m = new Map(solved);
-		for (const [k, v] of measuredDom) m.set(k, v); // measured flow rects win; solver keeps floating
+		const m = new Map(measuredDom);
+		for (const lf of monitor.floating) {
+			if (isGroup(lf.unit)) {
+				if (!m.has(lf.id)) m.set(lf.id, floatingGroupBox(lf)); // seed box before the first measure
+			} else {
+				m.set(lf.id, { ...(lf.unit as WidgetInstance).rect }); // floating primitive: its stored rect
+			}
+		}
 		return m;
-	}, [solved, measuredDom]);
+	}, [measuredDom, monitor.floating, floatingGroupBox]);
 	// floatNode (via handleOp) reads the live map; keep the module ref current.
 	setSolvedForFloat(combinedSolved);
 	const renderables = useMemo(
@@ -408,14 +406,6 @@ export default function Canvas({ studio = false }: Props) {
 	const gridPlaceholders = useMemo(
 		() => (studio ? collectGridPlaceholders(monitor, combinedSolved) : []),
 		[studio, monitor, combinedSolved]
-	);
-
-	const floatingRenderables = useMemo(
-		() =>
-			renderables.filter((r) =>
-				monitor.floating.some((l) => r.id === l.id || r.id.startsWith(`${l.id}/`))
-			),
-		[renderables, monitor.floating]
 	);
 	// Look up a flow primitive's renderable (for selectId / group + def hooks) when FlowNode hands us
 	// a leaf by its namespaced id.
@@ -1736,8 +1726,6 @@ export default function Canvas({ studio = false }: Props) {
 			domId={r.id}
 			defId={r.defId}
 			groupId={r.groupId}
-			contentSize={contentLeaves.has(r.id)}
-			onMeasure={onMeasure}
 			editMode={editMode && !previewing}
 			selected={r.selectId === selectedId || selectedSet.has(r.selectId)}
 			highlighted={hoverId !== null && r.selectId === hoverId}
@@ -1766,6 +1754,34 @@ export default function Canvas({ studio = false }: Props) {
 			renderHost(r, true)
 		) : (
 			<WidgetHost flow hub={hub} instance={lf.unit as WidgetInstance} domId={id} selectId={id} />
+		);
+	};
+
+	// A floating GROUP's descendant: laid out in CSS (FlowNode inside the group's absolute box) and
+	// select-only — the group itself is moved/sized via the Inspector x/y/w/h, not flow-dragged. So
+	// this wires passive interaction (control / select / context) but not the rect-dependent drag.
+	const renderFloatingLeaf: RenderLeaf = (lf, id) => {
+		const r = renderablesById.get(id);
+		const sid = r?.selectId ?? id;
+		return (
+			<WidgetHost
+				flow
+				hub={hub}
+				instance={lf.unit as WidgetInstance}
+				domId={id}
+				selectId={sid}
+				defId={r?.defId}
+				groupId={r?.groupId}
+				editMode={editMode && !previewing}
+				selected={sid === selectedId || selectedSet.has(sid)}
+				highlighted={hoverId !== null && sid === hoverId}
+				onSelect={onSelect}
+				onContextMenu={onWidgetContextMenu}
+				onControl={onWidgetControl}
+				onHover={editMode ? setHoverId : undefined}
+				onSuppressContextMenu={armSuppressCtx}
+				suppressContextMenu={consumeSuppressCtx}
+			/>
 		);
 	};
 
@@ -1845,7 +1861,41 @@ export default function Canvas({ studio = false }: Props) {
 							fill
 						/>
 					</div>
-					{floatingRenderables.map((r) => renderHost(r, false))}
+					{/* Floating layer: GROUPS lay out in CSS (FlowNode inside an absolute box at their
+					    anchor + size); PRIMITIVES sit absolutely at their own stored rect. */}
+					{monitor.floating.map((lf) => {
+						if (isGroup(lf.unit)) {
+							const box = floatingGroupBox(lf);
+							const child = resolveGroup(lf.unit, library).child;
+							return (
+								<div
+									key={lf.id}
+									data-id={lf.id}
+									className="floating-group"
+									style={{
+										position: 'absolute',
+										left: `${box.x}px`,
+										top: `${box.y}px`,
+										width: `${box.w}px`,
+										height: `${box.h}px`
+									}}
+								>
+									{child && (
+										<FlowNode
+											node={child}
+											parentKind="col"
+											prefix={`${lf.id}/`}
+											renderLeaf={renderFloatingLeaf}
+											library={library}
+											fill
+										/>
+									)}
+								</div>
+							);
+						}
+						const r = renderablesById.get(lf.id);
+						return r ? renderHost(r, false) : null;
+					})}
 					{editMode && (
 						<>
 							{guideXs.map((gx) => (
