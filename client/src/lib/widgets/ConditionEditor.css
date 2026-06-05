@@ -1,0 +1,23 @@
+/* The container condition editor: a quiet grouped block inside the Inspector's container panel. It
+   reuses the Inspector's .full / .row2 / .check field styles for the inputs; this just frames the
+   group and flags it when changed. */
+.cond-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 4px;
+	padding: 6px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 4px;
+}
+
+.cond-editor.dirty {
+	border-color: rgb(var(--ui-accent-rgb));
+}
+
+.cond-editor .row2 {
+	display: grid;
+	grid-template-columns: 1fr auto 1fr;
+	gap: 6px;
+	align-items: end;
+}
