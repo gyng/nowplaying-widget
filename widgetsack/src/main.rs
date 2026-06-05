@@ -20,9 +20,12 @@ use crate::state::updater;
 pub mod audio;
 pub mod clickthrough;
 pub mod command;
+pub mod control;
+pub mod display;
 pub mod event;
 pub mod ha;
 pub mod listener;
+pub mod llm;
 pub mod log;
 pub mod media;
 pub mod mqtt;
@@ -95,7 +98,9 @@ async fn main() -> Result<(), ()> {
             sessions: Default::default(),
         })
         .manage(clickthrough::InteractiveRects::default())
+        .manage(control::ControlState::default())
         .manage(ha::HaState::default())
+        .manage(llm::LlmState::default())
         .manage(mqtt::MqttState::default())
         .manage(stocks::StocksState::default())
         .manage(sensors::ActiveSensors::default())
@@ -121,8 +126,10 @@ async fn main() -> Result<(), ()> {
             command::delete_layout,
             command::open_devtools,
             command::system_fonts,
+            display::list_display_names,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area,
+            clickthrough::set_overlay_wallpaper,
             sensors::set_active_sensors,
             audio::start_spectrum,
             audio::stop_spectrum,
@@ -146,7 +153,17 @@ async fn main() -> Result<(), ()> {
             stocks::save_stocks_config,
             stocks::stocks_config_status,
             stocks::stocks_connect,
-            stocks::stocks_disconnect
+            stocks::stocks_disconnect,
+            llm::save_llm_config,
+            llm::llm_config_status,
+            llm::llm_test_connection,
+            llm::llm_complete,
+            llm::llm_list_models,
+            llm::llm_stream,
+            llm::llm_cancel,
+            llm::llm_transcribe,
+            control::control_start,
+            control::control_stop
         ])
         .setup(|app| {
             // Wire structured logging to the app so records also stream to the webview (`log` event).
@@ -172,6 +189,14 @@ async fn main() -> Result<(), ()> {
             let sensors_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 sensors::run_system_sensors(sensors_handle).await;
+            });
+
+            // Agent-control server: OPT-IN (off unless LlmConfig.agent_control is true). Started on
+            // demand so a fresh install never opens a port.
+            let control_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = control_handle.state::<control::ControlState>();
+                control::start_if_enabled(control_handle.clone(), &state).await;
             });
 
             if let Err(err) = command::watch_layout(app.handle().clone()) {

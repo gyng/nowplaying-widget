@@ -15,7 +15,8 @@ import {
 	type PointerEvent as ReactPointerEvent
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
 import { createTelemetryHub } from '../core/telemetry';
 import { sourceCatalogEntries, sourceCatalogIds } from '../core/plugin';
 import { listPlugins, pluginSensorNames } from './plugin';
@@ -24,6 +25,7 @@ import './plugins/home-assistant'; // side-effect: registers the Home Assistant 
 import './plugins/now-playing'; // side-effect: registers the Now Playing plugin (+ its widget)
 import './plugins/mqtt'; // side-effect: registers the MQTT plugin
 import './plugins/stocks'; // side-effect: registers the Stocks plugin (+ the Ticker widget)
+import './plugins/llm'; // side-effect: registers the AI Provider plugin (+ the Assistant widget)
 import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
 import {
 	emptyRoot,
@@ -68,7 +70,7 @@ import WidgetHost from './WidgetHost';
 import FlowNode, { type RenderLeaf } from './FlowNode';
 import GroupFrame from './GroupFrame';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
-import { useOverlayPrefs } from './canvas/overlayPrefs';
+import { useOverlayPrefs, type OverlayLayer } from './canvas/overlayPrefs';
 import { screenRectToLayout } from '../core/measureMath';
 import Inspector from './Inspector';
 import { TOKEN_FIELDS } from './themeTokens';
@@ -77,6 +79,7 @@ import Outline from './Outline';
 import NavRail from './NavRail';
 import Select from './Select';
 import SensorList from './SensorList';
+import { collectSensorRefs, sensorActivity } from '../core/sensorActivity';
 import { SYSTEM_GROUP } from '../core/sensorList';
 import ThemeList from './ThemeList';
 import StyleLayer from './StyleLayer';
@@ -112,9 +115,11 @@ import {
 	reconcileOverlays,
 	setClickThrough,
 	setMainWindowVisible,
-	syncInteractiveRects
+	syncInteractiveRects,
+	applyOverlayLayer
 } from '../overlay';
 import { TelemetryHubContext } from './telemetryContext';
+import { listMicrophones } from '../stt';
 import {
 	useEditorModel,
 	lookup,
@@ -125,7 +130,10 @@ import {
 	bulkSetBasis
 } from './canvas/useEditorModel';
 import { usePersistence } from './canvas/usePersistence';
+import { setLayoutAssistantApi } from './layoutAssistantBridge';
+import { applyAssistantOps } from '../core/llm';
 import { decideStudioClose } from './canvas/closePrompt';
+import { decideDesignerLeave } from './canvas/designerLeave';
 import { useStageSize } from './canvas/useStageSize';
 import { useZoomFit } from './canvas/useZoomFit';
 import { useCanvasPointer } from './canvas/useCanvasPointer';
@@ -159,6 +167,21 @@ const INTERACTIVE_SELECTOR =
 // Outline's container drop), so the stage-level drop handler bails on it.
 const PANEL_SEL =
 	'.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx, .nav-rail, .rail-panel, .designer-list, .designer-empty';
+
+// Settings subsections — a side list (mirrors the Plugins list+detail split) so the pane shows one
+// focused topic at a time (progressive disclosure / chunking) instead of one long scroll, and each
+// subsection carries a title + one-line purpose for orientation. Ordered safe → informational →
+// destructive; 'danger' is set apart and coloured (error prevention).
+const SETTINGS_TABS = [
+	{ id: 'display', label: 'Display' },
+	{ id: 'overlay', label: 'Overlay' },
+	{ id: 'startup', label: 'Startup' },
+	{ id: 'controls', label: 'Controls' },
+	{ id: 'diagnostics', label: 'Diagnostics' },
+	{ id: 'about', label: 'About' },
+	{ id: 'danger', label: 'Danger zone' }
+] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
 
 // The demo seed (primary monitor only): a row of per-core CPU sparklines + a System-skin cluster.
 function buildDemoWidgets(): WidgetInstance[] {
@@ -324,6 +347,26 @@ export default function Canvas({ studio = false }: Props) {
 		saveSeq
 	} = state;
 
+	// Bridge the (props-less) AI Provider settings panel to the editor so its layout assistant can
+	// apply model-proposed ops as one undo step (mirrors setSolvedForFloat). Studio role only; the
+	// result is computed PURELY from the current monitor before committing, so it never depends on the
+	// reducer running synchronously. Re-registers whenever the monitor changes so it stays current.
+	useEffect(() => {
+		if (!studio) return;
+		setLayoutAssistantApi({
+			monitor: () => monitor,
+			apply: (ops) => {
+				const r = applyAssistantOps(monitor, ops, (type) => `${type}-${editHelpers.rand()}`);
+				commitOp((s) => ({
+					monitor: r.monitor,
+					selectedId: r.addedIds.length ? r.addedIds[r.addedIds.length - 1] : s.selectedId
+				}));
+				return { applied: r.applied, addedIds: r.addedIds, errors: r.errors };
+			}
+		});
+		return () => setLayoutAssistantApi(null);
+	}, [studio, monitor, commitOp]);
+
 	// Theme css + list (the CSS is a side-effect of selectedTheme; held in component state).
 	const [themeCss, setThemeCss] = useState('');
 	const [themeList, setThemeList] = useState<string[]>([]);
@@ -358,8 +401,32 @@ export default function Canvas({ studio = false }: Props) {
 		() => (navSection === 'sensors' ? pluginSensorNames() : new Map<string, string>()),
 		[navSection]
 	);
+	// Which sensors stay sampled after the studio closes — and why. Walk THIS monitor's layout for each
+	// widget's sensor demand (bound + formula refs); the per-sensor verdict (referenced → active &
+	// names the widgets, cheap → always-on, else stops on close) feeds the Sensors list's status dots.
+	const sensorRefs = useMemo(
+		() =>
+			collectSensorRefs(
+				navSection === 'sensors' ? [{ key: myMonitor, layout: monitor }] : [],
+				library
+			),
+		[navSection, myMonitor, monitor, library]
+	);
+	const sensorActivityFor = useCallback(
+		(id: string) => sensorActivity(id, sensorRefs.get(id)),
+		[sensorRefs]
+	);
 	// Plugins section: which plugin's detail/settings pane is showing (transient UI).
 	const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
+	// Settings section: which subsection the side list has open, and the app version for About.
+	const [settingsTab, setSettingsTab] = useState<SettingsTab>('display');
+	const [appVersion, setAppVersion] = useState<string | null>(null);
+	useEffect(() => {
+		if (!studio) return; // the About pane is studio-only
+		getVersion()
+			.then(setAppVersion)
+			.catch(() => undefined);
+	}, [studio]);
 	const selectedPlugin = useMemo(
 		() => pluginList.find((p) => p.id === selectedPluginId) ?? null,
 		[pluginList, selectedPluginId]
@@ -404,6 +471,9 @@ export default function Canvas({ studio = false }: Props) {
 	// A read-only template preview reuses the design canvas but locks editing (no Inspector/Outline,
 	// no widget drag/menu/keyboard) until the user clones it into the library.
 	const previewing = studio && previewDef != null;
+	// Unsaved edits to the def open in the designer (its scoped tree vs the baseline captured on entry).
+	// Drives the "save before leaving the designer?" prompt when a nav-rail icon is clicked mid-edit.
+	const defDirty = editingDefId != null && defEditBaseline != null && monitor !== defEditBaseline;
 	const stageSize = editingDef ? editingDef.size : monSize;
 
 	// Control remaps (controls.json): overrides state + ref for the dispatch hooks (keyboard/pointer/
@@ -607,8 +677,31 @@ export default function Canvas({ studio = false }: Props) {
 	// Look up a flow primitive's renderable (for selectId / group + def hooks) when FlowNode hands us
 	// a leaf by its namespaced id.
 	const renderablesById = useMemo(() => new Map(renderables.map((r) => [r.id, r])), [renderables]);
-	// Overlay rendering prefs (taskbar awareness). Set from studio Settings, read on the overlay.
+	// Overlay rendering prefs (taskbar awareness + z-order layer). Set from studio Settings, read on
+	// the overlay (synced cross-window via the 'storage' event).
 	const [overlayPrefs, setOverlayPrefs] = useOverlayPrefs();
+	// Overlay windows apply the chosen z-order layer (top / below windows / wallpaper), re-applying
+	// live when the pref changes. The studio is a normal editor window and never moves layers.
+	useEffect(() => {
+		if (studio) return;
+		void applyOverlayLayer(overlayPrefs.overlayLayer);
+	}, [studio, overlayPrefs.overlayLayer]);
+	// The studio listens for each overlay's last layer-apply result (broadcast by applyOverlayLayer)
+	// so Settings can show whether the wallpaper/below mode actually took on the overlay.
+	const [layerStatus, setLayerStatus] = useState<string>('');
+	useEffect(() => {
+		if (!studio) return;
+		const un = listen<{ layer: string; ok: boolean; detail: string; label: string }>(
+			'overlay_layer_status',
+			(e) => {
+				const { layer, ok, detail, label } = e.payload;
+				setLayerStatus(`${label}: ${layer} — ${ok ? 'ok' : 'FAILED'} (${detail})`);
+			}
+		);
+		return () => {
+			un.then((f) => f()).catch(() => undefined);
+		};
+	}, [studio]);
 	// "Launch at login" (tauri-plugin-autostart). Read the OS state once in the studio; toggling
 	// optimistically updates then reconciles with the actual post-write state (a denied write reverts).
 	const [autostart, setAutostartState] = useState(false);
@@ -738,6 +831,16 @@ export default function Canvas({ studio = false }: Props) {
 		if (!studio) return;
 		invoke<{ id: string; name: string }[]>('list_audio_outputs')
 			.then(setAudioOutputs)
+			.catch(() => undefined);
+	}, [studio]);
+
+	// Microphones for the transcribe widget's input picker (studio only). Labels need a prior mic
+	// permission; until then they fall back to a short id (still selectable by deviceId).
+	const [microphones, setMicrophones] = useState<{ id: string; name: string }[]>([]);
+	useEffect(() => {
+		if (!studio) return;
+		listMicrophones()
+			.then(setMicrophones)
 			.catch(() => undefined);
 	}, [studio]);
 
@@ -1353,6 +1456,24 @@ export default function Canvas({ studio = false }: Props) {
 		if (previewingRef.current) dispatch({ type: 'endPreview' });
 		else if (editingDefIdRef.current != null) dispatch({ type: 'endDefEdit' });
 	}, [dispatch]);
+	// Pick a studio section from the nav rail. While a widget def is open the rail used to be a dead
+	// modal (clicks no-opped, which reads as broken); instead a click now leaves the designer. An
+	// edited def asks first (Done saves it); a read-only/unedited def leaves silently. foldOpenDef does
+	// the actual Done (endDefEdit) / discard-preview (endPreview).
+	const navToSection = useCallback(
+		(id: SectionId) => {
+			if (designing) {
+				const action = decideDesignerLeave(
+					{ previewing, dirty: defDirty, name: editingDefName },
+					(m) => window.confirm(m)
+				);
+				if (action === 'stay') return;
+				foldOpenDef();
+			}
+			setNavSection(id);
+		},
+		[designing, previewing, defDirty, editingDefName, foldOpenDef]
+	);
 	const startNewWidget = useCallback(() => {
 		foldOpenDef();
 		dispatch({ type: 'newWidget' });
@@ -1982,9 +2103,10 @@ export default function Canvas({ studio = false }: Props) {
 		[menu, moveNodeToMonitor]
 	);
 
-	// Keyboard section switching (Ctrl+1..8 jump, Ctrl+Tab / Ctrl+Shift+Tab cycle). The nav is modal
-	// while designing a widget def, so these are inert then — same rule as the NavRail clicks. Defined
-	// before useKeyboard so its handler map can reference them.
+	// Keyboard section switching (Ctrl+1..8 jump, Ctrl+Tab / Ctrl+Shift+Tab cycle). While designing a
+	// widget def these stay inert — a nav-rail CLICK instead prompts to finish + leave (navToSection),
+	// but a blocking confirm fired from a keystroke would be jarring. Defined before useKeyboard so its
+	// handler map can reference them.
 	const navSectionRef = useRef(navSection);
 	navSectionRef.current = navSection;
 	const designingRef = useRef(designing);
@@ -2489,7 +2611,7 @@ export default function Canvas({ studio = false }: Props) {
 												role="menuitem"
 												onClick={() => {
 													setHeaderMenuOpen(false);
-													setNavSection('sacks');
+													navToSection('sacks');
 												}}
 											>
 												Import sack…
@@ -2499,7 +2621,8 @@ export default function Canvas({ studio = false }: Props) {
 												role="menuitem"
 												onClick={() => {
 													setHeaderMenuOpen(false);
-													setNavSection('controls');
+													setSettingsTab('controls');
+													navToSection('settings');
 												}}
 											>
 												Keyboard shortcuts
@@ -2567,19 +2690,26 @@ export default function Canvas({ studio = false }: Props) {
 									</div>
 								)}
 								<div className="monitor-badge">▦ {monName}</div>
-								<div className="powerbar" aria-label="Keyboard and pointer shortcuts">
-									{savedFlash && (
-										<span className="seg flash" key="saved-flash">
-											<span className="lbl">✓ saved</span>
-										</span>
-									)}
-									{hints.map((h, i) => (
-										<span className="seg" key={i}>
-											<kbd>{h.key}</kbd>
-											<span className="lbl">{h.label}</span>
-										</span>
-									))}
-								</div>
+								{/* The powerline hint bar advertises CANVAS gestures (click/drag/marquee/pan/nudge…),
+								    so it belongs only on an edit stage — the Layouts section or while designing a
+								    widget def, never in read-only preview or the off-stage sections (Themes / Sensors
+								    / …) where those gestures don't apply. Same gate as the contextual subbar; --bar-b
+								    collapses with it so the rails/panels reclaim the bottom row (Canvas.css). */}
+								{showSubbar && (
+									<div className="powerbar" aria-label="Keyboard and pointer shortcuts">
+										{savedFlash && (
+											<span className="seg flash" key="saved-flash">
+												<span className="lbl">✓ saved</span>
+											</span>
+										)}
+										{hints.map((h, i) => (
+											<span className="seg" key={i}>
+												<kbd>{h.key}</kbd>
+												<span className="lbl">{h.label}</span>
+											</span>
+										))}
+									</div>
+								)}
 								{/* Draggable pane dividers (widths persist to localStorage). Each only renders where its
 								    panel actually exists — the full-width section panels (sensors/plugins/themes/…)
 								    have nothing to resize, so no handle floats over them. */}
@@ -2680,14 +2810,7 @@ export default function Canvas({ studio = false }: Props) {
 						{!studio && <div className="edit-badge">EDIT — Ctrl+E to exit</div>}
 						{studio ? (
 							<>
-								<NavRail
-									active={navSection}
-									disabled={designing}
-									onSelect={(id) => {
-										// While designing a widget the nav is modal — leave via the def-banner's Done.
-										if (!designing) setNavSection(id);
-									}}
-								/>
+								<NavRail active={navSection} onSelect={navToSection} />
 								{(navSection === 'layouts' || designing) && !previewing && (
 									<Outline
 										root={monitor.root}
@@ -2819,6 +2942,7 @@ export default function Canvas({ studio = false }: Props) {
 											ids={sensorCatalog([...hub.sensorIds(), ...sourceCatalogIds()])}
 											filter
 											groupFor={(id) => pluginSensorNameMap.get(id) ?? SYSTEM_GROUP}
+											activityFor={sensorActivityFor}
 										/>
 									</div>
 								)}
@@ -2990,69 +3114,191 @@ export default function Canvas({ studio = false }: Props) {
 										)}
 									</div>
 								)}
-								{navSection === 'controls' && !designing && (
-									<ControlsPanel
-										overrides={overrides}
-										onRebind={(id, trigger) => controls.setOverride(id, { triggers: [trigger] })}
-										onReset={controls.resetOverride}
-										onResetAll={controls.resetAll}
-									/>
-								)}
 								{navSection === 'settings' && !designing && (
-									<div className="rail-panel">
-										{/* The monitor name lives in the heading (it's also in the top-bar switcher), and the
-										    monitor size is already in that switcher's option label — so only the work area,
-										    which appears nowhere else, gets its own row. */}
-										<div className="rp-hd">
-											Display — {monName || '—'} · {monSize.w}×{monSize.h}
+									<div className="rail-panel plugins-panel settings-panel">
+										<div className="pl-list">
+											<div className="rp-hd">Settings</div>
+											{SETTINGS_TABS.map((t) => (
+												<button
+													key={t.id}
+													type="button"
+													className={[
+														'pl-item',
+														t.id === settingsTab && 'cur',
+														t.id === 'danger' && 'set-danger'
+													]
+														.filter(Boolean)
+														.join(' ')}
+													onClick={() => setSettingsTab(t.id)}
+												>
+													{t.label}
+												</button>
+											))}
 										</div>
-										<div className="rp-list">
-											<div className="rp-row">
-												<span>work area</span>
-												<span className="dim">
-													{Math.round(workArea.w)}×{Math.round(workArea.h)}
-												</span>
-											</div>
+										<div className="pl-detail">
+											{settingsTab === 'display' && (
+												<>
+													<div className="pl-title">Display</div>
+													<div className="pl-desc">
+														The monitor this layout drives — each monitor keeps its own layout.
+													</div>
+													<div className="rp-hd">
+														{monName || '—'} · {monSize.w}×{monSize.h}
+													</div>
+													<div className="rp-list">
+														<div className="rp-row">
+															<span>work area</span>
+															<span className="dim">
+																{Math.round(workArea.w)}×{Math.round(workArea.h)}
+															</span>
+														</div>
+													</div>
+													{monitorOptions.length > 1 && (
+														<div className="rp-stub">
+															Move a widget to another monitor by right-clicking it → “Move to”.
+														</div>
+													)}
+													<div className="rp-hd">View</div>
+													<button type="button" onClick={fit}>
+														⤢ Fit to screen ({Math.round(zoom * 100)}%)
+													</button>
+												</>
+											)}
+											{settingsTab === 'overlay' && (
+												<>
+													<div className="pl-title">Overlay</div>
+													<div className="pl-desc">
+														How the transparent overlay sits on the desktop (z-order + taskbar).
+													</div>
+													<label className="rp-row" style={{ cursor: 'pointer' }}>
+														<span>respect taskbar (work area)</span>
+														<input
+															type="checkbox"
+															checked={overlayPrefs.respectWorkArea}
+															onChange={(e) =>
+																setOverlayPrefs({ respectWorkArea: e.currentTarget.checked })
+															}
+														/>
+													</label>
+													<label style={{ display: 'block', marginTop: 8 }}>
+														<span>window layer</span>
+														<select
+															value={overlayPrefs.overlayLayer}
+															onChange={(e) =>
+																setOverlayPrefs({
+																	overlayLayer: e.currentTarget.value as OverlayLayer
+																})
+															}
+														>
+															<option value="bottom">Below windows (default)</option>
+															<option value="top">Always on top</option>
+															<option value="wallpaper">
+																Wallpaper layer (WorkerW · experimental)
+															</option>
+														</select>
+													</label>
+													<div className="pl-desc">
+														“Below windows” sits behind apps (above desktop icons; Show Desktop
+														hides it). “Wallpaper layer” parents the overlay to the desktop so it
+														renders behind the icons — experimental, Windows-only, takes effect on
+														the live overlay.
+													</div>
+													<div className="pl-desc" style={{ marginTop: 6 }}>
+														Overlay status:{' '}
+														<code>
+															{layerStatus || '(waiting for the overlay to apply a layer…)'}
+														</code>
+													</div>
+												</>
+											)}
+											{settingsTab === 'startup' && (
+												<>
+													<div className="pl-title">Startup</div>
+													<div className="pl-desc">What happens when you sign in to Windows.</div>
+													<label className="rp-row" style={{ cursor: 'pointer' }}>
+														<span>launch at login</span>
+														<input
+															type="checkbox"
+															checked={autostart}
+															onChange={(e) => toggleAutostart(e.currentTarget.checked)}
+														/>
+													</label>
+												</>
+											)}
+											{settingsTab === 'controls' && (
+												<>
+													<div className="pl-title">Controls</div>
+													<div className="pl-desc">
+														Remap the keyboard and pointer shortcuts that drive the studio and
+														overlays.
+													</div>
+													<ControlsPanel
+														overrides={overrides}
+														onRebind={(id, trigger) =>
+															controls.setOverride(id, { triggers: [trigger] })
+														}
+														onReset={controls.resetOverride}
+														onResetAll={controls.resetAll}
+													/>
+												</>
+											)}
+											{settingsTab === 'diagnostics' && (
+												<>
+													<div className="pl-title">Diagnostics</div>
+													<div className="pl-desc">
+														Inspect the studio and overlays — JS heap, retained media, per-widget
+														DOM weight, and devtools.
+													</div>
+													<button type="button" onClick={openDevtools}>
+														⌗ Inspect this window (devtools)
+													</button>
+													<DiagnosticsPanel />
+												</>
+											)}
+											{settingsTab === 'about' && (
+												<>
+													<div className="pl-title">widgetsack</div>
+													<div className="pl-desc">
+														A themeable, Rainmeter-style desktop widget overlay for Windows — system
+														meters, clocks, the now-playing track, and Home Assistant controls,
+														arranged here in the studio.
+													</div>
+													<div className="rp-list">
+														<div className="rp-row">
+															<span>version</span>
+															<span className="dim">{appVersion ?? '…'}</span>
+														</div>
+														<div className="rp-row">
+															<span>license</span>
+															<span className="dim">MIT OR Apache-2.0</span>
+														</div>
+													</div>
+													<div className="rp-hd">Source</div>
+													<div className="rp-row">
+														<span className="set-repo">github.com/gyng/nowplaying-widget</span>
+														<button
+															type="button"
+															onClick={() => {
+																void copyToClipboard('https://github.com/gyng/nowplaying-widget');
+															}}
+														>
+															copy
+														</button>
+													</div>
+												</>
+											)}
+											{settingsTab === 'danger' && (
+												<>
+													<div className="pl-title set-danger-title">Danger zone</div>
+													<div className="pl-desc">
+														Destructive actions for this monitor’s layout. There is no undo.
+													</div>
+													<button type="button" className="rp-danger" onClick={clearMonitor}>
+														✕ Clear this monitor
+													</button>
+												</>
+											)}
 										</div>
-										{monitorOptions.length > 1 && (
-											<div className="rp-stub">
-												Move a widget to another monitor by right-clicking it → “Move to”.
-											</div>
-										)}
-										<div className="rp-hd">Startup</div>
-										<label className="rp-row" style={{ cursor: 'pointer' }}>
-											<span>launch at login</span>
-											<input
-												type="checkbox"
-												checked={autostart}
-												onChange={(e) => toggleAutostart(e.currentTarget.checked)}
-											/>
-										</label>
-										<div className="rp-hd">Overlay</div>
-										<label className="rp-row" style={{ cursor: 'pointer' }}>
-											<span>respect taskbar (work area)</span>
-											<input
-												type="checkbox"
-												checked={overlayPrefs.respectWorkArea}
-												onChange={(e) =>
-													setOverlayPrefs({ respectWorkArea: e.currentTarget.checked })
-												}
-											/>
-										</label>
-										<div className="rp-hd">View</div>
-										<button type="button" onClick={fit}>
-											⤢ Fit to screen ({Math.round(zoom * 100)}%)
-										</button>
-										<div className="rp-hd">Tools</div>
-										<button type="button" onClick={openDevtools}>
-											⌗ Inspect (devtools)
-										</button>
-										<div className="rp-hd">Diagnostics</div>
-										<DiagnosticsPanel />
-										<div className="rp-hd">Danger</div>
-										<button type="button" className="rp-danger" onClick={clearMonitor}>
-											✕ Clear this monitor
-										</button>
 									</div>
 								)}
 							</>
@@ -3103,6 +3349,7 @@ export default function Canvas({ studio = false }: Props) {
 									sensors={sensors}
 									sensorMeta={sensorMeta}
 									audioOutputs={audioOutputs}
+									microphones={microphones}
 									docked={studio}
 									onOp={handleOp}
 									onDeleteDef={studio ? deleteWidget : undefined}

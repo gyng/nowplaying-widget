@@ -33,6 +33,9 @@ export function installDevMock(): void {
 			case 'list_sacks':
 			case 'get_logs':
 			case 'system_fonts':
+			case 'list_display_names':
+				// 'list_display_names' (Windows-only friendly monitor names) has no real displays under the
+				// mock, so the switcher falls back to the device tag — and the boot stays self-policing.
 				return [];
 			case 'current_work_area':
 				return { x: 0, y: 0, w: MONITOR.size.width, h: MONITOR.size.height - 48 };
@@ -112,6 +115,34 @@ export function installDevMock(): void {
 				return undefined;
 			case 'stocks_config_status':
 				return { configured: false, provider: '', symbols: [], pollSeconds: 60 };
+
+			// --- AI provider: not configured (shape = LlmStatus). `llm_complete` returns canned layout
+			// ops so the layout assistant is exercisable under Playwright without a real model. ---
+			case 'llm_config_status':
+				return {
+					configured: false,
+					provider: 'openai',
+					baseUrl: 'https://api.openai.com/v1',
+					model: '',
+					hasKey: false,
+					temperature: 0.7,
+					maxTokens: 1024,
+					agentControl: false
+				};
+			case 'control_start':
+			case 'control_stop':
+				return undefined;
+			case 'llm_test_connection':
+				return { model: 'mock', reply: 'OK' };
+			case 'llm_list_models':
+				return [];
+			case 'llm_complete':
+				return '{"ops":[{"op":"addWidget","widgetType":"clock"}],"summary":"added a clock (mock)"}';
+			case 'llm_stream':
+			case 'llm_cancel':
+				return undefined;
+			case 'llm_transcribe':
+				return 'add a clock to the top left'; // canned transcript so the mic flow is testable in dev
 
 			// --- widget actuation (only fired by clicking a live control, never at boot) ---
 			case 'media_control':

@@ -64,6 +64,8 @@ type Props = {
 	sensorMeta?: Record<string, { label?: string; unit?: string }>;
 	// Runtime options for a `catalog:'audioOutputs'` select field (the spectrum widget's device picker).
 	audioOutputs?: { id: string; name: string }[];
+	// Runtime options for a `catalog:'microphones'` select (the transcribe widget's mic picker).
+	microphones?: { id: string; name: string }[];
 	onOp?: (op: LayoutOp) => void;
 	// Deleting a library def from the Inspector routes through the container (which checks whether the
 	// def is in use and explains the block, matching the Widget-designer list) instead of the reducer's
@@ -192,6 +194,7 @@ export default function Inspector({
 	sensors = [],
 	sensorMeta = {},
 	audioOutputs = [],
+	microphones = [],
 	onOp,
 	onDeleteDef,
 	node = null,
@@ -1011,6 +1014,11 @@ export default function Inspector({
 													? [
 															{ value: '', label: 'System default' },
 															...audioOutputs.map((d) => ({ value: d.id, label: d.name }))
+													  ]
+													: f.catalog === 'microphones'
+													? [
+															{ value: '', label: 'System default' },
+															...microphones.map((d) => ({ value: d.id, label: d.name }))
 													  ]
 													: f.options.map((o) => ({ value: o, label: o }))
 											}

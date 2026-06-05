@@ -17,6 +17,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 futures-util = "0.3"
+# CSPRNG for the agent-control server's per-launch auth token (OS RNG: BCryptGenRandom on Windows —
+# no NASM/cmake). Already in the dependency tree transitively.
+getrandom = "0.2"
 # TLS for the HA client (wss/https) via the OS-native stack: SChannel on this Windows-only
 # build — no OpenSSL, and no aws-lc-rs/ring (so no NASM/cmake build tooling). Used directly
 # only to build the self-signed-cert connector; reqwest/tungstenite use it via their features.
@@ -25,7 +28,7 @@ notify = "6"
 nvml-wrapper = "0.10"
 # HA control + entity catalog over REST. native-tls enables https; self-signed certs are an
 # explicit per-config opt-in (HaConfig.insecure → danger_accept_invalid_certs).
-reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "stream", "multipart"] }
 # Optional MQTT source (peer to HA). default-features=false + use-native-tls reuses the existing
 # native-tls=0.2 (SChannel) and pulls in NO rustls/aws-lc-rs/ring — keeping the no-NASM/cmake stance.
 rumqttc = { version = "0.25", default-features = false, features = ["use-native-tls"] }
@@ -60,6 +63,10 @@ wasapi = "0.23"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    # Friendly monitor names (display.rs): the Connecting-and-Configuring-Displays API —
+    # QueryDisplayConfig + DisplayConfigGetDeviceInfo (DISPLAYCONFIG_TARGET/SOURCE_DEVICE_NAME) maps the
+    # GDI device name (\\.\DISPLAYn) Tauri exposes to the EDID model name for the studio's switcher.
+    "Win32_Devices_Display",
     "Win32_System_Com",
     # Win32 system sensors: GetSystemPowerStatus (battery.*) + CallNtPowerInformation (live CPU MHz)
     # live in Win32_System_Power; GetPerformanceInfo (commit/cache/kernel/handle/thread) in
