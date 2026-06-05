@@ -35,10 +35,41 @@ jobs:
         run: npm ci
         working-directory: ./client
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ github.event.release.id }}
+          # Build only and emit `artifactPaths` — do NOT upload here. The in-action release upload has
+          # flaked transiently (build succeeds, the upload errors, and the release is left with no
+          # assets), and re-running it means a full ~10 min rebuild. The retried step below is the sole
+          # uploader, so a transient flake just retries the cheap upload instead.
           # tauri-action@v0's bundled CLI is too old for the v2 config schema; pin a
           # current v2 CLI matching the tauri 2.11 crates.
           tauriScript: npx @tauri-apps/cli@2
+      - name: Upload bundles to the release (retried)
+        # Only on a real release event (workflow_dispatch builds have no release to attach to, matching
+        # the prior behaviour where releaseId was empty).
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          ARTIFACTS: ${{ steps.tauri.outputs.artifactPaths }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # artifactPaths is a JSON array of absolute bundle paths.
+          readarray -t FILES < <(printf '%s' "$ARTIFACTS" | jq -r '.[]')
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::tauri-action produced no artifacts to upload"; exit 1
+          fi
+          printf 'Uploading %s artifact(s) to %s:\n' "${#FILES[@]}" "$TAG"
+          printf '  %s\n' "${FILES[@]}"
+          # --clobber makes the upload idempotent, so a retry after a partial upload just overwrites.
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$REPO"; then
+              echo "Release assets attached on attempt $attempt."; exit 0
+            fi
+            echo "Upload attempt $attempt failed; retrying in 20s…"; sleep 20
+          done
+          echo "::error::release upload failed after 5 attempts"; exit 1
