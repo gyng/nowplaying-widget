@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use notify::Watcher;
 use serde::Serialize;
@@ -140,6 +140,28 @@ fn themes_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("themes"))
 }
 
+/// Write `contents` to `path` atomically: write a sibling temp file, then rename it onto the target
+/// (a rename is atomic on the same volume), so a concurrent reader — or a crash mid-write — never
+/// sees a truncated/partial file. The temp name keeps the original and appends `.tmp`, so its
+/// extension is `tmp` (not `css`/`json`) and the directory watchers, which filter by extension,
+/// ignore it. Best-effort cleanup of the temp file on failure.
+fn atomic_write(path: &Path, contents: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "write path has no file name".to_string())?;
+    let mut tmp = path.to_path_buf();
+    tmp.set_file_name(format!("{file_name}.tmp"));
+    if let Err(err) = fs::write(&tmp, contents) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.to_string());
+    }
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
 /// The theme names (file stems of `themes/*.css`), sorted. The frontend adds a synthetic
 /// "(default)" option (no theme = the meters' token fallbacks).
 #[tauri::command]
@@ -174,7 +196,8 @@ pub fn load_theme(app: tauri::AppHandle, name: String) -> Result<Option<String>,
     }
 }
 
-/// Write theme `name` (used by the studio's token panel, Phase 7d). Creates `themes/`.
+/// Write theme `name` (used by the studio's theme editor + token panel, Phase 7d). Creates
+/// `themes/`. Atomic (temp + rename) so a concurrent overlay reload never reads a half-written file.
 #[tauri::command]
 pub fn save_theme(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
     if !valid_name(&name) {
@@ -182,7 +205,99 @@ pub fn save_theme(app: tauri::AppHandle, name: String, contents: String) -> Resu
     }
     let dir = themes_dir(&app)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    fs::write(dir.join(format!("{name}.css")), contents).map_err(|e| e.to_string())
+    atomic_write(&dir.join(format!("{name}.css")), &contents)
+}
+
+/// Delete theme `name` → removes `themes/<name>.css`. Ok even if it's already gone (idempotent),
+/// mirroring `delete_layout`. The themes watcher then emits `themes_changed` so the picker refreshes.
+#[tauri::command]
+pub fn delete_theme(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    if !valid_name(&name) {
+        return Err("invalid theme name".to_string());
+    }
+    let path = themes_dir(&app)?.join(format!("{name}.css"));
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+// ---- wallpapers: media for the per-monitor full-screen background layer ----
+// Same "dumb I/O to a fixed folder, no native picker" pattern as themes/sacks: the user drops image
+// or video files into `<app config>/wallpapers/` (already inside the asset-protocol scope, so the
+// webview can load them), and the studio lists them for the Background section. `BackgroundSpec.src`
+// stores the bare filename; the frontend resolves it to an asset URL via `wallpaper_path`.
+
+fn wallpapers_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("wallpapers"))
+}
+
+// Image/video extensions the webview can render (the picker shows only these).
+const WALLPAPER_EXTS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "mp4", "webm", "mkv", "mov", "m4v",
+];
+
+/// A wallpaper filename is a single path component with a media extension. Rejects separators / `..`
+/// (path traversal) but — unlike `valid_name` — ALLOWS the extension dot.
+fn valid_wallpaper_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && std::path::Path::new(name)
+            .extension()
+            .and_then(|x| x.to_str())
+            .map(|e| WALLPAPER_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+            .unwrap_or(false)
+}
+
+/// The media filenames in `wallpapers/` (image + video only), sorted. Creates the folder so the
+/// studio's "open folder" button always has somewhere to point.
+#[tauri::command]
+pub fn list_wallpapers(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = wallpapers_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut names = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str()
+                && valid_wallpaper_name(name)
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// The absolute path of wallpaper `name`, for the frontend to feed `convertFileSrc`. Validates the
+/// name (no traversal); returns the path even if the file is missing (the <img>/<video> just won't
+/// load), so the caller doesn't have to special-case a not-yet-present file.
+#[tauri::command]
+pub fn wallpaper_path(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    if !valid_wallpaper_name(&name) {
+        return Err("invalid wallpaper name".to_string());
+    }
+    Ok(wallpapers_dir(&app)?
+        .join(name)
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// Open the `wallpapers/` folder in Explorer so the user can drop media in. Creates it first.
+#[tauri::command]
+pub fn open_wallpapers_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = wallpapers_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ---- sacks: shareable bundles (`sacks/<name>.sack.json` in the app config dir) ----
@@ -198,9 +313,12 @@ fn sacks_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Shared filename allowlist for user-named config files (themes, sacks). The name becomes a
 /// path segment, so it must be a safe, bounded token: 1–64 chars of `[A-Za-z0-9 _-]` only. This
 /// rejects control chars, path separators, `..`, and Windows-reserved characters by construction;
-/// the explicit empty/`..`/separator checks below are kept as a defensive backstop.
+/// the explicit empty/`..`/separator checks below are kept as a defensive backstop. Leading/trailing
+/// spaces are rejected too — Windows silently trims trailing spaces/dots from filenames, so `"a "`
+/// and `"a"` would collide on disk and a delete-by-name could miss.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
+        && name == name.trim()
         && !name.contains('/')
         && !name.contains('\\')
         && !name.contains("..")
@@ -382,8 +500,17 @@ pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
         }
         for res in rx {
             match res {
-                Ok(_) => {
-                    let _ = app.emit("themes_changed", ());
+                Ok(event) => {
+                    // Only react to `*.css` files (mirrors the layout/controls watchers' filter), so
+                    // the atomic-write `*.css.tmp` sidecar and any non-theme file dropped in the
+                    // folder don't spuriously trigger a reload.
+                    if event
+                        .paths
+                        .iter()
+                        .any(|p| p.extension().and_then(|x| x.to_str()) == Some("css"))
+                    {
+                        let _ = app.emit("themes_changed", ());
+                    }
                 }
                 Err(err) => log::warn("watch", "themes watch error").field("error", err).emit(),
             }
@@ -502,5 +629,21 @@ mod tests {
         assert!(!valid_name("tab\tname")); // control char
         assert!(!valid_name("café")); // non-ASCII
         assert!(!valid_name(&"x".repeat(65))); // too long
+        assert!(!valid_name(" lead")); // leading space (Windows trims → name collision)
+        assert!(!valid_name("trail ")); // trailing space
+        assert!(!valid_name("   ")); // all whitespace
+    }
+
+    #[test]
+    fn valid_wallpaper_name_requires_media_ext_and_no_traversal() {
+        assert!(super::valid_wallpaper_name("loop.mp4"));
+        assert!(super::valid_wallpaper_name("My Wallpaper 2.PNG")); // case-insensitive ext, spaces ok
+        assert!(super::valid_wallpaper_name("clip.webm"));
+        assert!(!super::valid_wallpaper_name("notes.txt")); // not a media ext
+        assert!(!super::valid_wallpaper_name("noext")); // no extension
+        assert!(!super::valid_wallpaper_name("../escape.png")); // traversal
+        assert!(!super::valid_wallpaper_name("sub/dir.png")); // separator
+        assert!(!super::valid_wallpaper_name("a\\b.png")); // separator
+        assert!(!super::valid_wallpaper_name("")); // empty
     }
 }

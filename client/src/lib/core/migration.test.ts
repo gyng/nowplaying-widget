@@ -104,6 +104,91 @@ describe('parseLayoutAny', () => {
 		});
 	});
 
+	it('preserves a valid per-monitor background and drops a malformed one', () => {
+		const r = parseLayoutAny({
+			version: 2,
+			monitors: {
+				a: {
+					floating: [],
+					background: { kind: 'video', src: 'loop.mp4', fit: 'cover', opacity: 1 }
+				},
+				b: { floating: [], background: { kind: 'nope' } }
+			}
+		});
+		expect(r?.monitors.a.background).toEqual({
+			kind: 'video',
+			src: 'loop.mp4',
+			fit: 'cover',
+			opacity: 1
+		});
+		expect(r?.monitors.b.background).toBeUndefined();
+	});
+
+	it('round-trips a container condition (appOpen + sensor) and drops a malformed one', () => {
+		const r = parseLayoutAny({
+			version: 2,
+			monitors: {
+				m: {
+					root: {
+						id: 'r',
+						kind: 'col',
+						children: [
+							{
+								id: 'a',
+								kind: 'row',
+								children: [],
+								condition: { kind: 'appOpen', matchExe: 'spotify.exe' }
+							},
+							{
+								id: 'b',
+								kind: 'row',
+								children: [],
+								condition: { kind: 'sensor', sensorId: 'cpu.total', op: '>', value: '80' }
+							},
+							{ id: 'c', kind: 'row', children: [], condition: { kind: 'nope' } }
+						]
+					},
+					floating: []
+				}
+			}
+		});
+		const kids = r?.monitors.m.root.children as { id: string; condition?: unknown }[];
+		expect(kids[0].condition).toEqual({ kind: 'appOpen', matchExe: 'spotify.exe' });
+		expect(kids[1].condition).toEqual({
+			kind: 'sensor',
+			sensorId: 'cpu.total',
+			op: '>',
+			value: '80'
+		});
+		expect(kids[2].condition).toBeUndefined(); // malformed → dropped, container still kept
+	});
+
+	it('persists previously-dropped grid/overlap container fields across reload', () => {
+		const grid = {
+			id: 'g',
+			kind: 'grid',
+			cols: 2,
+			rows: 2,
+			overlap: true,
+			cellW: 120,
+			cellH: 80,
+			aspect: 1.5,
+			colFr: [1, 2],
+			rowFr: [3, 1],
+			children: []
+		};
+		const r = parseLayoutAny({ version: 2, monitors: { m: { root: grid, floating: [] } } });
+		expect(r?.monitors.m.root).toMatchObject({
+			rows: 2,
+			overlap: true,
+			cellW: 120,
+			cellH: 80,
+			aspect: 1.5,
+			colFr: [1, 2],
+			rowFr: [3, 1]
+		});
+	});
+
 	it('returns null on unrecoverable structural failure', () => {
 		expect(parseLayoutAny(null)).toBeNull();
 		expect(parseLayoutAny('nope')).toBeNull();

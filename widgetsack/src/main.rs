@@ -29,6 +29,7 @@ pub mod llm;
 pub mod log;
 pub mod media;
 pub mod mqtt;
+pub mod process_diag;
 pub mod sensors;
 pub mod stocks;
 pub mod state;
@@ -105,6 +106,7 @@ async fn main() -> Result<(), ()> {
         .manage(stocks::StocksState::default())
         .manage(sensors::ActiveSensors::default())
         .manage(audio::SpectrumState::default())
+        .manage(process_diag::ProcDiag::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
@@ -117,6 +119,10 @@ async fn main() -> Result<(), ()> {
             command::list_themes,
             command::load_theme,
             command::save_theme,
+            command::delete_theme,
+            command::list_wallpapers,
+            command::wallpaper_path,
+            command::open_wallpapers_dir,
             command::list_sacks,
             command::read_sack,
             command::write_sack,
@@ -162,8 +168,10 @@ async fn main() -> Result<(), ()> {
             llm::llm_stream,
             llm::llm_cancel,
             llm::llm_transcribe,
+            llm::llm_synthesize,
             control::control_start,
-            control::control_stop
+            control::control_stop,
+            process_diag::process_diagnostics
         ])
         .setup(|app| {
             // Wire structured logging to the app so records also stream to the webview (`log` event).

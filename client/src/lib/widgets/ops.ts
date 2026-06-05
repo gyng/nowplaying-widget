@@ -5,6 +5,7 @@
 import type {
 	AlignH,
 	AlignV,
+	BackgroundSpec,
 	Container,
 	Group,
 	LayoutNode,
@@ -47,8 +48,10 @@ export type LayoutOp =
 	| { op: 'ungroup'; id: string } // inline a group back to its subtree (6a)
 	| { op: 'insertWidget'; defId: string } // instantiate a library def as a new group (6d)
 	// Instantiate a built-in template (core/templates.ts) directly onto the canvas as a self-contained
-	// group (its tree inline, no library def) — the one-click "drop this template as a widget".
-	| { op: 'insertTemplate'; templateId: string }
+	// group (its tree inline, no library def) — the one-click "drop this template as a widget". `options`
+	// carries the picker's chosen template options (e.g. the clock's language / 12-24h / separator);
+	// omitted → the template's defaults (resolveTemplateOptions fills the rest).
+	| { op: 'insertTemplate'; templateId: string; options?: Record<string, string> }
 	// Set a leaf's per-side margin (outer) or padding (inner inset); `value` undefined clears the field.
 	| { op: 'setLeafBox'; id: string; field: 'margin' | 'pad'; value?: Pad }
 	| { op: 'renameDef'; defId: string; name: string } // rename a library def (6d)
@@ -60,6 +63,13 @@ export type LayoutOp =
 	| { op: 'patchGroup'; id: string; patch: Partial<Group> } // group name / params / css
 	| { op: 'setDefCss'; defId: string; css: string } // a def's css (7d)
 	| { op: 'setToken'; key: string; value: string } // a global token override (7d, '' clears)
+	| { op: 'clearTokens' } // drop ALL global token overrides at once (the panel's "Clear" button)
+	// Set (or clear, when undefined) the current monitor's full-screen background/wallpaper layer.
+	| { op: 'setBackground'; spec?: BackgroundSpec }
+	// Per-widget token override (scoped to [data-w]/[data-group]): the Inspector's "Override theme for
+	// this widget" group. `value:''` clears that one key; clearWidgetTokens drops the whole override.
+	| { op: 'setWidgetToken'; id: string; key: string; value: string }
+	| { op: 'clearWidgetTokens'; id: string }
 	// A node's main-axis sizing inside its flow parent: 'auto'/px = fixed, {fr} = stretch/grow.
 	| { op: 'setBasis'; id: string; basis: Length | undefined }
 	// A leaf's placement within the box the layout gives it (per screen axis; 'fill' = span the box).

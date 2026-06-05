@@ -25,12 +25,13 @@ import MacroEditor from './MacroEditor';
 import CssEditor from './CssEditor';
 import BoxField from './BoxField';
 import Select, { type SelectOption } from './Select';
-import { TEMPLATES } from '../core/templates';
+import { TEMPLATES, resolveTemplateOptions, type Template } from '../core/templates';
 import { exprRefs, templateRefs } from '../core/template';
 import type { LayoutOp } from './ops';
 import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
 import { containerAlignControls, LEAF_H_OPTIONS, LEAF_V_OPTIONS } from './canvas/alignControls';
-import { TOKEN_FIELDS } from './themeTokens';
+import TokenFields from './TokenFields';
+import ConditionEditor from './ConditionEditor';
 import './Inspector.css';
 
 type Props = {
@@ -120,6 +121,7 @@ function computeDirty(
 		if (!b || ne(c.cellW, b.cellW)) d.add('cellW');
 		if (!b || ne(c.cellH, b.cellH)) d.add('cellH');
 		if (!b || ne(c.aspect, b.aspect)) d.add('aspect');
+		if (!b || ne(c.condition, b.condition)) d.add('condition');
 	}
 	if (g) {
 		const b = isNew ? null : bg;
@@ -169,6 +171,45 @@ function ExprHint({
 }
 // Whether a basis means "grow/stretch along the parent's main axis" (an `fr` length).
 const isFrBasis = (b?: Length): boolean => typeof b === 'object' && b !== null && 'fr' in b;
+
+// A template that exposes insert-time options (e.g. the clock cluster's language / 12-24h / separator):
+// a name + a select per option + an Insert button. Holds the chosen options locally and passes them up
+// on insert; templates without options render as a plain button instead (see the palette below).
+function TemplateOptionsForm({
+	t,
+	onInsert
+}: {
+	t: Template;
+	onInsert: (options: Record<string, string>) => void;
+}) {
+	const [opts, setOpts] = useState<Record<string, string>>(() => resolveTemplateOptions(t));
+	return (
+		<div className="tpl-opts">
+			<span className="tpl-opts-name">{t.name}</span>
+			<div className="tpl-opts-fields">
+				{(t.options ?? []).map((o) => (
+					<label key={o.key}>
+						{o.label}
+						<Select
+							value={opts[o.key]}
+							options={o.choices}
+							onChange={(v) => setOpts((p) => ({ ...p, [o.key]: v }))}
+							aria-label={`${t.name} — ${o.label}`}
+						/>
+					</label>
+				))}
+			</div>
+			<button
+				type="button"
+				className="tpl-opts-insert"
+				title={`${t.description} — insert onto the canvas`}
+				onClick={() => onInsert(opts)}
+			>
+				＋ Insert
+			</button>
+		</div>
+	);
+}
 
 export default function Inspector({
 	widget = null,
@@ -574,16 +615,24 @@ export default function Inspector({
 
 				<div className="palette">
 					<span className="hd">Templates</span>
-					{TEMPLATES.map((t) => (
-						<button
-							key={t.id}
-							type="button"
-							title={`${t.description} — insert onto the canvas`}
-							onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
-						>
-							{t.name}
-						</button>
-					))}
+					{TEMPLATES.map((t) =>
+						t.options ? (
+							<TemplateOptionsForm
+								key={t.id}
+								t={t}
+								onInsert={(options) => op({ op: 'insertTemplate', templateId: t.id, options })}
+							/>
+						) : (
+							<button
+								key={t.id}
+								type="button"
+								title={`${t.description} — insert onto the canvas`}
+								onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
+							>
+								{t.name}
+							</button>
+						)
+					)}
 				</div>
 			</details>
 
@@ -840,6 +889,13 @@ export default function Inspector({
 						/>
 						stack children (overlap in one cell)
 					</label>
+					<span className="hd">Visibility</span>
+					<ConditionEditor
+						value={container.condition}
+						sensors={sensors}
+						dirty={dirtyKeys.has('condition')}
+						onChange={(condition) => patchContainer({ condition })}
+					/>
 					{isGridCell && (
 						<>
 							<span className="hd">Grid cell</span>
@@ -1278,25 +1334,24 @@ export default function Inspector({
 				<div className="hint">Select a widget, container, or group — or add one above.</div>
 			)}
 
-			<div className="fields tokens">
-				<span className="hd">Theme tokens</span>
-				{TOKEN_FIELDS.map((t) => (
-					<label
-						key={t.key}
-						className={['full', dirtyKeys.has('token.' + t.key) && 'dirty']
-							.filter(Boolean)
-							.join(' ')}
-					>
-						{t.label}
-						<input
-							defaultValue={tokens[t.key] ?? ''}
-							key={`${t.key}:${tokens[t.key] ?? ''}`}
-							placeholder={t.ph}
-							onBlur={(e) => op({ op: 'setToken', key: t.key, value: e.currentTarget.value })}
-						/>
-					</label>
-				))}
-			</div>
+			{/* Per-widget theme overrides: tokens scoped to JUST the selected widget/group (cascade in
+			    core/style.ts → [data-w]/[data-group]). Global theme + tokens live in the Themes section.
+			    Hidden when only a container / nothing is selected (containers have no token scope). */}
+			{widget || groupUnit ? (
+				<div className="fields tokens">
+					<span className="hd">Override theme for this widget</span>
+					<TokenFields
+						values={widget?.tokens ?? groupUnit?.tokens ?? {}}
+						baseValues={(widget ? baseWidget?.tokens : baseGroup?.tokens) ?? null}
+						labelClassName="full"
+						onSet={(key, value) =>
+							op({ op: 'setWidgetToken', id: widget?.id ?? groupUnit?.id ?? '', key, value })
+						}
+						onClear={() => op({ op: 'clearWidgetTokens', id: widget?.id ?? groupUnit?.id ?? '' })}
+						clearTitle="Remove this widget's token overrides (fall back to the theme)"
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 }

@@ -9,6 +9,8 @@
 // Rust side in sync (see AGENTS.md §5).
 
 import type { Rect, WidgetInstance } from './layout';
+import type { Tokens } from './tokens';
+import type { Condition } from './condition';
 
 export type { Rect, WidgetInstance } from './layout';
 
@@ -56,6 +58,10 @@ export type Container = {
 	// split). Set by dragging a grid track splitter; cleared by "Distribute evenly". Frontend-owned.
 	colFr?: number[];
 	rowFr?: number[];
+	// Optional runtime visibility condition (core/condition.ts): when present and unsatisfied, the
+	// overlay keeps the container's space but hides its contents (the studio always shows it so it
+	// stays editable). Absent ⇒ always shown. Any container can be made "conditional" this way.
+	condition?: Condition;
 	children: LayoutNode[];
 };
 
@@ -73,6 +79,7 @@ export type Group = {
 	params?: Record<string, unknown>; // instance-side param overrides (Phase 6c)
 	config?: Record<string, unknown>; // floating anchor lives here (config.x / config.y)
 	css?: string;
+	tokens?: Tokens; // per-group theme-token overrides (scoped to [data-group]); see WidgetInstance.tokens
 };
 
 // A placed unit: either a primitive widget or a group, with an optional main-axis basis.
@@ -88,10 +95,30 @@ export type Leaf = {
 
 export type LayoutNode = Container | Leaf;
 
-// Per monitor: the in-flow tree + an escape-the-grid floating layer (absolute coords).
+// A full-monitor "wallpaper" effect rendered BEHIND every widget. Shown only when the overlay sits
+// below windows / on the desktop (the studio always previews it) — in normal top-overlay mode a
+// full-bleed background would cover the user's apps, so it's suppressed there. `kind` picks the
+// source: 'color' (a CSS colour in `src`), 'image'/'video' (a file in the app-config `wallpapers/`
+// folder, `src` = bare filename), or 'web' (a URL in `src`, embedded in a sandboxed iframe).
+export type BackgroundKind = 'color' | 'image' | 'video' | 'web';
+export type BackgroundFit = 'cover' | 'contain' | 'fill' | 'center' | 'tile';
+
+export type BackgroundSpec = {
+	kind: BackgroundKind;
+	src?: string; // colour string | wallpapers/ filename | URL — per kind
+	fit?: BackgroundFit; // image/video sizing (default 'cover')
+	opacity?: number; // 0..1 of the media itself (default 1)
+	dim?: number; // 0..1 dark scrim OVER the media to keep widgets legible (default 0)
+	mute?: boolean; // video: start muted (default true — autoplay needs it)
+	loop?: boolean; // video: loop (default true)
+};
+
+// Per monitor: the in-flow tree + an escape-the-grid floating layer (absolute coords) + an optional
+// full-monitor background effect behind both.
 export type MonitorLayout = {
 	root: Container; // solved against the monitor work area (or root.bounds)
 	floating: Leaf[]; // each placed by its own absolute rect (or group anchor)
+	background?: BackgroundSpec; // the wallpaper layer (behind all widgets); undefined = transparent
 };
 
 export type LayoutV2 = {

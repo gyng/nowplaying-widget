@@ -26,6 +26,8 @@ import {
 	type Pad,
 	emptyRoot
 } from './layoutTree';
+import { parseBackgroundSpec } from './background';
+import { parseCondition } from './condition';
 
 export type AnyLayout = LayoutV1 | LayoutV2;
 
@@ -102,7 +104,11 @@ function parseMonitor(raw: unknown): MonitorLayout | null {
 		? floatingRaw.map(parseLeaf).filter((l): l is Leaf => l !== null)
 		: [];
 
-	return { root, floating };
+	// The per-monitor wallpaper layer (optional). A malformed background is dropped (→ undefined),
+	// never fatal to the monitor.
+	const background = parseBackgroundSpec(o.background);
+
+	return { root, floating, ...(background ? { background } : {}) };
 }
 
 // Tolerate a missing/non-object root by substituting an empty root; reject a present
@@ -122,13 +128,29 @@ function parseContainer(raw: unknown): Container | null {
 	const c: Container = { id: o.id, kind, children };
 	if (isLength(o.basis)) c.basis = o.basis as Length;
 	if (typeof o.cols === 'number') c.cols = o.cols;
+	if (typeof o.rows === 'number') c.rows = o.rows;
 	if (typeof o.gap === 'number') c.gap = o.gap;
 	if (isPad(o.pad)) c.pad = o.pad as Pad;
 	if (isPad(o.margin)) c.margin = o.margin as Pad;
 	if (isAlign(o.align)) c.align = o.align as Align;
 	if (isJustify(o.justify)) c.justify = o.justify as Justify;
 	if (isRect(o.bounds)) c.bounds = o.bounds as Container['bounds'];
+	if (typeof o.overlap === 'boolean') c.overlap = o.overlap;
+	// Grid cell sizing + per-track weights — these MUST be whitelisted or a saved grid silently loses
+	// its non-uniform sizing on reload (the whitelist is the persistence contract; see parseLeaf).
+	if (typeof o.cellW === 'number') c.cellW = o.cellW;
+	if (typeof o.cellH === 'number') c.cellH = o.cellH;
+	if (typeof o.aspect === 'number') c.aspect = o.aspect;
+	if (isNumberArray(o.colFr)) c.colFr = o.colFr;
+	if (isNumberArray(o.rowFr)) c.rowFr = o.rowFr;
+	const condition = parseCondition(o.condition);
+	if (condition) c.condition = condition;
 	return c;
+}
+
+/** A finite-number array (grid track weights colFr/rowFr). */
+function isNumberArray(v: unknown): v is number[] {
+	return Array.isArray(v) && v.every((n) => typeof n === 'number' && Number.isFinite(n));
 }
 
 function parseNode(raw: unknown): LayoutNode | null {

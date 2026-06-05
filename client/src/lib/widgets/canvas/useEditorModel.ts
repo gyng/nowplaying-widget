@@ -21,6 +21,7 @@ import {
 	leaf,
 	type AlignH,
 	type AlignV,
+	type BackgroundSpec,
 	type Container,
 	type Group,
 	type Leaf,
@@ -44,7 +45,7 @@ import {
 	updateNode
 } from '../../core/layoutEdit';
 import { intrinsicSize, type Solved } from '../../core/solve';
-import { getTemplate } from '../../core/templates';
+import { getTemplate, resolveTemplateOptions } from '../../core/templates';
 import type { LayoutOp } from '../ops';
 import { dropPlacement } from './dropPlacement';
 import { clampTreeSpacing } from './spacingGuard';
@@ -498,11 +499,17 @@ function insertWidget(s: EditorState, defId: string): Patch {
 // independent and the library isn't cluttered (resolveGroup renders the inline child when there's no
 // def; the user can "Make widget" later to promote it). Docks into the selected container, else the
 // flow root — mirrors insertWidget minus the library lookup.
-function insertTemplate(s: EditorState, templateId: string): Patch {
+function insertTemplate(
+	s: EditorState,
+	templateId: string,
+	options?: Record<string, string>
+): Patch {
 	const t = getTemplate(templateId);
 	if (!t) return {};
 	const grpId = `grp-${rand()}`;
-	const g = group(grpId, t.size, freshIds(t.tree()), { name: t.name });
+	const g = group(grpId, t.size, freshIds(t.tree(resolveTemplateOptions(t, options))), {
+		name: t.name
+	});
 	const target = currentContainer(s)?.id ?? s.monitor.root.id;
 	return {
 		monitor: { ...s.monitor, root: insertChild(s.monitor.root, target, leaf(g)) },
@@ -615,6 +622,46 @@ function setToken(s: EditorState, key: string, value: string): Patch {
 	if (value) next[key] = value;
 	else delete next[key];
 	return { tokenOverrides: next };
+}
+
+// Drop every global token override in one op (the panel's "Clear overrides" button). Returns an
+// empty patch when there's nothing to clear so it doesn't push a no-op entry onto the undo history.
+function clearTokens(s: EditorState): Patch {
+	return Object.keys(s.tokenOverrides).length ? { tokenOverrides: {} } : {};
+}
+
+// Set (or clear, when spec is undefined) the current monitor's full-screen background layer. Lives on
+// the monitor so it persists in widgets.json and rides the same commit/undo path as any layout edit.
+function setBackground(s: EditorState, spec: BackgroundSpec | undefined): Patch {
+	if (!spec && !s.monitor.background) return {}; // clearing an already-empty background: no-op
+	const monitor = { ...s.monitor };
+	if (spec) monitor.background = spec;
+	else delete monitor.background;
+	return { monitor };
+}
+
+// Per-widget token override (the Inspector's "Override theme for this widget"): merge `key`→`value`
+// into the selected unit's own `tokens` (delete the key when value is empty; drop the whole object
+// when it empties out). Works on a primitive widget OR a group, in the flow tree or the floating
+// layer — routed through the existing patchUnit/patchGroup so it rides the same commit/undo path.
+function setWidgetToken(s: EditorState, id: string, key: string, value: string): Patch {
+	const node = lookup(id, s.monitor);
+	if (!node || !isLeaf(node)) return {};
+	const cur = node.unit.tokens ?? {};
+	const next: Record<string, string> = { ...cur };
+	if (value) next[key] = value;
+	else delete next[key];
+	const tokens = Object.keys(next).length ? next : undefined;
+	return isGroup(node.unit) ? patchGroup(s, id, { tokens }) : patchUnit(s, id, { tokens });
+}
+
+// Drop ALL of a widget's/group's per-widget token overrides at once (the Inspector "Clear" button).
+function clearWidgetTokens(s: EditorState, id: string): Patch {
+	const node = lookup(id, s.monitor);
+	if (!node || !isLeaf(node) || !node.unit.tokens) return {};
+	return isGroup(node.unit)
+		? patchGroup(s, id, { tokens: undefined })
+		: patchUnit(s, id, { tokens: undefined });
 }
 
 function patchFloating(s: EditorState, id: string, patch: Partial<WidgetInstance>): Patch {
@@ -906,10 +953,15 @@ function freshIds(node: LayoutNode): LayoutNode {
 // Build a fresh WidgetDef from a template id: the template's flow TREE becomes the def child (ids
 // remapped), at the template's declared size. Shared by newFromTemplate (clone into the library) and
 // previewTemplate (read-only preview, not stored).
-function templateDef(templateId: string): WidgetDef | null {
+function templateDef(templateId: string, options?: Record<string, string>): WidgetDef | null {
 	const t = getTemplate(templateId);
 	if (!t) return null;
-	return { id: `def-${rand()}`, name: t.name, size: t.size, child: freshIds(t.tree()) };
+	return {
+		id: `def-${rand()}`,
+		name: t.name,
+		size: t.size,
+		child: freshIds(t.tree(resolveTemplateOptions(t, options)))
+	};
 }
 
 function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
@@ -1272,7 +1324,7 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					commitOp((s) => insertWidget(s, op.defId));
 					return;
 				case 'insertTemplate':
-					commitOp((s) => insertTemplate(s, op.templateId));
+					commitOp((s) => insertTemplate(s, op.templateId, op.options));
 					return;
 				case 'renameDef':
 					commitOp((s) => renameDef(s, op.defId, op.name));
@@ -1300,6 +1352,18 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					return;
 				case 'setToken':
 					commitOp((s) => setToken(s, op.key, op.value));
+					return;
+				case 'clearTokens':
+					commitOp((s) => clearTokens(s));
+					return;
+				case 'setBackground':
+					commitOp((s) => setBackground(s, op.spec));
+					return;
+				case 'setWidgetToken':
+					commitOp((s) => setWidgetToken(s, op.id, op.key, op.value));
+					return;
+				case 'clearWidgetTokens':
+					commitOp((s) => clearWidgetTokens(s, op.id));
 					return;
 				case 'patchWidget':
 					commitOp((s) => patchUnit(s, op.id, op.patch));
@@ -1374,5 +1438,7 @@ export {
 	defInUse,
 	bulkPatchConfig,
 	bulkSetBasis,
+	setWidgetToken,
+	clearWidgetTokens,
 	DEFAULT_MONITOR
 };

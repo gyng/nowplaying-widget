@@ -9,6 +9,7 @@ describe('studio nav SECTIONS', () => {
 			'sensors',
 			'plugins',
 			'themes',
+			'background',
 			'sacks',
 			'saved-layouts',
 			'settings'

@@ -7,7 +7,14 @@
 import { useEffect, useState } from 'react';
 import { heapUsedFraction, mergeReport, pruneStale, type WindowDiag } from '../core/diagnostics';
 import { formatBytes } from '../core/format';
-import { listenDiagReports, requestDiagnostics, sendDiagCommand } from '../diag';
+import { formatDuration } from '../core/timer';
+import {
+	getProcessDiagnostics,
+	listenDiagReports,
+	requestDiagnostics,
+	sendDiagCommand,
+	type ProcessDiag
+} from '../diag';
 import './DiagnosticsPanel.css';
 
 const POLL_MS = 1500;
@@ -16,6 +23,8 @@ const STALE_MS = 6000;
 
 export default function DiagnosticsPanel() {
 	const [reports, setReports] = useState<Record<string, WindowDiag>>({});
+	// The native (Rust host) process's CPU% + memory — polled by command, not the per-window bridge.
+	const [proc, setProc] = useState<ProcessDiag | null>(null);
 	// Local mirror of the click-through toggle we last sent each overlay (the overlay owns the truth;
 	// this just reflects the control state).
 	const [interactive, setInteractive] = useState<Record<string, boolean>>({});
@@ -28,8 +37,18 @@ export default function DiagnosticsPanel() {
 			// the reporter's `at` isn't comparable across windows; the studio clock makes pruning valid.
 			setReports((prev) => mergeReport(prev, { ...r, at: performance.now() }));
 		});
+		// Poll the native process alongside the per-window heap poll (CPU% needs the repeated call to
+		// build a delta, so the first tick reads ~0 and settles after one interval).
+		const pollProc = () =>
+			void getProcessDiagnostics().then((p) => {
+				if (alive && p) setProc(p);
+			});
 		requestDiagnostics();
-		const poll = window.setInterval(requestDiagnostics, POLL_MS);
+		pollProc();
+		const poll = window.setInterval(() => {
+			requestDiagnostics();
+			pollProc();
+		}, POLL_MS);
 		const prune = window.setInterval(
 			() => setReports((prev) => pruneStale(prev, performance.now(), STALE_MS)),
 			POLL_MS
@@ -51,6 +70,30 @@ export default function DiagnosticsPanel() {
 
 	return (
 		<div className="diag">
+			{proc && (
+				<div className="diag-win diag-proc">
+					<div className="diag-win-hd">
+						<span className="diag-label">native process</span>
+						<span className="dim">
+							Rust host · pid {proc.pid} · {proc.cpus} cpus
+						</span>
+					</div>
+					<div className="diag-stats">
+						<span title="Host-process CPU as a % of the whole machine (WebView2 renderers are separate processes — their JS heap is the rows below)">
+							cpu {proc.cpuPercent.toFixed(1)}%
+						</span>
+						<span title="Resident set size (physical memory) of the Rust host process">
+							rss {formatBytes(proc.memBytes)}
+						</span>
+						<span title="Virtual memory size of the host process">
+							virt {formatBytes(proc.virtualBytes)}
+						</span>
+						<span title="How long the host process has been running">
+							up {formatDuration(proc.uptimeSecs)}
+						</span>
+					</div>
+				</div>
+			)}
 			{rows.length === 0 ? (
 				<div className="rp-stub">Polling windows…</div>
 			) : (

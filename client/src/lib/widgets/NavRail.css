@@ -11,8 +11,8 @@
 	display: flex;
 	flex-direction: column;
 	padding: 4px 0;
-	background: rgba(8, 8, 10, 0.96);
-	border-right: 1px solid rgba(119, 196, 211, 0.5);
+	background: var(--ui-surface);
+	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	z-index: 6;
 	pointer-events: auto;
 }
@@ -31,7 +31,7 @@
 	border: none;
 	border-left: 2px solid transparent;
 	background: transparent;
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	font-family: monospace;
 	cursor: pointer;
 	/* The active-section indicator slides in (border) and the hover tint eases, so switching sections
@@ -42,20 +42,20 @@
 }
 
 .canvas .nav-rail .nav-item:hover {
-	color: #eee;
-	background: rgba(119, 196, 211, 0.1);
+	color: var(--ui-fg);
+	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
 .canvas .nav-rail .nav-item.active {
-	color: rgb(150, 214, 228);
-	background: rgba(119, 196, 211, 0.16);
-	border-left-color: rgb(119, 196, 211);
+	color: var(--ui-accent-fg);
+	background: rgba(var(--ui-accent-rgb), 0.16);
+	border-left-color: rgb(var(--ui-accent-rgb));
 }
 
 /* Inset the keyboard-focus ring on the flush full-width rail items (the global offset:1px baseline
    would clip against the rail edge). */
 .canvas .nav-rail .nav-item:focus-visible {
-	outline: 2px solid rgb(150, 214, 228);
+	outline: 2px solid var(--ui-accent-fg);
 	outline-offset: -2px;
 }
 
@@ -82,8 +82,8 @@
 	box-sizing: border-box;
 	overflow-y: auto;
 	padding: 12px 16px;
-	background: #0b0b0e;
-	color: #eee;
+	background: var(--ui-bg);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 12px;
 	z-index: 7;
@@ -136,9 +136,9 @@
 	box-sizing: border-box;
 	overflow-y: auto;
 	padding: 6px;
-	background: rgba(10, 10, 12, 0.92);
-	border-right: 1px solid rgba(119, 196, 211, 0.5);
-	color: #eee;
+	background: var(--ui-surface);
+	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	z-index: 6;
@@ -149,16 +149,16 @@
 	width: 100%;
 	margin-bottom: 6px;
 	padding: 5px;
-	background: rgba(119, 196, 211, 0.16);
-	border: 1px solid rgba(119, 196, 211, 0.6);
-	color: rgb(170, 230, 240);
+	background: rgba(var(--ui-accent-rgb), 0.16);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.6);
+	color: var(--ui-accent-fg);
 	font-family: monospace;
 	font-size: 12px;
 	cursor: pointer;
 }
 
 .canvas .designer-list .dl-new:hover {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 /* Secondary action: copy the generated widget reference (agent handoff). */
@@ -166,21 +166,21 @@
 	width: 100%;
 	margin-bottom: 8px;
 	padding: 4px;
-	background: #1a1a1e;
-	border: 1px solid #444;
-	color: #ccc;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg-muted);
 	font-family: monospace;
 	font-size: 11px;
 	cursor: pointer;
 }
 
 .canvas .designer-list .dl-ref:hover {
-	border-color: rgb(119, 196, 211);
-	color: rgb(150, 214, 228);
+	border-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-accent-fg);
 }
 
 .canvas .designer-list .rp-hd {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	margin: 8px 0 3px;
@@ -199,8 +199,8 @@
 }
 
 .canvas .designer-list .dl-item.cur {
-	background: rgba(119, 196, 211, 0.18);
-	outline: 1px solid rgba(119, 196, 211, 0.6);
+	background: rgba(var(--ui-accent-rgb), 0.18);
+	outline: 1px solid rgba(var(--ui-accent-rgb), 0.6);
 }
 
 .canvas .designer-list .dl-label {
@@ -212,7 +212,7 @@
 	text-align: left;
 	border: none;
 	background: transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 3px 4px;
@@ -220,14 +220,14 @@
 }
 
 .canvas .designer-list .dl-label:hover {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .designer-list .dl-icon {
 	flex-shrink: 0;
 	border: none;
 	background: transparent;
-	color: #888;
+	color: var(--ui-fg-dim);
 	padding: 3px 6px;
 	cursor: pointer;
 	/* Reveal on hover/selection/focus (mirrors the Outline's .mv treatment) so the resting row stays
@@ -245,7 +245,7 @@
 }
 
 .canvas .designer-list .dl-icon:hover:not(:disabled) {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .designer-list .dl-icon:disabled {
@@ -254,7 +254,7 @@
 }
 
 .canvas .designer-list .dl-del:hover:not(:disabled) {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .designer-list .rp-stub {
@@ -262,7 +262,9 @@
 	padding: 4px 2px;
 }
 
-/* The editor placeholder shown until a widget is opened (covers the stage + inspector area). */
+/* The editor placeholder shown until a widget is opened (covers the stage + inspector area). Stacks a
+   heading above the hint (column), both centred — without flex-direction:column the two children laid
+   out as a ROW, putting the title beside the paragraph. */
 .canvas .designer-empty {
 	position: fixed;
 	top: var(--bar-h, 36px);
@@ -270,15 +272,25 @@
 	right: 0;
 	bottom: var(--bar-b, 0);
 	display: flex;
+	flex-direction: column;
 	align-items: center;
 	justify-content: center;
+	gap: 10px;
 	padding: 16px;
-	background: #0b0b0e;
+	background: var(--ui-bg);
 	color: var(--dim-fg);
 	font-family: monospace;
 	font-size: 12px;
 	z-index: 5;
 	pointer-events: auto;
+}
+
+/* The heading above the hint — mirrors the .rp-hd section-header vocabulary (accent + uppercase). */
+.canvas .designer-empty .de-title {
+	color: rgb(var(--ui-accent-rgb));
+	font-size: 14px;
+	text-transform: uppercase;
+	letter-spacing: 1px;
 }
 
 .canvas .designer-empty .de-hint {
@@ -288,7 +300,7 @@
 }
 
 .canvas .rail-panel .rp-hd {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	margin: 2px 0 4px;
@@ -296,14 +308,14 @@
 
 .canvas .rail-panel .rp-hd:not(:first-child) {
 	margin-top: 10px;
-	border-top: 1px solid #333;
+	border-top: 1px solid var(--ui-border);
 	padding-top: 6px;
 }
 
 .canvas .rail-panel button {
-	background: #1a1a1e;
-	border: 1px solid #444;
-	color: #eee;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 6px;
@@ -312,23 +324,23 @@
 }
 
 .canvas .rail-panel button:hover {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .rail-panel button.rp-danger {
-	border-color: rgba(220, 120, 120, 0.5);
-	color: rgb(230, 160, 160);
+	border-color: rgba(var(--ui-danger-rgb), 0.5);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .rail-panel button.rp-danger:hover {
-	border-color: rgb(220, 120, 120);
+	border-color: rgb(var(--ui-danger-rgb));
 }
 
 .canvas .rail-panel select {
 	width: 100%;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 4px;
@@ -341,15 +353,15 @@
 	flex-direction: column;
 	gap: 2px;
 	margin-bottom: 6px;
-	color: #bbb;
+	color: var(--ui-fg-muted);
 }
 
 .canvas .rail-panel .tk-field input {
 	width: 100%;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 4px;
@@ -357,7 +369,160 @@
 
 .canvas .rail-panel .tk-field input:focus {
 	outline: none;
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
+}
+
+/* A token value that isn't a valid CSS colour (a typo) — flag it instead of silently falling back. */
+.canvas .rail-panel .tk-field input[aria-invalid='true'] {
+	border-color: rgb(var(--ui-danger-rgb));
+}
+
+/* "Clear N overrides" — a quiet, full-width reset under the token fields; only shown when overrides
+   exist, so the global-and-persistent token state is both discoverable and undoable. */
+.canvas .rail-panel button.tk-clear {
+	width: 100%;
+	margin-top: 2px;
+	background: transparent;
+	border: 1px solid var(--ui-border-strong);
+	color: var(--dim-fg);
+	border-radius: 3px;
+	padding: 4px 6px;
+	cursor: pointer;
+	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .rail-panel button.tk-clear:hover {
+	border-color: rgb(var(--ui-danger-rgb));
+	color: var(--ui-danger-fg);
+}
+
+/* --- Background (wallpaper) section ------------------------------------------------------------- */
+.canvas .rail-panel.bg-panel .bg-field {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 6px 0;
+	color: #bbb;
+}
+
+.canvas .rail-panel.bg-panel .bg-field > span {
+	flex: 0 0 auto;
+}
+
+.canvas .rail-panel.bg-panel .bg-field select,
+.canvas .rail-panel.bg-panel .bg-field input[type='text'] {
+	flex: 1 1 0;
+	min-width: 0;
+	background: var(--ui-raised, #1a1a1e);
+	color: var(--ui-fg, #eee);
+	border: 1px solid var(--ui-border-strong, #333);
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 4px;
+}
+
+.canvas .rail-panel.bg-panel .bg-field input[type='color'] {
+	flex: 0 0 auto;
+	width: 40px;
+	height: 22px;
+	padding: 0;
+	background: transparent;
+	border: 1px solid var(--ui-border-strong, #333);
+	cursor: pointer;
+}
+
+.canvas .rail-panel.bg-panel .bg-range {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 2px;
+}
+
+.canvas .rail-panel.bg-panel .bg-range input[type='range'] {
+	width: 100%;
+}
+
+/* The wallpapers/ file picker: a header row (label + refresh/folder ops) over a list of files. */
+.canvas .rail-panel.bg-panel .bg-files-hd {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 8px;
+}
+
+.canvas .rail-panel.bg-panel .rp-sub {
+	color: var(--dim-fg);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	font-size: 10px;
+}
+
+.canvas .rail-panel.bg-panel .bg-files-ops {
+	display: flex;
+	gap: 4px;
+}
+
+.canvas .rail-panel.bg-panel .bg-files {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin: 4px 0;
+}
+
+.canvas .rail-panel.bg-panel .bg-file {
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	background: var(--ui-raised, #1a1a1e);
+	border: 1px solid var(--ui-border-strong, #333);
+	color: var(--ui-fg, #eee);
+	font-family: monospace;
+	font-size: 11px;
+	padding: 3px 6px;
+	cursor: pointer;
+}
+
+.canvas .rail-panel.bg-panel .bg-file:hover {
+	border-color: rgb(var(--ui-accent-rgb));
+}
+
+.canvas .rail-panel.bg-panel .bg-file.cur {
+	border-color: rgb(var(--ui-accent-rgb));
+	background: rgba(var(--ui-accent-rgb), 0.16);
+	color: #fff;
+}
+
+.canvas .rail-panel.bg-panel .bg-checks {
+	display: flex;
+	gap: 12px;
+	margin: 6px 0;
+}
+
+.canvas .rail-panel.bg-panel .bg-check {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: #bbb;
+}
+
+.canvas .rail-panel.bg-panel button.bg-clear {
+	width: 100%;
+	margin-top: 8px;
+	background: transparent;
+	border: 1px solid var(--ui-border-strong, #3a3a40);
+	color: var(--dim-fg);
+	border-radius: 3px;
+	padding: 4px 6px;
+	cursor: pointer;
+	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .rail-panel.bg-panel button.bg-clear:hover {
+	border-color: rgb(var(--ui-danger-rgb));
+	color: var(--ui-danger-fg, rgb(230, 160, 160));
 }
 
 .canvas .rail-panel .rp-list {
@@ -391,7 +556,7 @@
 	justify-content: space-between;
 	gap: 6px;
 	padding: 1px 2px;
-	color: #ccc;
+	color: var(--ui-fg-muted);
 	white-space: nowrap;
 }
 
@@ -403,13 +568,13 @@
 	line-height: 1;
 }
 .canvas .rail-panel .sensor-dot.on {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 .canvas .rail-panel .sensor-dot.amb {
-	color: rgba(119, 196, 211, 0.4);
+	color: rgba(var(--ui-accent-rgb), 0.4);
 }
 .canvas .rail-panel .sensor-dot.off {
-	color: #555;
+	color: var(--ui-border-strong);
 }
 
 /* The at-a-glance summary of the above, above the list. */
@@ -427,7 +592,7 @@
 }
 .canvas .rail-panel .rp-sensor-legend .rp-count {
 	margin-left: auto;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 /* The id takes the slack and truncates with an ellipsis; the value can shrink too. Both need
@@ -457,12 +622,12 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	padding: 0 6px;
-	border: 1px solid rgba(119, 196, 211, 0.45);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.45);
 	border-radius: 999px;
 	font-size: 9px;
 	line-height: 1.5;
-	color: rgb(150, 214, 228);
-	background: rgba(119, 196, 211, 0.1);
+	color: var(--ui-accent-fg);
+	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
 /* Theme picker: a selectable list (replaces a <select>), each a full-width row; the active theme is
@@ -472,6 +637,16 @@
 	flex-direction: column;
 	gap: 2px;
 	margin-bottom: 6px;
+}
+
+/* One picker section (a built-in group like "Dark", or "Your themes"): its .rp-hd header + .theme-list
+   rows. Tightens the header's top margin so groups read as a stack of labelled bands. */
+.canvas .rail-panel .theme-group .rp-hd {
+	margin: 8px 0 3px;
+}
+
+.canvas .rail-panel .theme-group:first-of-type .rp-hd {
+	margin-top: 2px;
 }
 
 .canvas .rail-panel button.theme-row {
@@ -484,20 +659,68 @@
 	padding: 5px 8px;
 	text-align: left;
 	white-space: nowrap;
-	background: #141417;
-	border: 1px solid #2a2a30;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border);
 	border-radius: 3px;
-	color: #ddd;
+	color: var(--ui-fg);
 }
 
 .canvas .rail-panel button.theme-row:hover {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .rail-panel button.theme-row.active {
-	border-color: rgb(119, 196, 211);
-	background: rgba(119, 196, 211, 0.12);
-	color: #fff;
+	border-color: rgb(var(--ui-accent-rgb));
+	background: rgba(var(--ui-accent-rgb), 0.12);
+	color: var(--ui-fg);
+}
+
+/* A theme row + its per-theme action icons (✎ edit raw CSS · ⎘ duplicate · ✕ delete), mirroring the
+   widget-designer list's dl-item/dl-icon treatment: the icons reveal on hover/selection/focus so the
+   resting list stays clean and the destructive ✕ isn't a live target at rest — but they stay in the
+   DOM + tab order for keyboard reach. */
+.canvas .rail-panel .theme-item {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.canvas .rail-panel .theme-item button.theme-row {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
+}
+
+.canvas .rail-panel .theme-acts {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 0;
+}
+
+.canvas .rail-panel .theme-item .dl-icon {
+	flex-shrink: 0;
+	border: none;
+	background: transparent;
+	color: var(--ui-fg-dim);
+	padding: 3px 6px;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .rail-panel .theme-item:hover .dl-icon,
+.canvas .rail-panel .theme-item.cur .dl-icon,
+.canvas .rail-panel .theme-item:focus-within .dl-icon {
+	opacity: 1;
+}
+
+.canvas .rail-panel .theme-item .dl-icon:hover {
+	color: rgb(var(--ui-accent-rgb));
+}
+
+.canvas .rail-panel .theme-item .dl-del:hover {
+	color: var(--ui-danger-fg);
 }
 
 /* Sensor source groups (the Sensors section): a collapsible header (caret + source name + count)
@@ -516,16 +739,16 @@
 	text-align: left;
 	background: transparent;
 	border: none;
-	border-bottom: 1px solid #2a2a30;
+	border-bottom: 1px solid var(--ui-border);
 	border-radius: 0;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	font-size: 10px;
 }
 
 .canvas .rail-panel button.rp-group-hd:hover {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .rail-panel .rp-group-caret {
@@ -552,9 +775,9 @@
 	flex: 1 1 auto;
 	min-width: 0;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #444;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border-strong);
 	border-radius: 3px;
 	padding: 4px 8px;
 	font-family: monospace;
@@ -563,7 +786,7 @@
 
 .canvas .rail-panel .rp-filter input:focus {
 	outline: none;
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .rail-panel .rp-count {
@@ -589,7 +812,7 @@
 	box-sizing: border-box;
 	overflow-y: auto;
 	padding: 12px 10px;
-	border-right: 1px solid rgba(119, 196, 211, 0.5);
+	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 }
 
 .canvas .plugins-panel .pl-item {
@@ -601,20 +824,20 @@
 	background: transparent;
 	border: none;
 	border-left: 2px solid transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 12px;
 	cursor: pointer;
 }
 
 .canvas .plugins-panel .pl-item:hover {
-	background: rgba(119, 196, 211, 0.1);
+	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
 .canvas .plugins-panel .pl-item.cur {
-	background: rgba(119, 196, 211, 0.16);
-	border-left-color: rgb(119, 196, 211);
-	color: rgb(150, 214, 228);
+	background: rgba(var(--ui-accent-rgb), 0.16);
+	border-left-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .pl-detail {
@@ -631,11 +854,11 @@
 
 .canvas .plugins-panel .pl-title {
 	font-size: 14px;
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .pl-desc {
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	margin: 2px 0 6px;
 	max-width: 560px;
 	line-height: 1.5;
@@ -649,22 +872,39 @@
 }
 
 .canvas .settings-panel .pl-item.set-danger {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .settings-panel .pl-item.set-danger.cur {
-	border-left-color: rgb(220, 120, 120);
-	background: rgba(220, 120, 120, 0.14);
-	color: rgb(240, 180, 180);
+	border-left-color: rgb(var(--ui-danger-rgb));
+	background: rgba(var(--ui-danger-rgb), 0.14);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .settings-panel .pl-title.set-danger-title {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .settings-panel .set-repo {
-	color: #ccc;
+	color: var(--ui-fg-muted);
 	word-break: break-all;
+}
+
+/* About: the mascot sits beside the product name as a friendly masthead. */
+.canvas .settings-panel .about-hd {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 4px;
+}
+
+.canvas .settings-panel .about-mascot {
+	flex: 0 0 auto;
+	width: 88px;
+	height: 88px;
+	object-fit: contain;
+	/* The art is drawn for a light ground; a soft halo lifts it off the dark About pane. */
+	filter: drop-shadow(0 1px 4px var(--ui-scrim));
 }
 
 /* Now Playing settings (rendered inside .pl-detail). */
@@ -673,21 +913,21 @@
 }
 
 .canvas .plugins-panel .nps-help {
-	color: #999;
+	color: var(--ui-fg-dim);
 	margin: 0 0 4px;
 	line-height: 1.5;
 }
 
 .canvas .plugins-panel .nps-help code {
-	color: #bbb;
+	color: var(--ui-fg-muted);
 }
 
 .canvas .plugins-panel .nps-area {
 	width: 100%;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 12px;
 	padding: 4px 6px;
@@ -695,12 +935,12 @@
 }
 
 .canvas .plugins-panel .nps-cur {
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	margin-bottom: 4px;
 }
 
 .canvas .plugins-panel .nps-cur span {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .nps-sources {
@@ -721,7 +961,7 @@
 }
 
 .canvas .plugins-panel .nps-source:hover {
-	background: rgba(119, 196, 211, 0.06);
+	background: rgba(var(--ui-accent-rgb), 0.06);
 }
 
 .canvas .plugins-panel .nps-source.off {
@@ -729,7 +969,7 @@
 }
 
 .canvas .plugins-panel .nps-source.off .nps-src-id {
-	color: #777;
+	color: var(--ui-fg-dim);
 	text-decoration: line-through;
 }
 
@@ -739,14 +979,14 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: #ccc;
+	color: var(--ui-fg-muted);
 }
 
 .canvas .plugins-panel .nps-add {
 	flex-shrink: 0;
-	background: #1a1a1e;
-	border: 1px solid #444;
-	color: #ccc;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg-muted);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 1px 6px;
@@ -754,11 +994,11 @@
 }
 
 .canvas .plugins-panel .nps-add:hover:not(:disabled) {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .nps-add:active:not(:disabled) {
-	background: rgba(119, 196, 211, 0.12);
+	background: rgba(var(--ui-accent-rgb), 0.12);
 }
 
 .canvas .plugins-panel .nps-add:disabled {
@@ -768,35 +1008,35 @@
 
 /* Block (ignore) action reads as muted-destructive; promote (priority) keeps the default look. */
 .canvas .plugins-panel .nps-add.nps-ignore {
-	border-color: rgba(200, 120, 120, 0.4);
-	color: #c99;
+	border-color: rgba(var(--ui-danger-rgb), 0.4);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .plugins-panel .nps-add.nps-ignore:hover:not(:disabled) {
-	border-color: rgba(200, 120, 120, 0.7);
+	border-color: rgba(var(--ui-danger-rgb), 0.7);
 }
 
 /* The active source's badge in the detected list. */
 .canvas .plugins-panel .nps-badge-now {
 	flex: 0 0 auto;
-	background: rgba(119, 196, 211, 0.2);
-	border: 1px solid rgba(119, 196, 211, 0.5);
+	background: rgba(var(--ui-accent-rgb), 0.2);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	border-radius: 2px;
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 	font-size: 9px;
 	padding: 0 3px;
 }
 
 /* The Reset button, armed (awaiting the confirming second click). */
 .canvas .plugins-panel .rp-danger.nps-armed {
-	border-color: rgb(220, 120, 120);
-	color: rgb(240, 170, 170);
+	border-color: rgb(var(--ui-danger-rgb));
+	color: var(--ui-danger-fg);
 }
 
 /* The read-only "live session" region, set off from the editable settings above. */
 .canvas .plugins-panel .nps-live {
 	margin-top: 10px;
-	border-top: 1px solid rgba(119, 196, 211, 0.35);
+	border-top: 1px solid rgba(var(--ui-accent-rgb), 0.35);
 	padding-top: 2px;
 }
 
@@ -817,9 +1057,9 @@
 
 .canvas .plugins-panel .nps-sensor-id {
 	flex: 0 0 auto;
-	background: #1a1a1e;
+	background: var(--ui-raised);
 	border-radius: 2px;
-	color: #ccc;
+	color: var(--ui-fg-muted);
 	padding: 1px 5px;
 }
 
@@ -830,7 +1070,7 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	text-align: right;
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .nps-copy {
@@ -838,13 +1078,13 @@
 	margin: 0;
 	background: transparent;
 	border: none;
-	color: #888;
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 	padding: 0 4px;
 }
 
 .canvas .plugins-panel .nps-copy:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 /* Supported-controls grid: ✓/✗ per transport capability of the active session. */
@@ -855,11 +1095,11 @@
 }
 
 .canvas .plugins-panel .nps-cap {
-	color: #777;
+	color: var(--ui-fg-dim);
 }
 
 .canvas .plugins-panel .nps-cap.yes {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 /* Screen-reader-only text (e.g. the "(ignored)" prefix), visually hidden but in the a11y tree. */
@@ -891,17 +1131,17 @@
 	gap: 4px;
 	padding: 2px 4px;
 	background: rgba(255, 255, 255, 0.03);
-	border: 1px solid #2a2a30;
+	border: 1px solid var(--ui-border);
 	border-radius: 2px;
 }
 
 .canvas .plugins-panel .nps-entry:hover {
-	border-color: #3a3a42;
+	border-color: var(--ui-border-strong);
 }
 
 .canvas .plugins-panel .nps-grip {
 	flex: 0 0 auto;
-	color: #666;
+	color: var(--ui-fg-dim);
 	cursor: grab;
 	letter-spacing: -2px;
 }
@@ -912,7 +1152,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: #ddd;
+	color: var(--ui-fg);
 }
 
 /* Liveness dot: filled accent when the entry's process is running, hollow grey otherwise. */
@@ -921,12 +1161,12 @@
 	width: 7px;
 	height: 7px;
 	border-radius: 50%;
-	border: 1px solid #555;
+	border: 1px solid var(--ui-border-strong);
 }
 
 .canvas .plugins-panel .nps-dot.on {
-	background: rgb(119, 196, 211);
-	border-color: rgb(119, 196, 211);
+	background: rgb(var(--ui-accent-rgb));
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .nps-mini {
@@ -935,12 +1175,12 @@
 	padding: 0 4px;
 	background: transparent;
 	border: none;
-	color: #999;
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 }
 
 .canvas .plugins-panel .nps-mini:hover:not(:disabled) {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .nps-mini:disabled {
@@ -949,7 +1189,7 @@
 }
 
 .canvas .plugins-panel .nps-mini.nps-x:hover:not(:disabled) {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 /* Collapsed raw-text fallback (a process that isn't running can't be quick-added, so edit by hand). */
@@ -958,14 +1198,14 @@
 }
 
 .canvas .plugins-panel .nps-raw > summary {
-	color: #999;
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 	padding: 2px 0;
 	user-select: none;
 }
 
 .canvas .plugins-panel .nps-raw > summary:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .nps-raw .nps-area {
@@ -986,15 +1226,15 @@
 
 .canvas .plugins-panel .has-badge {
 	font-size: 11px;
-	color: #999;
+	color: var(--ui-fg-dim);
 }
 
 .canvas .plugins-panel .has-badge.ok {
-	color: rgb(140, 214, 160);
+	color: var(--ui-success-fg);
 }
 
 .canvas .plugins-panel .has-badge.busy {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 	/* Gentle pulse while a connection is in flight, so a slow/stuck connect reads differently from a
 	   settled one. Floor stays readable (0.55); the global reduced-motion reset disables it. */
 	animation: badge-pulse 1.2s var(--ease-out, ease-out) infinite;
@@ -1011,16 +1251,16 @@
 }
 
 .canvas .plugins-panel .has-badge.warn {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 .canvas .plugins-panel .has-state-dim {
-	color: #777;
+	color: var(--ui-fg-dim);
 	font-size: 11px;
 }
 
 .canvas .plugins-panel .has-help {
-	color: #999;
+	color: var(--ui-fg-dim);
 	margin: 0 0 8px;
 	line-height: 1.5;
 }
@@ -1030,15 +1270,15 @@
 	flex-direction: column;
 	gap: 2px;
 	margin-bottom: 8px;
-	color: #bbb;
+	color: var(--ui-fg-muted);
 }
 
 .canvas .plugins-panel .has-field input {
 	width: 100%;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 12px;
 	padding: 4px 6px;
@@ -1046,20 +1286,20 @@
 
 .canvas .plugins-panel .has-field input:focus {
 	outline: none;
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .has-check {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	color: #bbb;
+	color: var(--ui-fg-muted);
 	margin-bottom: 4px;
 	cursor: pointer;
 }
 
 .canvas .plugins-panel .has-warn {
-	color: rgb(220, 180, 140);
+	color: var(--ui-warn-fg);
 	line-height: 1.5;
 	margin: 0 0 8px;
 }
@@ -1069,14 +1309,14 @@
 }
 
 .canvas .plugins-panel .has-advanced > summary {
-	color: #999;
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 	padding: 2px 0;
 	user-select: none;
 }
 
 .canvas .plugins-panel .has-advanced > summary:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .has-field small.has-help {
@@ -1091,8 +1331,8 @@
 }
 
 .canvas .plugins-panel .has-actions button.has-primary {
-	border-color: rgba(119, 196, 211, 0.6);
-	color: rgb(150, 214, 228);
+	border-color: rgba(var(--ui-accent-rgb), 0.6);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .has-actions button:disabled {
@@ -1108,7 +1348,7 @@
 }
 
 .canvas .plugins-panel .has-ok {
-	color: rgb(140, 214, 160);
+	color: var(--ui-success-fg);
 	font-size: 11px;
 	/* The only save feedback in the studio with no motion otherwise — give it a gentle entrance so the
 	   tick reads as a confirmation event (it auto-dismisses from the component after ~2.5s). */
@@ -1132,11 +1372,11 @@
 }
 
 .canvas .plugins-panel .has-test.ok {
-	color: rgb(140, 214, 160);
+	color: var(--ui-success-fg);
 }
 
 .canvas .plugins-panel .has-test.err {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 /* HA entity browser: search + refresh bar, count, and the expose/copy entity rows. */
@@ -1150,9 +1390,9 @@
 .canvas .plugins-panel .has-search {
 	flex: 1;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 12px;
 	padding: 4px 6px;
@@ -1160,7 +1400,7 @@
 
 .canvas .plugins-panel .has-search:focus {
 	outline: none;
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .plugins-panel .has-browser-bar button {
@@ -1172,13 +1412,13 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
-	color: #777;
+	color: var(--ui-fg-dim);
 	margin-bottom: 4px;
 }
 
 .canvas .plugins-panel .has-group-toggle {
 	margin-bottom: 0;
-	color: #999;
+	color: var(--ui-fg-dim);
 }
 
 /* Grouped (area > device > entity) browser. */
@@ -1187,10 +1427,10 @@
 }
 
 .canvas .plugins-panel .has-area-hd {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	border-bottom: 1px solid #2a2a30;
+	border-bottom: 1px solid var(--ui-border);
 	padding: 4px 0 2px;
 	margin-bottom: 2px;
 }
@@ -1200,7 +1440,7 @@
 }
 
 .canvas .plugins-panel .has-device-hd {
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	padding: 1px 0;
 }
 
@@ -1222,7 +1462,7 @@
 }
 
 .canvas .plugins-panel .has-entity:hover {
-	background: rgba(119, 196, 211, 0.06);
+	background: rgba(var(--ui-accent-rgb), 0.06);
 }
 
 .canvas .plugins-panel .has-entity-expose {
@@ -1238,7 +1478,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: #ddd;
+	color: var(--ui-fg);
 }
 
 .canvas .plugins-panel .has-entity-id {
@@ -1247,7 +1487,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: #888;
+	color: var(--ui-fg-dim);
 }
 
 .canvas .plugins-panel .has-entity-state {
@@ -1257,7 +1497,7 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	text-align: right;
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .has-copy {
@@ -1265,11 +1505,11 @@
 	margin: 0;
 	background: transparent;
 	border: none;
-	color: #888;
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 	padding: 0 4px;
 }
 
 .canvas .plugins-panel .has-copy:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }

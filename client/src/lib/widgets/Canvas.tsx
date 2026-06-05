@@ -54,7 +54,18 @@ import {
 	type Splitter
 } from '../core/solve';
 import { assembleStyles } from '../core/style';
-import { DEFAULT_TOKENS, firstFontFamily, tokensToCss } from '../core/tokens';
+import {
+	DEFAULT_SWATCH,
+	extractFontFamilies,
+	parseTokens,
+	swatchFromTokens,
+	tokensToCss,
+	type Swatch
+} from '../core/tokens';
+import { scanCssThreats, threatSummary } from '../core/cssThreats';
+import { BACKGROUND_FITS, BACKGROUND_KINDS, isMediaKind } from '../core/background';
+import type { BackgroundKind, BackgroundSpec } from '../core/layoutTree';
+import BackgroundLayer from './BackgroundLayer';
 import { TEMPLATES } from '../core/templates';
 import {
 	dropTarget,
@@ -68,12 +79,16 @@ import {
 } from '../core/layoutEdit';
 import WidgetHost from './WidgetHost';
 import FlowNode, { type RenderLeaf } from './FlowNode';
+import { startWindowSource } from '../windows/source';
+import { collectConditions } from './canvas/conditionVisibility';
+import { useConditionHidden } from './canvas/useConditionHidden';
 import GroupFrame from './GroupFrame';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
 import { useOverlayPrefs, type OverlayLayer } from './canvas/overlayPrefs';
 import { screenRectToLayout } from '../core/measureMath';
 import Inspector from './Inspector';
-import { TOKEN_FIELDS } from './themeTokens';
+import ThemePreview from './ThemePreview';
+import TokenFields from './TokenFields';
 import ControlsPanel from './ControlsPanel';
 import Outline from './Outline';
 import NavRail from './NavRail';
@@ -100,7 +115,12 @@ import {
 	setAutostart,
 	listThemes,
 	loadThemeCss,
+	resolveThemeCss,
 	saveThemeCss,
+	deleteThemeCss,
+	listWallpapers,
+	wallpaperAssetUrl,
+	openWallpapersDir,
 	listSacks,
 	readSack,
 	listLayouts,
@@ -111,6 +131,9 @@ import {
 	monitorParam,
 	monitorWorkArea,
 	openDevtools,
+	minimizeWindow,
+	toggleMaximizeWindow,
+	closeWindow,
 	onStudioCloseRequested,
 	reconcileOverlays,
 	setClickThrough,
@@ -149,10 +172,18 @@ import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
 import { usePaneSizes } from './canvas/usePaneSizes';
 import MultiInspector from './MultiInspector';
 import { RAIL_ORDER, type SectionId } from './canvas/studioSections';
+import {
+	BUILTIN_THEMES,
+	builtinGroups,
+	builtinById,
+	builtinIdOf,
+	builtinName
+} from '../core/builtinThemes';
 import { mergeLibrary, packSack, unpackSack } from '../core/sack';
 import { packLayout, unpackLayout } from '../core/savedLayout';
 import { useStudioInit } from './canvas/useStudioInit';
 import type { EditorState, Extra, MonitorOption } from './canvas/types';
+import mascotUrl from '../../assets/mascot.png';
 import './Canvas.css';
 
 type Props = { studio?: boolean };
@@ -371,6 +402,9 @@ export default function Canvas({ studio = false }: Props) {
 	// Theme css + list (the CSS is a side-effect of selectedTheme; held in component state).
 	const [themeCss, setThemeCss] = useState('');
 	const [themeList, setThemeList] = useState<string[]>([]);
+	// Per-USER-theme {bg,accent,fg} swatch for the picker + app-bar dropdown (built-ins carry their own).
+	// Parsed from each theme's CSS by the effect below; absent until then → a neutral swatch chip.
+	const [userThemeSwatches, setUserThemeSwatches] = useState<Record<string, Swatch>>({});
 
 	// Edit mode (tray "Edit layout" / Ctrl+E). Entering disables click-through.
 	const [editMode, setEditMode] = useState(false);
@@ -472,6 +506,21 @@ export default function Canvas({ studio = false }: Props) {
 	// A read-only template preview reuses the design canvas but locks editing (no Inspector/Outline,
 	// no widget drag/menu/keyboard) until the user clones it into the library.
 	const previewing = studio && previewDef != null;
+	// --- conditional containers (show/hide a subtree at runtime) ---
+	// Apply conditions only on the PASSIVE render (not while editing/previewing, and never in the
+	// studio — there you must still see+edit hidden content). The set of hidden container ids drives
+	// visibility:hidden in FlowNode; it recomputes as the referenced sensors / open-window list change.
+	const conditionsActive = !editMode && !previewing;
+	const hiddenIds = useConditionHidden(hub, monitor.root, conditionsActive);
+	// Feed the open-window list (for appOpen conditions) only when it's actually needed.
+	const hasAppOpenCondition = useMemo(
+		() => collectConditions(monitor.root).some((c) => c.condition.kind === 'appOpen'),
+		[monitor.root]
+	);
+	useEffect(() => {
+		if (!conditionsActive || !hasAppOpenCondition) return;
+		return startWindowSource(hub);
+	}, [conditionsActive, hasAppOpenCondition, hub]);
 	// Unsaved edits to the def open in the designer (its scoped tree vs the baseline captured on entry).
 	// Drives the "save before leaving the designer?" prompt when a nav-rail icon is clicked mid-edit.
 	const defDirty = editingDefId != null && defEditBaseline != null && monitor !== defEditBaseline;
@@ -721,25 +770,74 @@ export default function Canvas({ studio = false }: Props) {
 	const styleCss = useMemo(
 		() =>
 			assembleStyles({
+				// Inject the DEFAULT_TOKENS :root base so the token vocabulary is the real runtime source
+				// of truth — meters resolve bare var(--np-*) to a defined value, and the theme + overrides
+				// (appended after) still win via the cascade.
 				themeCss: [themeCss, tokenCss].filter(Boolean).join('\n'),
 				library,
-				monitor
+				monitor,
+				includeDefaults: true
 			}),
 		[themeCss, tokenCss, library, monitor]
 	);
 
-	// Load whatever font families the body/display tokens resolve to (ensureFont is idempotent).
+	// Load every font family named ANYWHERE in the assembled stylesheet — the font tokens AND any
+	// font-family set by raw theme/def/instance CSS — so a themed font actually @font-faces instead of
+	// silently rendering as a fallback. Scans the same string that gets injected; ensureFont is
+	// idempotent, so re-scanning on each change is cheap.
 	useEffect(() => {
-		const families = new Set(
-			[
-				tokenOverrides['--np-font-display'] ?? DEFAULT_TOKENS['--np-font-display'],
-				tokenOverrides['--np-font'] ?? DEFAULT_TOKENS['--np-font']
-			]
-				.map(firstFontFamily)
-				.filter((f): f is string => !!f)
-		);
-		for (const family of families) ensureFont(family);
-	}, [tokenOverrides]);
+		for (const family of extractFontFamilies(styleCss)) ensureFont(family);
+	}, [styleCss]);
+
+	// --- background (wallpaper) layer ---------------------------------------------------------------
+	// An image/video background's `src` is a wallpapers/ filename; resolve it to an asset URL (async,
+	// cached by name). Color/web kinds use `src` verbatim. The overlay only shows a background when it
+	// sits BELOW windows (a full-bleed in top-overlay mode would cover the user's apps); the studio
+	// always previews it.
+	const bg = monitor.background;
+	const bgMediaName = bg && isMediaKind(bg.kind) ? bg.src : undefined;
+	const [wallpaperUrls, setWallpaperUrls] = useState<Record<string, string>>({});
+	useEffect(() => {
+		if (!bgMediaName || wallpaperUrls[bgMediaName]) return;
+		let cancelled = false;
+		wallpaperAssetUrl(bgMediaName).then((url) => {
+			if (!cancelled && url) setWallpaperUrls((m) => ({ ...m, [bgMediaName]: url }));
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [bgMediaName, wallpaperUrls]);
+	const resolveWallpaper = useCallback(
+		(name: string) => wallpaperUrls[name] ?? '',
+		[wallpaperUrls]
+	);
+	const showBackground = studio || overlayPrefs.overlayLayer !== 'top';
+
+	// The wallpapers/ folder contents (the Background section's image/video picker). Refreshed when
+	// the section opens — so a file dropped into the folder appears after a re-open or ↻.
+	const [wallpaperFiles, setWallpaperFiles] = useState<string[]>([]);
+	const refreshWallpapers = useCallback(() => {
+		listWallpapers().then(setWallpaperFiles);
+	}, []);
+	useEffect(() => {
+		if (studio && navSection === 'background') refreshWallpapers();
+	}, [studio, navSection, refreshWallpapers]);
+	// Merge a patch into the current background spec (creating a default 'color' base if none yet), or
+	// switch kind (which resets `src`, since a colour, a filename and a URL aren't interchangeable).
+	const patchBg = useCallback(
+		(patch: Partial<BackgroundSpec>) => {
+			const base: BackgroundSpec = bg ?? { kind: 'color' };
+			handleOp({ op: 'setBackground', spec: { ...base, ...patch } });
+		},
+		[bg, handleOp]
+	);
+	const setBgKind = useCallback(
+		(kind: BackgroundKind) => {
+			handleOp({ op: 'setBackground', spec: { kind, src: bg?.kind === kind ? bg.src : '' } });
+		},
+		[bg, handleOp]
+	);
+	const clearBg = useCallback(() => handleOp({ op: 'setBackground', spec: undefined }), [handleOp]);
 
 	// --- selection-derived state ---
 	const selectedNode = useMemo(
@@ -959,7 +1057,14 @@ export default function Canvas({ studio = false }: Props) {
 
 	// --- theme ---
 	const applyTheme = useCallback(async () => {
-		setThemeCss(await loadThemeCss(stateThemeRef.current));
+		setThemeCss(await resolveThemeCss(stateThemeRef.current));
+	}, []);
+	// Display label for a selection string: a built-in shows its catalog name, '' is the default reset,
+	// and a user theme is its bare filename. Also the basis for fork/export filenames (strip builtin:).
+	const themeLabel = useCallback((name: string): string => {
+		const id = builtinIdOf(name);
+		if (id) return builtinById(id)?.name ?? id;
+		return name || '(default)';
 	}, []);
 	// applyTheme reads the latest selectedTheme via a ref (it's called from listeners + after sets).
 	const stateThemeRef = useRef(selectedTheme);
@@ -1020,7 +1125,7 @@ export default function Canvas({ studio = false }: Props) {
 		// Apply the theme css for the new selectedTheme (side-effect), then re-baseline + reset history.
 		if (nextTheme !== null) {
 			stateThemeRef.current = nextTheme;
-			setThemeCss(await loadThemeCss(nextTheme));
+			setThemeCss(await resolveThemeCss(nextTheme));
 		}
 		dispatch({ type: 'resetHistory' });
 		dispatch({ type: 'setBaseline' });
@@ -1236,7 +1341,7 @@ export default function Canvas({ studio = false }: Props) {
 		(name: string) => {
 			dispatch({ type: 'setTheme', name });
 			stateThemeRef.current = name;
-			loadThemeCss(name).then(setThemeCss);
+			resolveThemeCss(name).then(setThemeCss);
 			// saveLayout(): theme-only change → commit (history no-op, triggers a write).
 			commitOp(() => ({}));
 		},
@@ -1248,6 +1353,9 @@ export default function Canvas({ studio = false }: Props) {
 	const [themeEditorOpen, setThemeEditorOpen] = useState(false);
 	const [themeDraft, setThemeDraft] = useState('');
 	const [themeDraftName, setThemeDraftName] = useState('');
+	// The theme whose CSS we opened in the editor ('' = a brand-new theme). Used to tell an in-place
+	// save (no surprise) from a save that would clobber a DIFFERENT existing theme (confirm first).
+	const [themeOpenedName, setThemeOpenedName] = useState('');
 	const themeNameRef = useRef<HTMLInputElement | null>(null);
 	const themeTriggerRef = useRef<HTMLElement | null>(null);
 	const themeOpenPrev = useRef(false);
@@ -1256,19 +1364,40 @@ export default function Canvas({ studio = false }: Props) {
 		else if (!themeEditorOpen && themeOpenPrev.current) themeTriggerRef.current?.focus?.();
 		themeOpenPrev.current = themeEditorOpen;
 	}, [themeEditorOpen]);
-	const openThemeEditor = useCallback(async () => {
-		themeTriggerRef.current = document.activeElement as HTMLElement;
-		setThemeDraftName(selectedTheme || 'custom');
-		setThemeDraft(
-			selectedTheme
-				? await loadThemeCss(selectedTheme)
-				: ':root {\n\t--np-accent: #77c4d3;\n\t--np-fg: #ffffff;\n}\n'
-		);
-		setThemeEditorOpen(true);
-	}, [selectedTheme]);
+	// Open the editor on a SPECIFIC theme (the per-row ✎) or, with no name, the active theme (the
+	// toolbar button) — '' falls through to a starter scaffold for a new theme.
+	const openThemeEditor = useCallback(
+		async (name?: string) => {
+			themeTriggerRef.current = document.activeElement as HTMLElement;
+			const target = name ?? selectedTheme;
+			const builtinId = builtinIdOf(target);
+			if (builtinId) {
+				// Built-ins are immutable: opening one in the editor FORKS it into a new user theme. Seed the
+				// draft from the preset's CSS under its name, and treat it as brand-new (no in-place save).
+				setThemeOpenedName('');
+				setThemeDraftName(builtinById(builtinId)?.name ?? builtinId);
+				setThemeDraft(await resolveThemeCss(target));
+			} else {
+				setThemeOpenedName(target || '');
+				setThemeDraftName(target || 'custom');
+				setThemeDraft(
+					target
+						? await loadThemeCss(target)
+						: ':root {\n\t--np-accent: #77c4d3;\n\t--np-fg: #ffffff;\n}\n'
+				);
+			}
+			setThemeEditorOpen(true);
+		},
+		[selectedTheme]
+	);
 	const saveThemeEditor = useCallback(async () => {
 		const name = themeDraftName.trim();
 		if (!name) return;
+		// Guard a destructive overwrite: saving under a name that already exists AND isn't the theme we
+		// opened in place. (Re-saving the theme you're editing under its own name is expected.)
+		if (name !== themeOpenedName && themeList.includes(name)) {
+			if (!window.confirm(`Overwrite the existing theme "${name}"?`)) return;
+		}
 		await saveThemeCss(name, themeDraft);
 		setThemeList(await listThemes());
 		dispatch({ type: 'setTheme', name });
@@ -1276,7 +1405,38 @@ export default function Canvas({ studio = false }: Props) {
 		setThemeCss(await loadThemeCss(name));
 		commitOp(() => ({})); // saveLayout()
 		setThemeEditorOpen(false);
-	}, [themeDraftName, themeDraft, dispatch, commitOp]);
+	}, [themeDraftName, themeDraft, themeOpenedName, themeList, dispatch, commitOp]);
+	// Duplicate a theme to a free "<name>-copy" stem and open the copy for editing.
+	const duplicateTheme = useCallback(
+		async (name: string) => {
+			const existing = new Set(themeList);
+			// A built-in duplicates under its catalog name (e.g. "Nord-copy"), not "builtin:nord-copy".
+			const base = `${themeLabel(name).replace(/^\(default\)$/, 'theme')}-copy`;
+			let candidate = base;
+			let i = 2;
+			while (existing.has(candidate)) candidate = `${base}${i++}`;
+			await saveThemeCss(candidate, await resolveThemeCss(name));
+			setThemeList(await listThemes());
+			await openThemeEditor(candidate);
+		},
+		[themeList, themeLabel, openThemeEditor]
+	);
+	// Delete a theme's file (after a confirm). If it was the active theme, fall back to (default) so
+	// the picker + overlays don't dangle on a now-missing name.
+	const deleteTheme = useCallback(
+		async (name: string) => {
+			if (!window.confirm(`Delete the theme "${name}"? This removes themes/${name}.css.`)) return;
+			await deleteThemeCss(name);
+			setThemeList(await listThemes());
+			if (stateThemeRef.current === name) {
+				dispatch({ type: 'setTheme', name: '' });
+				stateThemeRef.current = '';
+				setThemeCss('');
+				commitOp(() => ({}));
+			}
+		},
+		[dispatch, commitOp]
+	);
 
 	// --- sacks (item 10): export the studio's shareable state, import + merge one back ---
 	const exportSack = useCallback(async () => {
@@ -1286,20 +1446,21 @@ export default function Canvas({ studio = false }: Props) {
 			window.alert('Finish editing the current widget (Done) before exporting a sack.');
 			return;
 		}
-		const name = window.prompt('Export a sack (name):', selectedTheme || 'my-sack');
+		const name = window.prompt('Export a sack (name):', themeLabel(selectedTheme) || 'my-sack');
 		if (!name) return;
-		// Re-read the theme CSS at export time so a not-yet-loaded `themeCss` can't silently drop it.
-		const css = selectedTheme ? await loadThemeCss(selectedTheme) : '';
+		// Re-read the theme CSS at export time so a not-yet-loaded `themeCss` can't silently drop it. A
+		// built-in is baked into the sack under its catalog name (the `builtin:` id never leaves the app).
+		const css = selectedTheme ? await resolveThemeCss(selectedTheme) : '';
 		const sack = packSack({
 			name,
 			library,
-			theme: selectedTheme ? { name: selectedTheme, css } : undefined,
+			theme: selectedTheme ? { name: themeLabel(selectedTheme), css } : undefined,
 			tokens: tokenOverrides
 		});
 		const path = await writeSack(name, JSON.stringify(sack, null, '\t'));
 		setSackNames(await listSacks());
 		if (path) window.alert(`Saved sack:\n${path}`);
-	}, [editingDefId, selectedTheme, library, tokenOverrides]);
+	}, [editingDefId, selectedTheme, themeLabel, library, tokenOverrides]);
 
 	const importSack = useCallback(
 		async (name: string) => {
@@ -1312,6 +1473,19 @@ export default function Canvas({ studio = false }: Props) {
 			if (!sack) {
 				window.alert('Could not read that sack.');
 				return;
+			}
+			// A sack is shared content: its theme CSS is injected verbatim into the studio + overlays, so
+			// scan it for constructs that reach OUTSIDE the app (remote url()/@import that phone home) or
+			// hijack the viewport, and make the user confirm before trusting a stranger's theme.
+			if (sack.theme?.css) {
+				const threats = scanCssThreats(sack.theme.css);
+				if (threats.length) {
+					const ok = window.confirm(
+						`This sack's theme contains ${threatSummary(threats)}. Imported theme CSS runs with ` +
+							`full access to the studio. Import anyway?`
+					);
+					if (!ok) return;
+				}
 			}
 			// Theme first: resolve a name collision so an import never clobbers an existing user theme.
 			let themeName: string | null = null;
@@ -1348,6 +1522,22 @@ export default function Canvas({ studio = false }: Props) {
 	useEffect(() => {
 		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
 	}, [studio, navSection]);
+
+	// Parse a {bg,accent,fg} swatch for each USER theme (built-ins carry their own) — load each theme's
+	// CSS once and extract its tokens. Runs whenever the theme list changes (NOT gated on the Themes
+	// section) so BOTH the panel picker AND the app-bar dropdown have swatches. Cancels on list change.
+	useEffect(() => {
+		if (!studio) return;
+		let cancelled = false;
+		Promise.all(
+			themeList.map(async (n) => [n, swatchFromTokens(parseTokens(await loadThemeCss(n)))] as const)
+		).then((entries) => {
+			if (!cancelled) setUserThemeSwatches(Object.fromEntries(entries));
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [studio, themeList]);
 
 	// --- saved layouts: name the current monitor's arrangement, load it back, delete (named slots) ---
 	// Load the saved layout names when the Saved-layouts section opens.
@@ -1819,7 +2009,7 @@ export default function Canvas({ studio = false }: Props) {
 			data?: Record<string, unknown>;
 		}) => {
 			const { sensor, domain, service, data } = e;
-			// A macro: run its actions in order (Rainmeter-bang style). Continue-on-error so one
+			// A macro: run its actions in order (an ordered action list). Continue-on-error so one
 			// offline call doesn't abort the rest; log any failed steps for debugging.
 			if (domain === 'macro') {
 				const actions = normalizeMacro((data as { actions?: unknown } | undefined)?.actions);
@@ -2404,6 +2594,9 @@ export default function Canvas({ studio = false }: Props) {
 			>
 				<StyleLayer css={styleCss} />
 				<div ref={worldRef} className={studio ? 'world scaled' : 'world'} style={worldStyle}>
+					{/* The full-monitor wallpaper layer, behind every widget. Inside .world so it scales/pans
+					    with the monitor view in the studio and fills the screen 1:1 on an overlay. */}
+					<BackgroundLayer spec={showBackground ? bg : undefined} resolveSrc={resolveWallpaper} />
 					{studio && (
 						<>
 							<div
@@ -2532,6 +2725,7 @@ export default function Canvas({ studio = false }: Props) {
 							renderLeaf={renderFlowLeaf}
 							library={library}
 							fill
+							hiddenIds={hiddenIds}
 						/>
 					</div>
 					{/* Floating layer: GROUPS lay out in CSS (FlowNode inside an absolute box at their
@@ -2571,6 +2765,7 @@ export default function Canvas({ studio = false }: Props) {
 											renderLeaf={renderFloatingLeaf}
 											library={library}
 											fill
+											hiddenIds={hiddenIds}
 										/>
 									)}
 								</GroupFrame>
@@ -2621,13 +2816,24 @@ export default function Canvas({ studio = false }: Props) {
 							<>
 								{/* Primary bar (always): identity, current monitor, persistence. The canvas-only
 								    controls live in the contextual subbar below, shown only on a stage. */}
-								<div className="studio-bar">
+								{/* The studio's custom title bar (the window is borderless — decorations:false). The
+								    empty areas carry data-tauri-drag-region to move the window; double-clicking them
+								    toggles maximize. Window controls sit at the far right. Themed via --ui-* tokens, so
+								    it follows the active theme. */}
+								<div className="studio-bar" data-tauri-drag-region>
 									{/* Persistent polite live region: announces the "✓ saved" confirmation to screen
 									    readers in ANY section (the visible flash lives in the section-gated powerbar,
 									    so it can't carry the announcement on its own). */}
 									<span className="sr-only" role="status" aria-live="polite">
 										{savedFlash ? 'Layout saved' : ''}
 									</span>
+									<img
+										className="sb-mascot"
+										src={mascotUrl}
+										alt=""
+										aria-hidden="true"
+										data-tauri-drag-region
+									/>
 									<button
 										type="button"
 										className="hmenu"
@@ -2638,8 +2844,36 @@ export default function Canvas({ studio = false }: Props) {
 									>
 										<span aria-hidden="true">≡</span>
 									</button>
-									<span className="lbl">Studio</span>
+									{/* Quick theme switch, mirroring the Themes section's picker — global, so it stays
+										    enabled while designing a widget; the full editor lives in the Themes section. */}
+									<span className="lbl" data-tauri-drag-region>
+										Theme
+									</span>
 									<Select
+										className="sb-select"
+										value={selectedTheme}
+										options={[
+											{ value: '', label: '(default)', swatch: DEFAULT_SWATCH },
+											...BUILTIN_THEMES.map((t) => ({
+												value: builtinName(t.id),
+												label: t.name,
+												swatch: t.swatch
+											})),
+											...themeList.map((n) => ({
+												value: n,
+												label: n,
+												swatch: userThemeSwatches[n]
+											}))
+										]}
+										title="Switch the active theme (edit themes in the Themes section)"
+										onChange={setTheme}
+										aria-label="Theme"
+									/>
+									<span className="lbl" data-tauri-drag-region>
+										Display
+									</span>
+									<Select
+										className="sb-select"
 										value={myMonitor}
 										options={monitorOptions.map((o) => ({ value: o.key, label: o.label }))}
 										disabled={designing}
@@ -2664,6 +2898,37 @@ export default function Canvas({ studio = false }: Props) {
 									>
 										Cancel
 									</button>
+									{/* Window controls (the borderless window's min / maximize-restore / close). Pushed to
+									    the far right (margin-left:auto); the gap before them is a drag region. */}
+									<div className="win-controls">
+										<button
+											type="button"
+											className="winbtn"
+											title="Minimize"
+											aria-label="Minimize"
+											onClick={minimizeWindow}
+										>
+											<span aria-hidden="true">—</span>
+										</button>
+										<button
+											type="button"
+											className="winbtn"
+											title="Maximize / Restore"
+											aria-label="Maximize or restore"
+											onClick={toggleMaximizeWindow}
+										>
+											<span aria-hidden="true">▢</span>
+										</button>
+										<button
+											type="button"
+											className="winbtn winbtn-close"
+											title="Close"
+											aria-label="Close"
+											onClick={closeWindow}
+										>
+											<span aria-hidden="true">✕</span>
+										</button>
+									</div>
 								</div>
 								{/* Overflow (≡) menu: quick access to actions otherwise buried in nav sections. A
 								    full-screen backdrop catches the outside click to dismiss it. */}
@@ -2855,6 +3120,13 @@ export default function Canvas({ studio = false }: Props) {
 									ariaLabel="theme css"
 								/>
 								<div className="te-actions">
+									<button
+										type="button"
+										className="te-cancel"
+										onClick={() => setThemeEditorOpen(false)}
+									>
+										Cancel
+									</button>
 									<button type="button" onClick={saveThemeEditor}>
 										Save &amp; apply
 									</button>
@@ -3110,26 +3382,216 @@ export default function Canvas({ studio = false }: Props) {
 								{navSection === 'themes' && !designing && (
 									<div className="rail-panel">
 										<div className="rp-hd">Theme</div>
-										<ThemeList themes={themeList} active={selectedTheme} onPick={setTheme} />
-										<button type="button" onClick={openThemeEditor}>
-											Edit theme CSS…
+										{/* Built-in presets (grouped Classic / Light / Dark / Fun) are immutable — they offer
+										    "duplicate to edit" (⎘) only. Your own themes get raw-CSS edit (✎), duplicate (⎘),
+										    and delete (✕); "(default)" stays a plain reset. */}
+										<ThemeList
+											groups={builtinGroups().map((g) => ({
+												key: g.group,
+												label: g.group[0].toUpperCase() + g.group.slice(1),
+												items: g.themes.map((t) => ({
+													value: builtinName(t.id),
+													label: t.name,
+													swatch: t.swatch
+												}))
+											}))}
+											userThemes={themeList.map((n) => ({
+												value: n,
+												label: n,
+												swatch: userThemeSwatches[n]
+											}))}
+											active={selectedTheme}
+											onPick={setTheme}
+											onEdit={openThemeEditor}
+											onDuplicate={duplicateTheme}
+											onDelete={deleteTheme}
+										/>
+										<button type="button" onClick={() => openThemeEditor()}>
+											{selectedTheme
+												? `Edit theme CSS (${themeLabel(selectedTheme)})…`
+												: '＋ New theme CSS…'}
 										</button>
+										{/* Live preview: representative meters under the same global token CSS the overlay
+										    gets, so the theme + the overrides below restyle them as you edit. */}
+										<div className="rp-hd">Preview</div>
+										<ThemePreview />
 										{/* The friendly token overrides, colocated with the theme picker (they also appear in
-										    the Inspector for in-context tweaks). These override on top of the selected theme. */}
+										    the Inspector for per-widget tweaks). These override on top of the selected theme,
+										    persist across theme switches, and win until cleared. */}
 										<div className="rp-hd">Tokens (override this theme)</div>
-										{TOKEN_FIELDS.map((t) => (
-											<label key={t.key} className="tk-field">
-												{t.label}
+										<TokenFields
+											values={tokenOverrides}
+											onSet={(key, value) => handleOp({ op: 'setToken', key, value })}
+											onClear={() => handleOp({ op: 'clearTokens' })}
+											clearTitle="Remove every token override and fall back to the selected theme"
+										/>
+									</div>
+								)}
+								{navSection === 'background' && !designing && (
+									<div className="rail-panel bg-panel">
+										<div className="rp-hd">Background</div>
+										<div className="rp-stub">
+											A full-screen effect behind this monitor’s widgets. It shows on the desktop
+											when the overlay sits below windows (Settings → overlay layer); the studio
+											always previews it.
+										</div>
+
+										<label className="bg-field">
+											<span>Type</span>
+											<select
+												value={bg?.kind ?? 'none'}
+												onChange={(e) => {
+													const v = e.currentTarget.value;
+													if (v === 'none') clearBg();
+													else setBgKind(v as BackgroundKind);
+												}}
+											>
+												<option value="none">None</option>
+												{BACKGROUND_KINDS.map((k) => (
+													<option key={k} value={k}>
+														{k}
+													</option>
+												))}
+											</select>
+										</label>
+
+										{bg?.kind === 'color' && (
+											<label className="bg-field">
+												<span>Colour</span>
 												<input
-													defaultValue={tokenOverrides[t.key] ?? ''}
-													key={`${t.key}:${tokenOverrides[t.key] ?? ''}`}
-													placeholder={t.ph}
-													onBlur={(e) =>
-														handleOp({ op: 'setToken', key: t.key, value: e.currentTarget.value })
-													}
+													type="color"
+													value={/^#[0-9a-fA-F]{6}$/.test(bg.src ?? '') ? bg.src : '#0b0b0e'}
+													onChange={(e) => patchBg({ src: e.currentTarget.value })}
 												/>
 											</label>
-										))}
+										)}
+
+										{bg?.kind === 'web' && (
+											<label className="bg-field">
+												<span>URL</span>
+												<input
+													type="text"
+													defaultValue={bg.src ?? ''}
+													key={bg.src ?? ''}
+													placeholder="https://…  (a web / WebGL wallpaper)"
+													onBlur={(e) => patchBg({ src: e.currentTarget.value.trim() })}
+												/>
+											</label>
+										)}
+
+										{bg && isMediaKind(bg.kind) && (
+											<>
+												<div className="bg-files-hd">
+													<span className="rp-sub">Files in wallpapers/</span>
+													<span className="bg-files-ops">
+														<button
+															type="button"
+															title="Refresh the list"
+															onClick={refreshWallpapers}
+														>
+															↻
+														</button>
+														<button
+															type="button"
+															title="Open the wallpapers folder — drop image/video files in here"
+															onClick={() => openWallpapersDir()}
+														>
+															⊞ Folder
+														</button>
+													</span>
+												</div>
+												{wallpaperFiles.length ? (
+													<div className="bg-files">
+														{wallpaperFiles.map((f) => (
+															<button
+																key={f}
+																type="button"
+																className={['bg-file', bg.src === f && 'cur']
+																	.filter(Boolean)
+																	.join(' ')}
+																title={f}
+																onClick={() => patchBg({ src: f })}
+															>
+																{f}
+															</button>
+														))}
+													</div>
+												) : (
+													<div className="rp-stub">
+														No files yet — click ⊞ Folder and drop an image or video in.
+													</div>
+												)}
+											</>
+										)}
+
+										{bg && isMediaKind(bg.kind) && (
+											<label className="bg-field">
+												<span>Fit</span>
+												<select
+													value={bg.fit ?? 'cover'}
+													onChange={(e) =>
+														patchBg({ fit: e.currentTarget.value as BackgroundSpec['fit'] })
+													}
+												>
+													{BACKGROUND_FITS.map((f) => (
+														<option key={f} value={f}>
+															{f}
+														</option>
+													))}
+												</select>
+											</label>
+										)}
+
+										{bg?.kind === 'video' && (
+											<div className="bg-checks">
+												<label className="bg-check">
+													<input
+														type="checkbox"
+														checked={bg.mute ?? true}
+														onChange={(e) => patchBg({ mute: e.currentTarget.checked })}
+													/>
+													muted
+												</label>
+												<label className="bg-check">
+													<input
+														type="checkbox"
+														checked={bg.loop ?? true}
+														onChange={(e) => patchBg({ loop: e.currentTarget.checked })}
+													/>
+													loop
+												</label>
+											</div>
+										)}
+
+										{bg && (
+											<>
+												<label className="bg-field bg-range">
+													<span>Opacity {Math.round((bg.opacity ?? 1) * 100)}%</span>
+													<input
+														type="range"
+														min={0}
+														max={1}
+														step={0.05}
+														value={bg.opacity ?? 1}
+														onChange={(e) => patchBg({ opacity: Number(e.currentTarget.value) })}
+													/>
+												</label>
+												<label className="bg-field bg-range">
+													<span>Dim {Math.round((bg.dim ?? 0) * 100)}%</span>
+													<input
+														type="range"
+														min={0}
+														max={1}
+														step={0.05}
+														value={bg.dim ?? 0}
+														onChange={(e) => patchBg({ dim: Number(e.currentTarget.value) })}
+													/>
+												</label>
+												<button type="button" className="bg-clear" onClick={clearBg}>
+													Remove background
+												</button>
+											</>
+										)}
 									</div>
 								)}
 								{navSection === 'sacks' && !designing && (
@@ -3313,8 +3775,7 @@ export default function Canvas({ studio = false }: Props) {
 												<>
 													<div className="pl-title">Controls</div>
 													<div className="pl-desc">
-														Remap the keyboard and pointer shortcuts that drive the studio and
-														overlays.
+														Rebind the keyboard shortcuts that drive the studio and overlays.
 													</div>
 													<ControlsPanel
 														overrides={overrides}
@@ -3341,11 +3802,20 @@ export default function Canvas({ studio = false }: Props) {
 											)}
 											{settingsTab === 'about' && (
 												<>
-													<div className="pl-title">widgetsack</div>
+													<div className="about-hd">
+														<img
+															className="about-mascot"
+															src={mascotUrl}
+															alt="widgetsack mascot: a beckoning cat carrying a sack and a little CRT"
+															width={88}
+															height={88}
+														/>
+														<div className="pl-title">widgetsack</div>
+													</div>
 													<div className="pl-desc">
-														A themeable, Rainmeter-style desktop widget overlay for Windows — system
-														meters, clocks, the now-playing track, and Home Assistant controls,
-														arranged here in the studio.
+														A themeable desktop widget overlay for Windows — system meters, clocks,
+														the now-playing track, and Home Assistant controls, arranged here in the
+														studio.
 													</div>
 													<div className="rp-list">
 														<div className="rp-row">

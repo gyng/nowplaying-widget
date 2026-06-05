@@ -31,6 +31,7 @@ export function installDevMock(): void {
 				return null;
 			case 'list_themes':
 			case 'list_sacks':
+			case 'list_wallpapers':
 			case 'get_logs':
 			case 'system_fonts':
 			case 'list_display_names':
@@ -121,10 +122,8 @@ export function installDevMock(): void {
 			case 'llm_config_status':
 				return {
 					configured: false,
-					provider: 'openai',
-					baseUrl: 'https://api.openai.com/v1',
-					model: '',
-					hasKey: false,
+					active: 'openai',
+					providers: {},
 					temperature: 0.7,
 					maxTokens: 1024,
 					agentControl: false
@@ -143,6 +142,15 @@ export function installDevMock(): void {
 				return undefined;
 			case 'llm_transcribe':
 				return 'add a clock to the top left'; // canned transcript so the mic flow is testable in dev
+			case 'llm_synthesize':
+				// No provider TTS in dev — reject so speakSmart falls back to the browser voice.
+				throw new Error('no provider TTS in dev mock');
+
+			// --- wallpapers (Background section) ---
+			case 'wallpaper_path':
+				return `C:/mock/wallpapers/${(args as { name?: string } | undefined)?.name ?? ''}`;
+			case 'open_wallpapers_dir':
+				return null;
 
 			// --- widget actuation (only fired by clicking a live control, never at boot) ---
 			case 'media_control':

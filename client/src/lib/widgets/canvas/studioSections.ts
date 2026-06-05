@@ -8,6 +8,7 @@ export type SectionId =
 	| 'sensors'
 	| 'plugins'
 	| 'themes'
+	| 'background'
 	| 'sacks'
 	| 'saved-layouts'
 	| 'settings';
@@ -29,6 +30,9 @@ export const SECTIONS: Section[] = [
 	// so each nav glyph is a distinct signifier (the glyph-uniqueness test locks this in).
 	{ id: 'plugins', label: 'Plugins', short: 'Plugins', icon: '❖', group: 'main' },
 	{ id: 'themes', label: 'Themes', short: 'Themes', icon: '◐', group: 'main' },
+	// The per-monitor full-screen background/wallpaper layer. ◧ (a framed picture) is distinct from
+	// every other nav glyph and from the in-canvas ▦ signifier.
+	{ id: 'background', label: 'Background', short: 'Backdrop', icon: '◧', group: 'main' },
 	{ id: 'sacks', label: 'Sacks', short: 'Sacks', icon: '❏', group: 'main' },
 	// Saved layout profiles (save the current monitor's arrangement, load it back). ⊞ is distinct
 	// from the other nav glyphs and from the in-canvas ▦ (container/grid) signifier.

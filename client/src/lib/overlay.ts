@@ -15,6 +15,7 @@ import { emit } from '@tauri-apps/api/event';
 import type { Rect } from './core/layout';
 import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
+import { builtinCss } from './core/builtinThemes';
 import { monitorOptionLabel } from './monitorLabel';
 import { parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
@@ -259,7 +260,7 @@ export async function listThemes(): Promise<string[]> {
 	}
 }
 
-/** The CSS of theme `name` (empty for '(default)' / a missing theme). */
+/** The CSS of a USER theme `name` (empty for '(default)' / a missing theme). Disk-backed. */
 export async function loadThemeCss(name: string): Promise<string> {
 	if (!name) return '';
 	try {
@@ -270,12 +271,62 @@ export async function loadThemeCss(name: string): Promise<string> {
 	}
 }
 
+/** The CSS for any selected theme: a `builtin:<id>` preset resolves synchronously from the in-app
+ * registry (no disk), anything else is a user theme loaded from `themes/<name>.css`. '' = default. */
+export async function resolveThemeCss(name: string): Promise<string> {
+	if (!name) return '';
+	const built = builtinCss(name);
+	if (built != null) return built;
+	return loadThemeCss(name);
+}
+
 /** Write theme `name` (a bare stem) → `themes/<name>.css`. Used by the studio theme editor. */
 export async function saveThemeCss(name: string, contents: string): Promise<void> {
 	try {
 		await invoke('save_theme', { name, contents });
 	} catch (err) {
 		console.warn('save_theme failed', err);
+	}
+}
+
+/** Delete theme `name` → removes `themes/<name>.css` (idempotent). Used by the studio theme list. */
+export async function deleteThemeCss(name: string): Promise<void> {
+	try {
+		await invoke('delete_theme', { name });
+	} catch (err) {
+		console.warn('delete_theme failed', err);
+	}
+}
+
+// ---- wallpapers: media files for the per-monitor background layer (in a fixed `wallpapers/` folder)
+
+/** The media filenames available in the app-config `wallpapers/` folder (the Background picker). */
+export async function listWallpapers(): Promise<string[]> {
+	try {
+		return await invoke<string[]>('list_wallpapers');
+	} catch (err) {
+		console.warn('list_wallpapers failed', err);
+		return [];
+	}
+}
+
+/** Resolve a wallpaper filename to an asset URL the webview can render (image/video `src`). */
+export async function wallpaperAssetUrl(name: string): Promise<string> {
+	try {
+		const path = await invoke<string>('wallpaper_path', { name });
+		return convertFileSrc(path);
+	} catch (err) {
+		console.warn('wallpaper_path failed', err);
+		return '';
+	}
+}
+
+/** Open the `wallpapers/` folder in Explorer so the user can drop media files in. */
+export async function openWallpapersDir(): Promise<void> {
+	try {
+		await invoke('open_wallpapers_dir');
+	} catch (err) {
+		console.warn('open_wallpapers_dir failed', err);
 	}
 }
 
@@ -555,8 +606,10 @@ async function displayNamesByDevice(): Promise<Map<string, string>> {
 	}
 }
 
-/** Open (or focus) the studio window — a normal, decorated, taskbar-present app window
- * that edits the same layout the overlays render (synced via widgets.json + live reload). */
+/** Open (or focus) the studio window — a borderless, taskbar-present app window that edits the same
+ * layout the overlays render (synced via widgets.json + live reload). `decorations:false` removes the
+ * OS title bar; the studio draws its OWN themed title bar (drag region + window controls) so the chrome
+ * matches the active theme instead of the platform's grey frame. */
 export async function openStudio(): Promise<void> {
 	const existing = (await getAllWebviewWindows()).find((w) => w.label === 'studio');
 	if (existing) {
@@ -569,12 +622,47 @@ export async function openStudio(): Promise<void> {
 		width: 980,
 		height: 680,
 		resizable: true,
+		// No OS title bar — the in-app `.studio-bar` is the (themed) title bar (data-tauri-drag-region
+		// moves the window; the min/max/close cluster calls the window-control adapters below).
+		decorations: false,
 		// Disable Tauri's OS-level drag-drop handler so the webview's own HTML5 drag-and-drop fires —
 		// the studio needs it for the Inspector palette → canvas drop and Outline row reparenting.
 		// (The app uses no OS file-drop, so nothing is lost by turning it off.)
 		dragDropEnabled: false
 	});
 	w.once('tauri://error', (err) => console.warn('studio window error', err));
+}
+
+// --- custom title-bar window controls (the studio's borderless window) -----------------------------
+// Tauri window API stays at this edge (AGENTS.md §5). All no-op gracefully off Tauri / in a plain
+// browser so the studio shell still renders under the dev mock + Playwright.
+
+/** Minimize the current window (title-bar `—`). */
+export async function minimizeWindow(): Promise<void> {
+	try {
+		await getCurrentWindow().minimize();
+	} catch (err) {
+		console.warn('minimize failed', err);
+	}
+}
+
+/** Toggle maximize / restore for the current window (title-bar `▢`, and drag-region double-click). */
+export async function toggleMaximizeWindow(): Promise<void> {
+	try {
+		await getCurrentWindow().toggleMaximize();
+	} catch (err) {
+		console.warn('toggleMaximize failed', err);
+	}
+}
+
+/** Request the current window to close (title-bar `✕`) — the close-requested guard still prompts on
+ * unsaved changes (see onStudioCloseRequested). */
+export async function closeWindow(): Promise<void> {
+	try {
+		await getCurrentWindow().close();
+	} catch (err) {
+		console.warn('close failed', err);
+	}
 }
 
 /** Primary window only: reconcile per-monitor overlays against the saved layout. A NON-primary

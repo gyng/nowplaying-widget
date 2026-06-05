@@ -93,7 +93,9 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		for (const extra of extras) {
 			if (extra.key === v.myMonitor) continue;
 			const t = monitors[extra.key] ?? { root: emptyRoot(), floating: [] };
-			monitors[extra.key] = { root: t.root, floating: [...(t.floating ?? []), extra.leaf] };
+			// Spread `t` so a non-widget monitor field (e.g. its `background`) survives the append of a
+			// pending extra leaf, instead of being rebuilt away.
+			monitors[extra.key] = { ...t, floating: [...(t.floating ?? []), extra.leaf] };
 		}
 		const lib = library ?? fileLib;
 		const theme = v.selectedTheme || fileTheme;

@@ -67,10 +67,24 @@ test('Settings: launch-at-login starts off and reverts after toggle (mock report
 	await expect(cb).not.toBeChecked();
 });
 
+test('Settings: About shows the widgetsack mascot (asset actually loads)', async ({ page }) => {
+	await gotoStudio(page);
+	await openSection(page, 'settings');
+	await page.locator('.settings-panel .pl-item', { hasText: 'About' }).click();
+	const mascot = page.locator('.settings-panel .about-mascot');
+	await expect(mascot).toBeVisible();
+	// Not just an <img> in the DOM — the bundled PNG decoded (naturalWidth > 0), so the import resolved.
+	await expect
+		.poll(() => mascot.evaluate((img) => (img as HTMLImageElement).naturalWidth))
+		.toBeGreaterThan(0);
+});
+
 test('Themes: Edit theme CSS opens the editor (seeded default) and closes', async ({ page }) => {
 	await gotoStudio(page);
 	await openSection(page, 'themes');
-	await page.locator('.rail-panel button', { hasText: 'Edit theme CSS' }).click();
+	// No theme is selected under the mock, so the open-editor button reads "＋ New theme CSS…"; with a
+	// theme selected it reads "Edit theme CSS (<name>)…". Match the stable "theme CSS" substring.
+	await page.locator('.rail-panel button', { hasText: 'theme CSS' }).click();
 	const ed = page.locator('.theme-editor');
 	await expect(ed).toBeVisible();
 	// The CSS editor (lazy CodeMirror, class te-css) mounts, seeded with the default :root tokens since
@@ -79,4 +93,24 @@ test('Themes: Edit theme CSS opens the editor (seeded default) and closes', asyn
 	await expect(ed).toContainText('--np-accent');
 	await ed.locator('button.te-close').click();
 	await expect(ed).toBeHidden();
+});
+
+test('Background: picking a colour renders the wallpaper layer behind the widgets', async ({
+	page
+}) => {
+	await gotoStudio(page);
+	await openSection(page, 'background');
+	const panel = page.locator('.rail-panel.bg-panel');
+	await expect(panel).toBeVisible();
+	// No background yet → no layer painted.
+	await expect(page.locator('.canvas .bg-layer')).toHaveCount(0);
+	// Choose the colour kind, then set a colour → the background layer paints a fill behind .world's
+	// widgets (the layer lives inside .world, before any widget).
+	await panel.locator('.bg-field select').first().selectOption('color');
+	await panel.locator('input[type=color]').fill('#123456');
+	const fill = page.locator('.canvas .world .bg-layer .bg-fill');
+	await expect(fill).toBeVisible();
+	// Remove it again → the layer is gone.
+	await panel.locator('button.bg-clear').click();
+	await expect(page.locator('.canvas .bg-layer')).toHaveCount(0);
 });
