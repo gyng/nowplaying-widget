@@ -7,13 +7,26 @@ import { useEffect, useState } from 'react';
 
 const KEY = 'widgetsack.overlay.prefs';
 
+// The overlay's window z-order:
+//   'bottom'    — always-on-bottom (the DEFAULT): widgets sit BELOW application windows (but above
+//                 the desktop icons; Show Desktop / Win+D hides them). Frontend-only (setAlwaysOnBottom).
+//   'top'       — always-on-top: widgets float above every window.
+//   'wallpaper' — parented to the desktop's WorkerW so widgets render ON the wallpaper, behind the
+//                 icons, surviving Show Desktop. EXPERIMENTAL + Windows-only (a native SetParent).
+export type OverlayLayer = 'top' | 'bottom' | 'wallpaper';
+
 export type OverlayPrefs = {
 	// true (default): the flow layout fills the monitor WORK AREA (excludes the taskbar);
 	// false: it fills the whole monitor (draws over the taskbar, Rainmeter-style).
 	respectWorkArea: boolean;
+	// Where the overlay sits in the window z-order (see OverlayLayer). Default 'bottom'.
+	overlayLayer: OverlayLayer;
 };
 
-export const OVERLAY_PREF_DEFAULTS: OverlayPrefs = { respectWorkArea: true };
+export const OVERLAY_PREF_DEFAULTS: OverlayPrefs = {
+	respectWorkArea: true,
+	overlayLayer: 'bottom'
+};
 
 export function readOverlayPrefs(): OverlayPrefs {
 	try {

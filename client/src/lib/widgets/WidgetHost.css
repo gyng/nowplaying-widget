@@ -30,6 +30,21 @@
 	outline-style: solid;
 }
 
+/* A one-shot ripple as a single widget is selected — a quick accent pulse that draws the eye to the
+   new target, then settles (no persistent glow; the solid outline carries the selected state). */
+.widget.selected:not(.multi-member):not(.hl) {
+	animation: widget-select var(--motion-slow, 240ms) var(--ease-out, ease-out);
+}
+
+@keyframes widget-select {
+	from {
+		box-shadow: 0 0 0 0 rgba(119, 196, 211, 0.5);
+	}
+	to {
+		box-shadow: 0 0 0 6px rgba(119, 196, 211, 0);
+	}
+}
+
 /* Part of a MULTI-selection: a dashed (vs the single-select solid) outline + a faint ring, so the
    stage itself shows "several are selected" — the cue lives where the gaze is, not only in the
    Inspector. Keeps the single mint accent (no new hue); the shape difference carries the meaning. */
@@ -59,6 +74,9 @@
 .widget.dragging {
 	z-index: 10;
 	opacity: 0.85;
+	/* Ghost smoothly as the drag begins (opacity only — never transition transform, which would lag
+	   the drag itself). */
+	transition: opacity var(--motion, 150ms) ease;
 }
 
 .handle {

@@ -1,7 +1,7 @@
 # widgetsack
 
 <p align="center">
-  <img src="docs/img/demo.png" alt="widgetsack demo layout: clock, CPU/GPU gauges, memory/VRAM bars, up/down network graphs, and a now-playing widget" width="640">
+  <img src="docs/img/demo.png" alt="widgetsack demo layout: clock, CPU/GPU gauges, memory/VRAM bars, up/down network graphs, an audio spectrum, a now-playing card, a stock ticker, an analog clock, and Home Assistant climate/light controls" width="720">
 </p>
 
 [**👉 .msi download for the latest release**](https://github.com/gyng/nowplaying-widget/releases/latest)

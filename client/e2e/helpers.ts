@@ -32,7 +32,7 @@ export function watchConsole(page: Page): { errors: string[]; mockWarns: string[
 /**
  * A left NavRail section button by its stable section id (layouts/widget-designer/sensors/plugins/
  * themes/sacks/controls/settings). Keyed off data-section, NOT the visible short label, which is
- * responsive ("Design"↔"Defs") and changes to a hint while the designer is modal.
+ * responsive ("Design"↔"Defs").
  */
 export function navItem(page: Page, id: string): Locator {
 	return page.locator(`.nav-rail .nav-item[data-section="${id}"]`);

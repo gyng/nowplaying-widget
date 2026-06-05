@@ -140,6 +140,18 @@
 	padding: 2px 4px;
 	width: 100%;
 	box-sizing: border-box;
+	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		background var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+/* A crisp mint focus ring (the box-shadow IS the focus affordance, so the default outline is off). */
+.inspector input:focus,
+.inspector textarea:focus,
+.inspector select:focus {
+	outline: none;
+	border-color: rgb(119, 196, 211);
+	box-shadow: 0 0 0 1px rgba(119, 196, 211, 0.35), 0 0 6px rgba(119, 196, 211, 0.15);
 }
 
 .inspector textarea.error {
@@ -154,10 +166,18 @@
 	font-size: 11px;
 	padding: 2px 6px;
 	cursor: pointer;
+	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .inspector button:hover {
 	border-color: rgb(119, 196, 211);
+	box-shadow: 0 0 4px rgba(119, 196, 211, 0.15);
+}
+
+/* Tactile press: a tiny inset shadow so a click reads as "received". */
+.inspector button:active {
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .inspector .remove {
@@ -335,6 +355,9 @@
 	font-size: 11px;
 	padding: 3px 8px;
 	cursor: pointer;
+	/* The active underline slides in + the label brightens when the tab changes. */
+	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		border-bottom-color var(--motion, 150ms) var(--ease-out, ease-out);
 }
 
 .inspector .detail-tabs button:hover {

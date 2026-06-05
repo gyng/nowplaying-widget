@@ -34,18 +34,16 @@
 	color: #aaa;
 	font-family: monospace;
 	cursor: pointer;
+	/* The active-section indicator slides in (border) and the hover tint eases, so switching sections
+	   feels tracked rather than snapping. */
+	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		border-left-color var(--motion, 150ms) var(--ease-out, ease-out);
 }
 
-.canvas .nav-rail .nav-item:not(.disabled):hover {
+.canvas .nav-rail .nav-item:hover {
 	color: #eee;
 	background: rgba(119, 196, 211, 0.1);
-}
-
-/* Modal during widget design: dimmed + non-interactive cursor, but still title-tooltipped (it uses
-   aria-disabled, not the disabled attribute, so the explanation surfaces on hover). */
-.canvas .nav-rail .nav-item.disabled {
-	opacity: 0.4;
-	cursor: default;
 }
 
 .canvas .nav-rail .nav-item.active {
@@ -83,6 +81,19 @@
 	font-size: 12px;
 	z-index: 7;
 	pointer-events: auto;
+	/* A quick fade + tiny rise on open, so swapping sections reads as "new screen" not a hard cut. */
+	animation: rail-panel-in var(--motion, 150ms) var(--ease-out, ease-out);
+}
+
+@keyframes rail-panel-in {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 /* A picker grid (widget types / templates) that spreads across the full-screen panel. */
@@ -365,6 +376,41 @@
 	white-space: nowrap;
 }
 
+/* Sensors pane: a per-row dot for "stays sampled after the studio closes?" — mint ● = a widget keeps
+   it alive, dim ● = a cheap always-on sensor, hollow ○ = studio-only (stops on close). */
+.canvas .rail-panel .sensor-dot {
+	flex: 0 0 auto;
+	font-size: 9px;
+	line-height: 1;
+}
+.canvas .rail-panel .sensor-dot.on {
+	color: rgb(119, 196, 211);
+}
+.canvas .rail-panel .sensor-dot.amb {
+	color: rgba(119, 196, 211, 0.4);
+}
+.canvas .rail-panel .sensor-dot.off {
+	color: #555;
+}
+
+/* The at-a-glance summary of the above, above the list. */
+.canvas .rail-panel .rp-sensor-legend {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 3px 12px;
+	margin-bottom: 8px;
+	color: var(--dim-fg);
+	font-size: 10px;
+}
+.canvas .rail-panel .rp-sensor-legend .sensor-dot {
+	margin-right: 3px;
+}
+.canvas .rail-panel .rp-sensor-legend .rp-count {
+	margin-left: auto;
+	color: rgb(119, 196, 211);
+}
+
 /* The id takes the slack and truncates with an ellipsis; the value can shrink too. Both need
    min-width:0 so a long id (disk.c.used.pct) or text value (cpu.brand, an HA friendly name) is
    clipped within the row instead of overflowing the grid column. Full text is in the title tooltip. */
@@ -574,6 +620,32 @@
 	margin: 2px 0 6px;
 	max-width: 560px;
 	line-height: 1.5;
+}
+
+/* Settings: reuses the plugins-panel list+detail split for consistency (Jakob's law). Tweaks: the
+   Danger item is tinted red as a pre-warning (error prevention), standalone action buttons get a
+   little breathing room, and the About repo wraps instead of overflowing. */
+.canvas .settings-panel .pl-detail > button {
+	margin-top: 6px;
+}
+
+.canvas .settings-panel .pl-item.set-danger {
+	color: rgb(230, 160, 160);
+}
+
+.canvas .settings-panel .pl-item.set-danger.cur {
+	border-left-color: rgb(220, 120, 120);
+	background: rgba(220, 120, 120, 0.14);
+	color: rgb(240, 180, 180);
+}
+
+.canvas .settings-panel .pl-title.set-danger-title {
+	color: rgb(230, 160, 160);
+}
+
+.canvas .settings-panel .set-repo {
+	color: #ccc;
+	word-break: break-all;
 }
 
 /* Now Playing settings (rendered inside .pl-detail). */

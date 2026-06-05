@@ -136,6 +136,87 @@ fn work_area_for(_window: &tauri::WebviewWindow) -> Result<ScreenRect, String> {
     Err("work area is only available on Windows".to_string())
 }
 
+/// EXPERIMENTAL "wallpaper layer" for the calling overlay window. When `enabled`, parent it to the
+/// desktop's WorkerW so it renders ON the wallpaper — behind the desktop icons and every app window,
+/// surviving Show Desktop (the Rainmeter/Wallpaper-Engine trick). When disabled, re-attach it to the
+/// desktop root so it's a normal top-level overlay again. Windows-only; a no-op error elsewhere.
+#[tauri::command]
+pub fn set_overlay_wallpaper(window: tauri::WebviewWindow, enabled: bool) -> Result<String, String> {
+    set_wallpaper_parent(&window, enabled)
+}
+
+#[cfg(target_os = "windows")]
+fn set_wallpaper_parent(window: &tauri::WebviewWindow, enabled: bool) -> Result<String, String> {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, FindWindowW, SendMessageTimeoutW, SetParent, SMTO_NORMAL,
+    };
+    use windows::core::w;
+
+    let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as _);
+
+    if !enabled {
+        // Re-attach to the desktop root → a normal top-level overlay again.
+        unsafe { SetParent(hwnd, None) }.map_err(|e| e.to_string())?;
+        return Ok("detached from the wallpaper (normal overlay)".to_string());
+    }
+
+    // 1) Ask Progman to spawn the WorkerW that hosts the wallpaper behind the desktop icons. The
+    //    undocumented 0x052C message is the standard wallpaper-host trick.
+    let progman = unsafe { FindWindowW(w!("Progman"), None) }.map_err(|e| e.to_string())?;
+    let mut spawn_result: usize = 0;
+    unsafe {
+        SendMessageTimeoutW(
+            progman,
+            0x052C,
+            WPARAM(0),
+            LPARAM(0),
+            SMTO_NORMAL,
+            1000,
+            Some(&mut spawn_result as *mut usize as *mut _),
+        );
+    }
+    // 2) Find the WorkerW that is the wallpaper surface (the one whose sibling hosts SHELLDLL_DefView,
+    //    the desktop-icon layer). EnumWindows writes the match back through the LPARAM out-pointer.
+    let mut worker = HWND::default();
+    unsafe {
+        let _ = EnumWindows(Some(enum_find_workerw), LPARAM(&mut worker as *mut HWND as isize));
+    }
+    if worker.is_invalid() {
+        return Err("WorkerW (wallpaper host) not found".to_string());
+    }
+    unsafe { SetParent(hwnd, Some(worker)) }.map_err(|e| e.to_string())?;
+    Ok(format!("parented to WorkerW {:#x}", worker.0 as usize))
+}
+
+// EnumWindows callback: a top-level window hosting a SHELLDLL_DefView child is the desktop icon host;
+// the WorkerW immediately AFTER it (its next sibling) is the wallpaper surface we want to parent to.
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn enum_find_workerw(
+    top: windows::Win32::Foundation::HWND,
+    lparam: windows::Win32::Foundation::LPARAM,
+) -> windows::core::BOOL {
+    use windows::Win32::Foundation::{HWND, TRUE};
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
+    use windows::core::{w, BOOL};
+
+    let defview =
+        unsafe { FindWindowExW(Some(top), None, w!("SHELLDLL_DefView"), None) }.unwrap_or_default();
+    if !defview.is_invalid()
+        && let Ok(worker) = unsafe { FindWindowExW(None, Some(top), w!("WorkerW"), None) }
+        && !worker.is_invalid()
+    {
+        unsafe { *(lparam.0 as *mut HWND) = worker };
+        return BOOL(0); // found → stop enumerating
+    }
+    TRUE // keep going
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_wallpaper_parent(_window: &tauri::WebviewWindow, _enabled: bool) -> Result<String, String> {
+    Err("the wallpaper layer is only available on Windows".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::ScreenRect;

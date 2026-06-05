@@ -64,67 +64,93 @@ function buildInstance(
 const TYPES = paletteItems();
 const widgetInstances = TYPES.map((t) => buildInstance(t.type, `w-${t.type}`));
 
-// A curated demo layout (hand-placed) — the marketing shot. Landscape (three columns) so it sits
-// well in the README without a tall portrait crop: left = at-a-glance readouts (clock, CPU/GPU
-// gauges, net rates), middle = graphs (per-core CPU, MEM/VRAM, network throughput), right = the
-// now-playing card. Sized to fill the .demo-panel (gallery.css).
+// A curated demo layout (hand-placed) — the marketing shot. Landscape (four columns) with generous
+// padding/gaps so it sits well in the README and shows the widget breadth: A = at-a-glance readouts
+// (clock, CPU/GPU gauges, net rates, uptime), B = graphs (per-core CPU, MEM/VRAM, net throughput,
+// audio spectrum), C = cards (now-playing + stock ticker), D = analog clock + Home Assistant
+// controls. 24px outer pad, 24px column gaps. Sized to fill the .demo-panel (gallery.css).
 const DEMO: WidgetInstance[] = [
-	// Left column — at-a-glance: clock, CPU/GPU gauges, network rates.
+	// Column A (x 24, w 150) — at-a-glance: clock, CPU/GPU gauges, network rates, uptime.
 	buildInstance('clock', 'd-time', {
-		rect: { x: 16, y: 16, w: 160, h: 34 },
+		rect: { x: 24, y: 24, w: 150, h: 38 },
 		config: { format: 'HH:mm' }
 	}),
 	buildInstance('clock', 'd-date', {
-		rect: { x: 16, y: 52, w: 160, h: 16 },
+		rect: { x: 24, y: 66, w: 150, h: 18 },
 		config: { format: 'ddd D MMMM' }
 	}),
 	buildInstance('gauge', 'd-g-cpu', {
-		rect: { x: 16, y: 80, w: 76, h: 76 },
+		rect: { x: 24, y: 116, w: 72, h: 72 },
 		sensor: 'cpu.total',
 		config: { label: 'CPU', unit: '%' }
 	}),
 	buildInstance('gauge', 'd-g-gpu', {
-		rect: { x: 96, y: 80, w: 76, h: 76 },
+		rect: { x: 102, y: 116, w: 72, h: 72 },
 		sensor: 'gpu.util',
 		config: { label: 'GPU', unit: '%' }
 	}),
 	buildInstance('text', 'd-net-down-t', {
-		rect: { x: 16, y: 162, w: 160, h: 16 },
+		rect: { x: 24, y: 220, w: 150, h: 18 },
 		sensor: 'net.down',
 		config: { format: 'rate', label: '↓ ', color: 'rgb(218, 237, 226)' }
 	}),
 	buildInstance('text', 'd-net-up-t', {
-		rect: { x: 16, y: 182, w: 160, h: 16 },
+		rect: { x: 24, y: 242, w: 150, h: 18 },
 		sensor: 'net.up',
 		config: { format: 'rate', label: '↑ ', color: 'rgb(119, 196, 211)' }
 	}),
-	// Middle column — graphs: per-core CPU, MEM/VRAM, network throughput.
+	buildInstance('text', 'd-uptime', {
+		rect: { x: 24, y: 288, w: 150, h: 18 },
+		sensor: 'host.uptime',
+		config: { format: 'duration', label: 'up ', color: 'rgb(160, 188, 198)' }
+	}),
+	// Column B (x 198, w 290) — graphs: per-core CPU, MEM/VRAM, net throughput, audio spectrum.
 	buildInstance('cpu', 'd-cpu', {
-		rect: { x: 192, y: 16, w: 300, h: 60 },
+		rect: { x: 198, y: 24, w: 290, h: 58 },
 		config: { mode: 'cores', cols: 12 }
 	}),
 	buildInstance('bar', 'd-mem', {
-		rect: { x: 192, y: 84, w: 300, h: 14 },
+		rect: { x: 198, y: 110, w: 290, h: 14 },
 		sensor: 'mem.used',
 		config: { label: 'MEM' }
 	}),
 	buildInstance('bar', 'd-vram', {
-		rect: { x: 192, y: 102, w: 300, h: 14 },
+		rect: { x: 198, y: 132, w: 290, h: 14 },
 		sensor: 'gpu.vram',
 		config: { label: 'VRAM' }
 	}),
 	buildInstance('sparkline', 'd-net-down', {
-		rect: { x: 192, y: 124, w: 300, h: 32 },
+		rect: { x: 198, y: 174, w: 290, h: 34 },
 		sensor: 'net.down',
 		config: { histogram: true, color: 'rgb(218, 237, 226)' }
 	}),
 	buildInstance('sparkline', 'd-net-up', {
-		rect: { x: 192, y: 160, w: 300, h: 32 },
+		rect: { x: 198, y: 212, w: 290, h: 34 },
 		sensor: 'net.up',
 		config: { histogram: true, color: 'rgb(119, 196, 211)' }
 	}),
-	// Right column — now-playing.
-	buildInstance('nowplaying', 'd-np', { rect: { x: 508, y: 16, w: 168, h: 190 } })
+	buildInstance('spectrum', 'd-spectrum', {
+		rect: { x: 198, y: 274, w: 290, h: 54 }
+	}),
+	// Column C (x 512, w 176) — cards: now-playing + stock ticker.
+	buildInstance('nowplaying', 'd-np', { rect: { x: 512, y: 24, w: 176, h: 184 } }),
+	buildInstance('ticker', 'd-ticker', {
+		rect: { x: 512, y: 232, w: 176, h: 96 },
+		config: { symbol: 'NVDA' }
+	}),
+	// Column D (x 712, w 150) — analog clock + Home Assistant controls.
+	buildInstance('analogclock', 'd-analog', {
+		rect: { x: 732, y: 24, w: 110, h: 110 },
+		config: { showTicks: true }
+	}),
+	buildInstance('ha.climate', 'd-ha-climate', {
+		rect: { x: 712, y: 162, w: 150, h: 78 },
+		sensor: 'demo.climate'
+	}),
+	buildInstance('ha.light', 'd-ha-light', {
+		rect: { x: 712, y: 268, w: 150, h: 48 },
+		sensor: 'demo.light'
+	})
 ];
 
 // One stylesheet: the default design tokens (:root) + each instance's seeded css (mostly NowPlaying)

@@ -4,23 +4,23 @@ import { OVERLAY_PREF_DEFAULTS, readOverlayPrefs, writeOverlayPrefs } from './ov
 describe('overlayPrefs', () => {
 	beforeEach(() => localStorage.clear());
 
-	it('defaults to respecting the work area (taskbar-aware)', () => {
-		expect(readOverlayPrefs()).toEqual({ respectWorkArea: true });
-		expect(OVERLAY_PREF_DEFAULTS.respectWorkArea).toBe(true);
+	it('defaults to respecting the work area and a below-windows (bottom) layer', () => {
+		expect(readOverlayPrefs()).toEqual({ respectWorkArea: true, overlayLayer: 'bottom' });
+		expect(OVERLAY_PREF_DEFAULTS).toEqual({ respectWorkArea: true, overlayLayer: 'bottom' });
 	});
 
-	it('round-trips a written value', () => {
-		writeOverlayPrefs({ respectWorkArea: false });
-		expect(readOverlayPrefs().respectWorkArea).toBe(false);
+	it('round-trips written values', () => {
+		writeOverlayPrefs({ respectWorkArea: false, overlayLayer: 'wallpaper' });
+		expect(readOverlayPrefs()).toEqual({ respectWorkArea: false, overlayLayer: 'wallpaper' });
 	});
 
 	it('falls back to defaults on malformed storage', () => {
 		localStorage.setItem('widgetsack.overlay.prefs', '{not json');
-		expect(readOverlayPrefs()).toEqual({ respectWorkArea: true });
+		expect(readOverlayPrefs()).toEqual({ respectWorkArea: true, overlayLayer: 'bottom' });
 	});
 
-	it('merges defaults for missing keys', () => {
-		localStorage.setItem('widgetsack.overlay.prefs', '{}');
-		expect(readOverlayPrefs().respectWorkArea).toBe(true);
+	it('merges defaults for missing keys (old prefs without overlayLayer → bottom)', () => {
+		localStorage.setItem('widgetsack.overlay.prefs', JSON.stringify({ respectWorkArea: false }));
+		expect(readOverlayPrefs()).toEqual({ respectWorkArea: false, overlayLayer: 'bottom' });
 	});
 });

@@ -42,7 +42,12 @@
 	   STAGE only — not the side rails. So it adds to the stage's top offset alone (below), and is 0
 	   unless a stage is shown (.has-subbar). The rails stay anchored under the primary bar. */
 	--subbar-h: 0px;
-	--bar-b: 24px;
+	/* The bottom "powerline" hint bar advertises CANVAS gestures (click/drag/marquee/pan/nudge…), so it
+	   — and the row it reserves — exists only on an edit stage, the same .has-subbar condition as the top
+	   subbar. Off-stage sections (Themes / Sensors / Plugins / …) and read-only preview have no canvas
+	   gestures to hint, so --bar-b collapses to 0 there and every rail/panel reclaims the row down to the
+	   window's bottom edge (no dead gap under the bar). */
+	--bar-b: 0px;
 	--nav-w: 56px; /* the left nav strip; the section panel fills the rest of --rail-l */
 	--tree-w: 200px; /* widget-designer: the def's structure tree, between the list and the canvas */
 	--rail-l: 250px;
@@ -61,10 +66,13 @@
 	-webkit-user-select: none;
 }
 
-/* A stage is visible (Layouts, or designing a def) → reserve a row for the contextual subbar. Only
-   the stage's own top offset reads --subbar-h, so the side rails are unaffected (they stay at --bar-h). */
+/* A stage is visible (Layouts, or designing a def) → reserve a row for the contextual subbar (top) AND
+   the powerline hint bar (bottom). Only the stage's own top offset reads --subbar-h, so the side rails
+   are unaffected by it (they stay at --bar-h); --bar-b reserves the bottom row for every rail/panel/stage
+   so the powerbar never overlaps them. Both bars appear together — same gate (Canvas.tsx `showSubbar`). */
 .canvas.studio.has-subbar {
 	--subbar-h: 30px;
+	--bar-b: 24px;
 }
 
 /* Draggable pane dividers (resizable studio columns; widths persist via usePaneSizes). Each panel is
@@ -93,6 +101,8 @@
 	left: -1px;
 	width: 1px;
 	background: transparent;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 /* The right divider's panel (the details rail) is to its RIGHT, so its border line is on the right. */
@@ -202,11 +212,23 @@
 	background: rgba(10, 10, 12, 0.85);
 	pointer-events: auto;
 	cursor: pointer;
+	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		transform var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .canvas .cbound .ctag:hover {
 	color: rgb(150, 214, 228);
 	background: rgba(10, 10, 12, 0.95);
+}
+
+/* Tactile press + a keyboard focus ring for the container tag. */
+.canvas .cbound .ctag:active {
+	transform: scale(0.96);
+}
+.canvas .cbound .ctag:focus-visible {
+	outline: 1px solid rgba(119, 196, 211, 0.6);
+	outline-offset: 1px;
 }
 
 .canvas .cbound.csel .ctag {
@@ -225,6 +247,9 @@
 	/* Above the flow layer (which has no z-index) so an EMPTY cell catches hover/click/right-click;
 	   placeholders only cover empty cells, so nothing interactive sits beneath them. */
 	z-index: 4;
+	/* Ease the empty-cell highlight in so a grid feels receptive, not jumpy, as you sweep over it. */
+	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		background var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 .canvas .grid-cell:hover {
 	border-color: rgba(119, 196, 211, 0.7);
@@ -238,6 +263,7 @@
 	background: transparent;
 	pointer-events: auto;
 	z-index: 5;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 .canvas .splitter.v {
 	cursor: col-resize;
@@ -258,6 +284,14 @@
 	position: absolute;
 	background: rgba(119, 196, 211, 0.28);
 	pointer-events: none;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+/* On hover the midpoint tick brightens + glows, so the boundary reads as "ready to grab". */
+.canvas .splitter:hover::after,
+.canvas .splitter:active::after {
+	background: rgba(119, 196, 211, 0.85);
+	box-shadow: 0 0 6px rgba(119, 196, 211, 0.5);
 }
 .canvas .splitter.v::after {
 	left: 50%;
@@ -282,6 +316,17 @@
 	background: rgba(119, 196, 211, 0.12);
 	pointer-events: none;
 	z-index: 3;
+	/* A quick fade as the drop target lights up, so it "announces" itself under the cursor. */
+	animation: dropzone-in var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+@keyframes dropzone-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
 }
 
 .canvas .guide {
@@ -323,6 +368,8 @@
 	box-shadow: 0 0 4px rgba(119, 196, 211, 0.9);
 	pointer-events: none;
 	z-index: 3;
+	/* The insertion line fades in as it appears, giving the landing point a touch of momentum. */
+	animation: dropzone-in var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 /* Rubber-band selection rectangle (item 3). Above the world/widgets, below the tool bars. */
@@ -357,11 +404,26 @@
 	border-radius: 4px;
 	z-index: 10;
 	pointer-events: auto;
+	/* A quick fade + tiny rise so the menu pops up with intent (not a hard cut). */
+	transform-origin: top left;
+	animation: ctx-in var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+@keyframes ctx-in {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 .canvas .ctx button {
 	background: transparent;
 	border: none;
+	border-left: 2px solid transparent;
 	color: #eee;
 	font-family: monospace;
 	font-size: 12px;
@@ -369,11 +431,14 @@
 	padding: 4px 8px;
 	border-radius: 2px;
 	cursor: pointer;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		border-left-color var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .canvas .ctx button:hover,
 .canvas .ctx button:focus-visible {
 	background: rgba(119, 196, 211, 0.25);
+	border-left-color: rgb(119, 196, 211);
 	outline: none;
 }
 
@@ -641,6 +706,23 @@
 /* Transient "✓ saved" confirmation segment (after an explicit Save). Calm green, no kbd chip. */
 .canvas .powerbar .seg.flash {
 	background: rgba(140, 200, 170, 0.16);
+	/* A small one-shot pop so a successful Save is felt, not just seen. */
+	animation: seg-saved var(--motion-slow, 240ms) var(--ease-spring, ease-out);
+}
+
+@keyframes seg-saved {
+	0% {
+		opacity: 0;
+		transform: scale(0.96);
+	}
+	60% {
+		opacity: 1;
+		transform: scale(1.04);
+	}
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
 }
 
 .canvas .powerbar .seg.flash .lbl {
@@ -656,10 +738,19 @@
 	font-size: 11px;
 	padding: 2px 6px;
 	cursor: pointer;
+	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		transform var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .canvas .studio-bar button:hover {
 	border-color: rgb(119, 196, 211);
+}
+
+/* Tactile press on toolbar buttons (transform only — no layout shift). */
+.canvas .studio-bar button:not(:disabled):active {
+	transform: translateY(1px);
 }
 
 .canvas .studio-bar button:disabled {

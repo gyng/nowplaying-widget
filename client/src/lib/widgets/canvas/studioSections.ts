@@ -1,6 +1,6 @@
 // The studio's left-rail nav: an ordered, top-down list of sections (a permanent thin nav strip
 // selects one; the panel area beside it shows that section's panel). Pure data so the order, the
-// <gap> before the foot group (Controls + Settings), the stub flags, and glyph uniqueness are
+// <gap> before the foot group (Settings), the stub flags, and glyph uniqueness are
 // unit-tested without React.
 export type SectionId =
 	| 'layouts'
@@ -10,7 +10,6 @@ export type SectionId =
 	| 'themes'
 	| 'sacks'
 	| 'saved-layouts'
-	| 'controls'
 	| 'settings';
 
 export type Section = {
@@ -18,7 +17,7 @@ export type Section = {
 	label: string; // full name (tooltip)
 	short: string; // compact label shown under the icon in the narrow strip
 	icon: string;
-	group: 'main' | 'foot'; // `foot` sits after a spacer at the bottom (the <gap> before Controls + Settings)
+	group: 'main' | 'foot'; // `foot` sits after a spacer at the bottom (the <gap> before Settings)
 	stub?: boolean; // not yet a real panel
 };
 
@@ -34,6 +33,6 @@ export const SECTIONS: Section[] = [
 	// Saved layout profiles (save the current monitor's arrangement, load it back). ⊞ is distinct
 	// from the other nav glyphs and from the in-canvas ▦ (container/grid) signifier.
 	{ id: 'saved-layouts', label: 'Saved layouts', short: 'Saved', icon: '⊞', group: 'main' },
-	{ id: 'controls', label: 'Controls', short: 'Controls', icon: '⌨', group: 'foot' },
+	// Control remaps moved into Settings → Controls; Settings is the sole foot item now.
 	{ id: 'settings', label: 'Settings', short: 'Settings', icon: '⚙', group: 'foot' }
 ];

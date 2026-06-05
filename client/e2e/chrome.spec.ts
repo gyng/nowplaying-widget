@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { gotoStudio, navItem, openSection, previewTemplate } from './helpers';
 
-// Studio shell: NavRail section switching, the designer's modal lock, and two panels that work without
-// a backend (Settings autostart, Themes editor). Real-browser state transitions the unit tests skip.
+// Studio shell: NavRail section switching, leaving a read-only preview via the rail, and two panels
+// that work without a backend (Settings autostart, Themes editor). Real-browser state transitions the
+// unit tests skip.
 
 test('NavRail switches sections and marks the active one', async ({ page }) => {
 	await gotoStudio(page);
@@ -29,16 +30,25 @@ test('NavRail switches sections and marks the active one', async ({ page }) => {
 	await expect(page.locator('.rail-panel')).toContainText('Display');
 });
 
-test('previewing a template locks the NavRail (modal) until Close', async ({ page }) => {
+test('a NavRail click leaves a read-only template preview (no dead modal)', async ({ page }) => {
 	await gotoStudio(page);
 	await previewTemplate(page, 'Network');
 
-	// Designing/previewing is modal: the nav is aria-disabled and the read-only banner shows.
-	await expect(navItem(page, 'layouts')).toHaveAttribute('aria-disabled', 'true');
+	// The read-only preview banner shows; the designer section is the active one.
 	await expect(page.locator('.def-banner')).toContainText('Previewing');
+	await expect(navItem(page, 'widget-designer')).toHaveClass(/active/);
 
+	// The rail is no longer a dead modal: clicking a section leaves the preview (nothing to save) and
+	// switches there — instead of the old confusing no-op.
+	await openSection(page, 'sensors');
+	await expect(navItem(page, 'sensors')).toHaveClass(/active/);
+	await expect(page.locator('.def-banner')).toHaveCount(0);
+
+	// And the def-banner's own Close still works as the explicit exit.
+	await previewTemplate(page, 'Network');
+	await expect(page.locator('.def-banner')).toContainText('Previewing');
 	await page.locator('.def-banner button', { hasText: 'Close' }).click();
-	await expect(navItem(page, 'layouts')).not.toHaveAttribute('aria-disabled', 'true');
+	await expect(page.locator('.def-banner')).toHaveCount(0);
 });
 
 test('Settings: launch-at-login starts off and reverts after toggle (mock reports it disabled)', async ({
@@ -46,6 +56,8 @@ test('Settings: launch-at-login starts off and reverts after toggle (mock report
 }) => {
 	await gotoStudio(page);
 	await openSection(page, 'settings');
+	// Settings is tabbed (default = Display); launch-at-login lives under the Startup tab.
+	await page.locator('.settings-panel .pl-item', { hasText: 'Startup' }).click();
 	const cb = page
 		.locator('label.rp-row', { hasText: 'launch at login' })
 		.locator('input[type=checkbox]');

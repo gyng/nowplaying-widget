@@ -11,16 +11,12 @@ describe('studio nav SECTIONS', () => {
 			'themes',
 			'sacks',
 			'saved-layouts',
-			'controls',
 			'settings'
 		]);
 	});
 
-	it('puts Controls + Settings in the foot group (the <gap> before them)', () => {
-		expect(SECTIONS.filter((s) => s.group === 'foot').map((s) => s.id)).toEqual([
-			'controls',
-			'settings'
-		]);
+	it('puts Settings in the foot group (the <gap> before it)', () => {
+		expect(SECTIONS.filter((s) => s.group === 'foot').map((s) => s.id)).toEqual(['settings']);
 	});
 
 	it('has unique ids and a non-empty icon + short label for each', () => {

@@ -8,6 +8,32 @@ body {
 	overflow: hidden;
 }
 
+/* --- Motion system -------------------------------------------------------------------------------
+   A tiny shared vocabulary so studio interactions feel consistent and SNAPPY — quick, GPU-friendly
+   transform/opacity transitions tuned for a pro editor (not floaty). Use these vars instead of
+   ad-hoc durations so the whole studio shares one feel and one reduced-motion switch. */
+:root {
+	--motion-fast: 100ms;
+	--motion: 150ms;
+	--motion-slow: 240ms;
+	/* snappy ease-out for most state changes; a gentle overshoot for "appear"/confirm moments */
+	--ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+	--ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+/* Honour the OS "reduce motion" setting everywhere (a11y): collapse animations + transitions to
+   near-instant so nothing moves for users who asked for stillness. The well-known global reset. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
 /* The studio is an opaque window; give it a dark full-window backdrop so any area not covered by a
    panel (e.g. the margins exposed when the Inspector/Outline are hidden during a template preview)
    reads as studio chrome, not the webview's default white. The overlay (no `.studio`) stays

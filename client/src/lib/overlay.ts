@@ -11,10 +11,55 @@ import {
 } from '@tauri-apps/api/window';
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
 import type { Rect } from './core/layout';
 import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
+import { monitorOptionLabel } from './monitorLabel';
 import { parseLayoutAny } from './core/migration';
+import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
+
+/** Apply the overlay z-order layer to THIS window: 'top' = always-on-top (default), 'bottom' =
+ *  always-on-bottom (below app windows), 'wallpaper' = parented to the desktop WorkerW (on the
+ *  wallpaper, behind icons) via the Rust `set_overlay_wallpaper` command. Each overlay window
+ *  self-applies — the wallpaper invoke targets the CALLING window, so it must run in that window.
+ *  Best-effort: failures are logged, never thrown (a missing WorkerW just leaves the window where
+ *  it was). */
+export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
+	const win = getCurrentWindow();
+	let detail = '';
+	let ok = true;
+	try {
+		if (layer === 'wallpaper') {
+			await win.setAlwaysOnTop(false);
+			await win.setAlwaysOnBottom(false);
+			// The Rust command returns a human-readable status (e.g. "parented to WorkerW 0x…") so the
+			// studio can show whether the wallpaper attach actually succeeded.
+			detail = await invoke<string>('set_overlay_wallpaper', { enabled: true });
+		} else {
+			// Un-parent from any WorkerW first, then set the normal z-order. Idempotent when the
+			// window was never parented (Rust SetParent to the desktop is a no-op there).
+			await invoke('set_overlay_wallpaper', { enabled: false }).catch(() => undefined);
+			if (layer === 'bottom') {
+				await win.setAlwaysOnTop(false);
+				await win.setAlwaysOnBottom(true);
+				detail = 'below windows (always-on-bottom)';
+			} else {
+				await win.setAlwaysOnBottom(false);
+				await win.setAlwaysOnTop(true);
+				detail = 'always on top';
+			}
+		}
+	} catch (err) {
+		ok = false;
+		detail = String(err);
+		console.warn('applyOverlayLayer failed', layer, err);
+	}
+	// Surface the result: log to this window's console + broadcast so the studio Settings can show it
+	// (cross-window verification — "is the wallpaper/below mode actually applied on the overlay?").
+	console.info(`[overlay] layer '${layer}' on ${win.label}: ${ok ? 'OK' : 'FAILED'} — ${detail}`);
+	emit('overlay_layer_status', { layer, ok, detail, label: win.label }).catch(() => undefined);
+}
 
 /** The set of saved-layout monitor keys that hold at least one widget (so an overlay there would
  * render something). Keys: 'default' (primary) or the monitor index, matching studioMonitorOptions.
@@ -41,8 +86,15 @@ async function populatedMonitorKeys(): Promise<Set<string>> {
 export async function setMainWindowVisible(visible: boolean): Promise<void> {
 	try {
 		const win = getCurrentWindow();
-		if (visible) await win.show();
-		else await win.hide();
+		if (visible) {
+			await win.show();
+			// show() raises the window to the top of its z-order, so re-assert the chosen layer AFTER
+			// it — otherwise 'bottom'/'wallpaper' don't stick on startup (the overlay sits on top until
+			// some other window gets activated). Tauri's always-on-bottom is a one-shot HWND_BOTTOM.
+			await applyOverlayLayer(readOverlayPrefs().overlayLayer);
+		} else {
+			await win.hide();
+		}
 	} catch (err) {
 		console.warn('setMainWindowVisible failed', err);
 	}
@@ -96,10 +148,11 @@ export async function fillPrimaryMonitor(): Promise<void> {
 	try {
 		await win.setDecorations(false);
 		await win.setShadow(false);
-		// #13: other always-on-top windows can silently steal topmost; re-assert it here.
-		await win.setAlwaysOnTop(true);
+		// #13: other always-on-top windows can silently steal topmost; re-assert the chosen z-order
+		// layer here (also re-runs on scale change, so the layer survives a DPI hot-plug).
+		await applyOverlayLayer(readOverlayPrefs().overlayLayer);
 	} catch (err) {
-		console.warn('setDecorations/setShadow/setAlwaysOnTop failed', err);
+		console.warn('setDecorations/setShadow/overlay layer failed', err);
 	}
 	// #12: DPI/scale hot-plug. When the primary monitor's scale factor changes at runtime
 	// (resolution/scale change, or this window moving to a differently-scaled display), the
@@ -448,7 +501,11 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export async function studioMonitorOptions(): Promise<
 	{ key: string; label: string; name: string; w: number; h: number }[]
 > {
-	const [all, primary] = await Promise.all([availableMonitors(), primaryMonitor()]);
+	const [all, primary, friendlyByDevice] = await Promise.all([
+		availableMonitors(),
+		primaryMonitor(),
+		displayNamesByDevice()
+	]);
 	return all.map((m, i) => {
 		const isPrimary =
 			!!primary && m.position.x === primary.position.x && m.position.y === primary.position.y;
@@ -458,18 +515,44 @@ export async function studioMonitorOptions(): Promise<
 		const h = Math.round(m.size.height / m.scaleFactor);
 		// Identify by the OS device name (e.g. "\\.\DISPLAY3" → "DISPLAY3") + the monitor's
 		// virtual-desktop position, NOT the arbitrary enumeration index — so the label names the
-		// PHYSICAL monitor the layout drives (the DISPLAYn number usually matches Windows' own).
+		// PHYSICAL monitor the layout drives (the DISPLAYn number usually matches Windows' own). The
+		// Win32 backend supplies the friendly/EDID model name keyed on the same tag; it's appended to
+		// the label when known (blank on non-Windows / virtual panels → the tag stands alone).
 		const name = (m.name ?? '').replace(/^[\\.?]+/, '') || `Monitor ${i + 1}`;
+		// Case-insensitive merge: GDI device names are uppercase on both sides today, but normalizing the
+		// lookup key guards against the friendly name silently vanishing if either source ever differs.
+		const friendly = friendlyByDevice.get(name.toUpperCase()) ?? '';
 		return {
 			key: isPrimary ? 'default' : String(i),
-			label: `${name}${isPrimary ? ' (primary)' : ''} · ${w}×${h} @ ${m.position.x},${
-				m.position.y
-			}`,
+			label: monitorOptionLabel({
+				device: name,
+				friendly,
+				isPrimary,
+				w,
+				h,
+				x: m.position.x,
+				y: m.position.y
+			}),
 			name,
 			w,
 			h
 		};
 	});
+}
+
+/** Friendly monitor names from the Win32 backend (`list_display_names`), keyed by the stripped GDI
+ * device tag (DISPLAYn) so it lines up with `studioMonitorOptions`' own `name`. Returns an empty Map on
+ * non-Windows / a plain browser / tests, or if the command is unavailable — callers fall back to the
+ * device tag alone. */
+async function displayNamesByDevice(): Promise<Map<string, string>> {
+	try {
+		const list = (await invoke<{ gdi: string; friendly: string }[]>('list_display_names')) ?? [];
+		return new Map(
+			list.map((d) => [d.gdi.replace(/^[\\.?]+/, '').toUpperCase(), (d.friendly ?? '').trim()])
+		);
+	} catch {
+		return new Map();
+	}
 }
 
 /** Open (or focus) the studio window — a normal, decorated, taskbar-present app window
@@ -506,6 +589,9 @@ export async function reconcileOverlays(): Promise<void> {
 		populatedMonitorKeys()
 	]);
 	const byLabel = new Map(existing.map((w) => [w.label, w]));
+	// The chosen z-order layer seeds each new overlay's initial flag; the secondary then self-applies
+	// the full layer (incl. wallpaper, which must be invoked from its OWN webview) via its Canvas.
+	const layer = readOverlayPrefs().overlayLayer;
 
 	for (let i = 0; i < monitors.length; i++) {
 		const m = monitors[i];
@@ -530,7 +616,7 @@ export async function reconcileOverlays(): Promise<void> {
 			// No window shadow: on Windows an undecorated window otherwise keeps a thin
 			// accent-coloured border line (tauri-apps/discussions/9469).
 			shadow: false,
-			alwaysOnTop: true,
+			alwaysOnTop: layer === 'top',
 			skipTaskbar: true,
 			focus: false,
 			visible: false,
@@ -549,8 +635,15 @@ export async function reconcileOverlays(): Promise<void> {
 				await w.setShadow(false);
 				await w.setIgnoreCursorEvents(true);
 				await w.show();
-				// #13: re-assert topmost after show — other always-on-top windows can steal it.
-				await w.setAlwaysOnTop(true);
+				// #13: seed the z-order after show (other always-on-top windows can steal topmost).
+				// 'wallpaper' is NOT applied here — its Rust SetParent must run from the secondary's
+				// own webview, so the secondary self-parents via its Canvas effect on mount.
+				if (layer === 'bottom') {
+					await w.setAlwaysOnTop(false);
+					await w.setAlwaysOnBottom(true);
+				} else if (layer === 'top') {
+					await w.setAlwaysOnTop(true);
+				}
 				// #12: DPI/scale hot-plug. Re-fit this overlay to monitor `m` (captured) when its
 				// scale factor changes at runtime. Scale-change only — physical monitor add/remove
 				// is out of scope here (reconcileOverlays handles open/close on layout change).
