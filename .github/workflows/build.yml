@@ -58,8 +58,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # artifactPaths is a JSON array of absolute bundle paths.
-          readarray -t FILES < <(printf '%s' "$ARTIFACTS" | jq -r '.[]')
+          # artifactPaths is a JSON array of absolute bundle paths. On the Windows runner jq emits
+          # CRLF, and `readarray -t` only strips the trailing \n — the surviving \r made the path
+          # `…setup.exe\r`, which `gh release upload` reported as "no matches found". Strip \r, and
+          # normalise the Windows backslashes to forward slashes so gh's path/glob handling can't
+          # mistake a backslash for an escape.
+          readarray -t FILES < <(printf '%s' "$ARTIFACTS" | jq -r '.[]' | tr -d '\r' | tr '\\' '/')
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "::error::tauri-action produced no artifacts to upload"; exit 1
           fi
