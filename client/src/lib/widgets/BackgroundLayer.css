@@ -1,0 +1,36 @@
+/* The full-monitor wallpaper layer: fills the canvas, sits BEHIND every widget (z-index 0; .world is
+   above it), and is fully non-interactive so it never catches a click meant for the desktop or a
+   widget. One per monitor; mounted by Canvas only when it should show (studio preview, or an overlay
+   that sits below windows). */
+.bg-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* color / image fill — a single full-bleed div (background-color or background-image with the fit
+   props from core/background.ts). */
+.bg-layer .bg-fill {
+	position: absolute;
+	inset: 0;
+}
+
+/* video / web — a media element stretched to fill, object-fit set inline per the chosen fit. */
+.bg-layer .bg-media {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border: none;
+	/* belt-and-braces: the wrapper is already pointer-events:none, but a nested iframe can re-enable
+	   it, so pin it off here too. */
+	pointer-events: none;
+}
+
+/* Optional dark scrim over the media to keep widget text legible on a busy/bright wallpaper. */
+.bg-layer .bg-dim {
+	position: absolute;
+	inset: 0;
+}
