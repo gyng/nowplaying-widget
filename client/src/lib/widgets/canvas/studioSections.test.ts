@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SECTIONS } from './studioSections';
+import { RAIL_ORDER, SECTIONS } from './studioSections';
 
 describe('studio nav SECTIONS', () => {
 	it('lists the sections top-down in the intended order', () => {
@@ -36,5 +36,24 @@ describe('studio nav SECTIONS', () => {
 		const icons = SECTIONS.map((s) => s.icon);
 		expect(icons).not.toContain('⧉');
 		expect(icons).not.toContain('▦');
+	});
+});
+
+describe('RAIL_ORDER (keyboard section-jump order)', () => {
+	it('matches the NavRail render order: the main group first, then the foot group', () => {
+		const expected = [
+			...SECTIONS.filter((s) => s.group === 'main'),
+			...SECTIONS.filter((s) => s.group === 'foot')
+		].map((s) => s.id);
+		expect(RAIL_ORDER.map((s) => s.id)).toEqual(expected);
+	});
+
+	it('is a permutation of SECTIONS (every section reachable by Ctrl+1..8, none duplicated)', () => {
+		expect(RAIL_ORDER).toHaveLength(SECTIONS.length);
+		expect(new Set(RAIL_ORDER.map((s) => s.id))).toEqual(new Set(SECTIONS.map((s) => s.id)));
+	});
+
+	it('puts Settings last so its Ctrl+digit index is the bottom rail button', () => {
+		expect(RAIL_ORDER[RAIL_ORDER.length - 1].id).toBe('settings');
 	});
 });

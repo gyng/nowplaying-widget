@@ -46,6 +46,13 @@ export default function HaSettings() {
 	const [saved, setSaved] = useState(false);
 	const [test, setTest] = useState<TestState>({ kind: 'idle' });
 
+	// Auto-dismiss the "Saved ✓" tick like a toast (it otherwise lingers until the next edit).
+	useEffect(() => {
+		if (!saved) return;
+		const t = setTimeout(() => setSaved(false), 2500);
+		return () => clearTimeout(t);
+	}, [saved]);
+
 	// Entity browser state: the fetched entities, a search filter, and the (persisted) exposed
 	// allowlist of `ha.<entity_id>` ids that curate the inspector dropdown.
 	const [entities, setEntities] = useState<HaEntity[]>([]);
@@ -307,10 +314,21 @@ export default function HaSettings() {
 			</details>
 
 			<div className="has-actions">
-				<button type="button" onClick={onTest} disabled={url.trim().length === 0}>
+				<button
+					type="button"
+					onClick={onTest}
+					disabled={url.trim().length === 0}
+					aria-busy={test.kind === 'testing'}
+				>
 					{test.kind === 'testing' ? 'Testing…' : 'Test connection'}
 				</button>
-				<button type="button" className="has-primary" onClick={onSave} disabled={!canSubmit}>
+				<button
+					type="button"
+					className="has-primary"
+					onClick={onSave}
+					disabled={!canSubmit}
+					aria-busy={saving}
+				>
 					{saving ? 'Saving…' : 'Save & connect'}
 				</button>
 				{saved && <span className="has-ok">Saved ✓</span>}

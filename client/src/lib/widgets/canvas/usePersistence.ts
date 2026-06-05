@@ -25,12 +25,14 @@ type PersistView = {
 };
 
 export type Persistence = {
-	// Flush the debounced preview write now (Save): writes incl. queued cross-monitor moves.
-	persistToDisk: (extras: Extra[]) => Promise<void>;
+	// Flush the debounced preview write now (Save): writes incl. queued cross-monitor moves. Resolves
+	// `true` on a successful disk write, `false` if save_layout rejected — the caller (commitSave) must
+	// NOT clear the dirty flag / show "saved" on `false`, else an unwritten layout looks persisted.
+	persistToDisk: (extras: Extra[]) => Promise<boolean>;
 	// Write a specific saved baseline back to disk (revertDraftToDisk / discard-on-switch). Used
 	// instead of persistToDisk because the reducer's revert set lags a render — we write the
 	// baseline values directly so the overlays return to the last-saved state immediately.
-	writeBaseline: (b: Baseline, myMonitor: string) => Promise<void>;
+	writeBaseline: (b: Baseline, myMonitor: string) => Promise<boolean>;
 	schedulePreviewWrite: () => void;
 	clearPreviewWrite: () => void;
 };
@@ -62,7 +64,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 	// write — but the library set is reducer-owned. The Canvas runs `endDefEdit`/save through the
 	// reducer; for a mid-def preview write we fold a LOCAL copy here (mirrors syncEditingDef) so the
 	// on-disk library stays in sync without mutating reducer state.
-	const persistToDisk = useCallback(async (extras: Extra[]): Promise<void> => {
+	const persistToDisk = useCallback(async (extras: Extra[]): Promise<boolean> => {
 		const v = view.current;
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
@@ -102,15 +104,17 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
 			await invoke('save_layout', { contents: JSON.stringify(out, null, 2) });
+			return true;
 		} catch (err) {
 			console.warn('save_layout failed', err);
+			return false;
 		}
 	}, []);
 
 	// Write a specific baseline straight to disk (revert path): merge the file's other monitors +
 	// library/theme/tokens with the baseline's values for THIS monitor. Mirrors persistToDisk but
 	// sources the editor values from `b` (and the baseline is never mid-def, so no def fold).
-	const writeBaseline = useCallback(async (b: Baseline, myMonitor: string): Promise<void> => {
+	const writeBaseline = useCallback(async (b: Baseline, myMonitor: string): Promise<boolean> => {
 		let monitors: LayoutV2['monitors'] = {};
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
@@ -133,8 +137,10 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
 			await invoke('save_layout', { contents: JSON.stringify(out, null, 2) });
+			return true;
 		} catch (err) {
 			console.warn('save_layout failed', err);
+			return false;
 		}
 	}, []);
 

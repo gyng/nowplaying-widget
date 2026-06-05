@@ -3,13 +3,16 @@
 // the hub's seen sensors + every source's catalog (so not-yet-emitted sensors still show as "—").
 // Optionally: a filter box (with a live count), collapsible groups by source, and/or a per-row
 // "from <plugin>" badge — the Sensors section groups by source; the Plugins section uses a plain list.
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { useSensor } from './useSensor';
 import { displaySensorValue, filterSensorIds, groupSensorIds } from '../core/sensorList';
 import type { SensorActivity } from '../core/sensorActivity';
 import type { TelemetryHub } from '../core/telemetry';
 
-function SensorRow({
+// Memoized: a catalog can be hundreds of rows, each with its own live useSensor subscription. Without
+// memo, any SensorList parent re-render (the studio Canvas, on any interaction) reconciles every row;
+// memo keeps a re-render scoped to the rows whose own sensor actually ticked (or whose props changed).
+const SensorRow = memo(function SensorRow({
 	hub,
 	id,
 	badge,
@@ -45,7 +48,7 @@ function SensorRow({
 			</span>
 		</div>
 	);
-}
+});
 
 type Props = {
 	hub: TelemetryHub;

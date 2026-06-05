@@ -36,3 +36,12 @@ export const SECTIONS: Section[] = [
 	// Control remaps moved into Settings → Controls; Settings is the sole foot item now.
 	{ id: 'settings', label: 'Settings', short: 'Settings', icon: '⚙', group: 'foot' }
 ];
+
+// The sections in the exact top-to-bottom order the NavRail renders them: the `main` group first,
+// then the `foot` group after the spacer. Keyboard section-jump (Ctrl+1..8) and Next/Prev cycle index
+// THIS, so the numeric/cycle order always tracks the visible rail even if the two groups are
+// reordered independently (a unit test pins this to the rail order).
+export const RAIL_ORDER: Section[] = [
+	...SECTIONS.filter((s) => s.group === 'main'),
+	...SECTIONS.filter((s) => s.group === 'foot')
+];

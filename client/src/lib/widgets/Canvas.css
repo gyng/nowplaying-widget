@@ -812,6 +812,11 @@
 	color: #aaa;
 	cursor: pointer;
 	font-size: 12px;
+	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .theme-editor .te-close:hover {
+	color: #eee;
 }
 
 .canvas .theme-editor .te-name {

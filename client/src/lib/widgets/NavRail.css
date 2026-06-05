@@ -52,6 +52,13 @@
 	border-left-color: rgb(119, 196, 211);
 }
 
+/* Inset the keyboard-focus ring on the flush full-width rail items (the global offset:1px baseline
+   would clip against the rail edge). */
+.canvas .nav-rail .nav-item:focus-visible {
+	outline: 2px solid rgb(150, 214, 228);
+	outline-offset: -2px;
+}
+
 .canvas .nav-rail .nav-icon {
 	font-size: 16px;
 	line-height: 1.1;
@@ -223,6 +230,18 @@
 	color: #888;
 	padding: 3px 6px;
 	cursor: pointer;
+	/* Reveal on hover/selection/focus (mirrors the Outline's .mv treatment) so the resting row stays
+	   uncluttered and the destructive ✕ isn't a live target at rest — but the buttons stay in the DOM
+	   and tab order for keyboard reach (:focus-within brings them in when tabbed to). */
+	opacity: 0;
+	transition: opacity var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .designer-list .dl-item:hover .dl-icon,
+.canvas .designer-list .dl-item.cur .dl-icon,
+.canvas .designer-list .dl-item:focus-within .dl-icon {
+	opacity: 1;
 }
 
 .canvas .designer-list .dl-icon:hover:not(:disabled) {
@@ -976,6 +995,19 @@
 
 .canvas .plugins-panel .has-badge.busy {
 	color: rgb(150, 214, 228);
+	/* Gentle pulse while a connection is in flight, so a slow/stuck connect reads differently from a
+	   settled one. Floor stays readable (0.55); the global reduced-motion reset disables it. */
+	animation: badge-pulse 1.2s var(--ease-out, ease-out) infinite;
+}
+
+@keyframes badge-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.55;
+	}
 }
 
 .canvas .plugins-panel .has-badge.warn {
@@ -1068,9 +1100,30 @@
 	cursor: not-allowed;
 }
 
+/* In-flight (Testing…/Saving…/Refreshing…) affordance: a busy cursor + slight dim so a slow round-trip
+   reads as "working", not "did my click register?". Paired with aria-busy on the button. */
+.canvas .plugins-panel .has-actions button[aria-busy='true'] {
+	cursor: progress;
+	opacity: 0.85;
+}
+
 .canvas .plugins-panel .has-ok {
 	color: rgb(140, 214, 160);
 	font-size: 11px;
+	/* The only save feedback in the studio with no motion otherwise — give it a gentle entrance so the
+	   tick reads as a confirmation event (it auto-dismisses from the component after ~2.5s). */
+	animation: has-ok-in var(--motion, 150ms) var(--ease-spring, ease-out);
+}
+
+@keyframes has-ok-in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 .canvas .plugins-panel .has-test {

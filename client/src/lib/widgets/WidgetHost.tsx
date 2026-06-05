@@ -3,6 +3,7 @@
 // the widget and corner/edge handles resize it; both report rect changes up via the `onChange`
 // callback. The seven Svelte dispatch events become seven callback props.
 import {
+	memo,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -82,7 +83,7 @@ const HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 // selects. Without this, clicking an in-flow widget dispatches a `drop` = moves it to a slot.
 const DRAG_SLOP = 3;
 
-export default function WidgetHost({
+function WidgetHost({
 	hub,
 	instance,
 	editMode = false,
@@ -406,3 +407,9 @@ export default function WidgetHost({
 		</div>
 	);
 }
+
+// Memoized: Canvas owns ALL editor state, so any selection/hover/drag/menu tick re-renders Canvas.
+// Without this every WidgetHost (and its sensor/formula machinery) reconciles on each interaction.
+// The render-affecting props are primitives/stable refs and Canvas useCallback's the callbacks, so
+// this memoizes cleanly — the single highest-leverage perf win in the studio tree.
+export default memo(WidgetHost);

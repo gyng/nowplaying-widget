@@ -40,7 +40,9 @@ describe('stt', () => {
 
 	it('stop() resolves (does not hang) even when the recorder already went inactive', async () => {
 		const tracks = [{ stop: vi.fn() }];
-		let inst: { state: string; onstop: (() => void) | null } | undefined;
+		// Record each constructed recorder (pushing `this` is not a `this`-alias) so the test can reach in
+		// and simulate the recorder auto-stopping before the user clicks stop.
+		const created: FakeRecorder[] = [];
 		class FakeRecorder {
 			state = 'recording';
 			mimeType = 'audio/webm';
@@ -48,14 +50,16 @@ describe('stt', () => {
 			onstop: (() => void) | null = null;
 			onerror: (() => void) | null = null;
 			constructor() {
-				inst = this;
+				created.push(this);
 			}
-			start() {}
-			stop() {
+			start(): void {
+				/* no-op: the mock doesn't capture audio */
+			}
+			stop(): void {
 				this.state = 'inactive';
 				this.onstop?.();
 			}
-			static isTypeSupported() {
+			static isTypeSupported(): boolean {
 				return true;
 			}
 		}
@@ -65,8 +69,10 @@ describe('stt', () => {
 		});
 
 		const rec = await startRecording();
+		const inst = created[0];
+		if (!inst) throw new Error('expected a FakeRecorder to be constructed');
 		// Simulate the recorder auto-stopping (e.g. mic unplugged) before the user clicks stop.
-		inst!.state = 'inactive';
+		inst.state = 'inactive';
 		const result = await rec.stop(); // must settle, not hang
 		expect(result.mime).toMatch(/audio/);
 		expect(tracks[0].stop).toHaveBeenCalled(); // mic released

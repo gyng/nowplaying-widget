@@ -2,7 +2,7 @@
 // the floating layer. Structural editing only — select, reorder (↑/↓), reparent
 // (⟸ out / ⟹ in), dock (⤒) / float (⤓), remove (✕), and add containers. All changes
 // go up as a single `op` event; the Canvas applies them via core/layoutEdit.
-import { useMemo, useState, type DragEvent as ReactDragEvent } from 'react';
+import { memo, useMemo, useState, type DragEvent as ReactDragEvent } from 'react';
 import { isContainer, type Container, type LayoutNode, type Leaf } from '../core/layoutTree';
 import { isGroup } from '../core/layoutTree';
 import { outlineRows } from '../core/layoutEdit';
@@ -26,7 +26,7 @@ type Props = {
 	onOp?: (op: LayoutOp) => void;
 };
 
-export default function Outline({
+function Outline({
 	root,
 	floating = [],
 	selectedId = null,
@@ -268,3 +268,8 @@ export default function Outline({
 		</div>
 	);
 }
+
+// Memoized: the Outline re-renders on every Canvas render (hover, selection, drag) even though its
+// props rarely change. Memo so a pointer move on the stage only repaints the two affected rows via
+// the hoverId prop diff, not the whole tree. Props are stable (root memo + Canvas useCallback'd).
+export default memo(Outline);

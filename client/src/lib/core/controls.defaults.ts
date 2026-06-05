@@ -27,12 +27,15 @@ const nudgeTriggers: Trigger[] = ARROWS.flatMap((key) => [
 const CONTROLS: Control[] = [
 	// ---- keyboard (not advertised in the bar: standard shortcuts) ----
 	{
+		// Escape backs out: close an open context/overflow menu if one is up, else clear the selection.
+		// One control owns Escape (a second same-scope Escape binding would register as a conflict); the
+		// Canvas handler picks which action based on whether a menu is open.
 		id: 'studio.closeMenu',
 		scope: 'studio',
 		group: 'edit',
-		label: 'Close menu',
+		label: 'Close menu / deselect',
 		triggers: [{ type: 'key', key: 'escape' }],
-		when: (c) => c.menuOpen,
+		when: (c) => c.menuOpen || (c.studio && c.hasSelection),
 		allowInInput: true
 	},
 	{
@@ -144,6 +147,16 @@ const CONTROLS: Control[] = [
 		hintOrder: 7,
 		hint: () => 'Arrows',
 		hintLabel: (c) => ((c.selectionCount ?? 0) > 1 ? `nudge (${c.selectionCount})` : 'nudge')
+	},
+	{
+		// Select every widget on the monitor. allowInInput stays false so Ctrl+A inside a text field
+		// selects the field's text natively (the hook's text-field guard returns early there).
+		id: 'studio.selectAll',
+		scope: 'studio',
+		group: 'selection',
+		label: 'Select all',
+		triggers: [{ type: 'key', key: 'a', ctrl: true }],
+		when: canEdit
 	},
 	// ---- pointer (the curated gesture bar) ----
 	{

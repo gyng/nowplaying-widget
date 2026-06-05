@@ -43,3 +43,28 @@ body {
 	inset: 0;
 	background: #0b0b0e;
 }
+
+/* Visually-hidden but kept in the accessibility tree: screen-reader-only labels + polite live regions
+   (e.g. the studio's "Layout saved" announcement). The well-known clip technique. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Keyboard-focus baseline (WCAG 2.4.7 Focus Visible): a consistent mint ring on any keyboard-focused
+   control inside the app. `:focus-visible` only matches keyboard/programmatic focus, so a mouse click
+   never draws the ring. Many studio surfaces (nav rail, top bar, inspector, menus) previously styled
+   only :hover and showed NO focus at all. Components that intentionally swap the ring for a
+   border-colour change keep `el:focus { outline: none; … }` — that selector is more specific than this
+   baseline, so it still wins for those inputs; everything else inherits this ring. */
+.canvas :focus-visible {
+	outline: 2px solid rgb(150, 214, 228);
+	outline-offset: 1px;
+}

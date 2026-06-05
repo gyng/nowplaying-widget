@@ -147,7 +147,7 @@ import { buildDebugInfo } from './canvas/debugInfo';
 import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
 import { usePaneSizes } from './canvas/usePaneSizes';
 import MultiInspector from './MultiInspector';
-import { SECTIONS, type SectionId } from './canvas/studioSections';
+import { RAIL_ORDER, type SectionId } from './canvas/studioSections';
 import { mergeLibrary, packSack, unpackSack } from '../core/sack';
 import { packLayout, unpackLayout } from '../core/savedLayout';
 import { useStudioInit } from './canvas/useStudioInit';
@@ -1156,7 +1156,17 @@ export default function Canvas({ studio = false }: Props) {
 	const commitSave = useCallback(async () => {
 		if (!studio) return;
 		clearPreviewWrite();
-		await persistToDisk(pendingExtrasRef.current);
+		const ok = await persistToDisk(pendingExtrasRef.current);
+		if (!ok) {
+			// Hard failure (disk full / file locked / permissions): keep `dirty` true and the pending
+			// cross-monitor moves queued (so a retry re-attempts them), and tell the user plainly. Flashing
+			// "✓ saved" + clearing the dirty cue here — as we used to — would hide real data loss.
+			window.alert(
+				'Could not save the layout to disk — your changes are NOT saved. ' +
+					'Check that widgets.json is writable, then try again.'
+			);
+			return;
+		}
 		dispatch({ type: 'patch', patch: { pendingExtras: [] } });
 		dispatch({ type: 'setBaseline' });
 		// Flash a transient confirmation in the powerbar (the write reached disk → the overlays reload).
@@ -2113,15 +2123,24 @@ export default function Canvas({ studio = false }: Props) {
 	designingRef.current = designing;
 	const gotoSection = useCallback((index: number) => {
 		if (designingRef.current) return;
-		const s = SECTIONS[index];
+		// Index the SAME grouped sequence the NavRail renders (main group, then foot), so Ctrl+1..8
+		// lands on the i-th visible rail button even if the section groups are reordered independently.
+		const s = RAIL_ORDER[index];
 		if (s) setNavSection(s.id);
 	}, []);
 	const cycleSection = useCallback((delta: number) => {
 		if (designingRef.current) return;
-		const ids = SECTIONS.map((s) => s.id);
+		const ids = RAIL_ORDER.map((s) => s.id);
 		const i = ids.indexOf(navSectionRef.current);
 		setNavSection(ids[(i + delta + ids.length) % ids.length]);
 	}, []);
+
+	// Select every widget on the monitor (Ctrl+A) — the distinct selectIds across all renderables, i.e.
+	// the same set a full-canvas marquee would catch. Reads from the ref so the handler stays stable.
+	const selectAll = useCallback(() => {
+		const ids = Array.from(new Set(renderablesRef.current.map((r) => r.selectId)));
+		if (ids.length) setSelection(ids, ids[ids.length - 1]);
+	}, [setSelection]);
 
 	// --- keyboard ---
 	const dirtyKbRef = useRef(dirty);
@@ -2141,12 +2160,15 @@ export default function Canvas({ studio = false }: Props) {
 		}),
 		overrides: () => overridesRef.current,
 		handlers: {
-			'studio.closeMenu': closeMenu,
+			// Escape: close an open menu first; otherwise clear the selection (the control's `when`
+			// already gates this to "a menu is open OR something is selected").
+			'studio.closeMenu': () => (menuRef.current !== null ? closeMenu() : clearSelection()),
 			'global.toggleEdit': () => emit('toggle_edit'), // broadcast: every monitor's overlay toggles
 			'studio.save': commitSave,
 			'studio.undo': undo,
 			'studio.redo': redo,
 			'studio.delete': deleteSelected,
+			'studio.selectAll': selectAll,
 			'studio.sectionNext': () => cycleSection(1),
 			'studio.sectionPrev': () => cycleSection(-1)
 		},
@@ -2550,15 +2572,21 @@ export default function Canvas({ studio = false }: Props) {
 								{/* Primary bar (always): identity, current monitor, persistence. The canvas-only
 								    controls live in the contextual subbar below, shown only on a stage. */}
 								<div className="studio-bar">
+									{/* Persistent polite live region: announces the "✓ saved" confirmation to screen
+									    readers in ANY section (the visible flash lives in the section-gated powerbar,
+									    so it can't carry the announcement on its own). */}
+									<span className="sr-only" role="status" aria-live="polite">
+										{savedFlash ? 'Layout saved' : ''}
+									</span>
 									<button
 										type="button"
 										className="hmenu"
-										title="Menu"
+										aria-label="Menu"
 										aria-haspopup="menu"
 										aria-expanded={headerMenuOpen}
 										onClick={() => setHeaderMenuOpen((o) => !o)}
 									>
-										≡
+										<span aria-hidden="true">≡</span>
 									</button>
 									<span className="lbl">Studio</span>
 									<Select

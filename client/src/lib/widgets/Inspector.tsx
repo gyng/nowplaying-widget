@@ -588,11 +588,28 @@ export default function Inspector({
 			</details>
 
 			{node && (
-				<div className="detail-tabs" role="tablist">
+				<div
+					className="detail-tabs"
+					role="tablist"
+					aria-label="Inspector view"
+					// WAI-ARIA tabs pattern: Left/Right move selection (the active tab is the sole tab stop
+					// via roving tabindex; the inactive one is -1). With two tabs each arrow toggles.
+					onKeyDown={(e) => {
+						if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+						e.preventDefault();
+						const next = detailTab === 'form' ? 'data' : 'form';
+						setDetailTab(next);
+						const tabs = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+						(next === 'form' ? tabs[0] : tabs[1])?.focus();
+					}}
+				>
 					<button
 						type="button"
 						role="tab"
+						id="inspector-tab-form"
+						aria-controls="inspector-panel-form"
 						aria-selected={detailTab === 'form'}
+						tabIndex={detailTab === 'form' ? 0 : -1}
 						className={detailTab === 'form' ? 'active' : undefined}
 						onClick={() => setDetailTab('form')}
 					>
@@ -601,7 +618,10 @@ export default function Inspector({
 					<button
 						type="button"
 						role="tab"
+						id="inspector-tab-data"
+						aria-controls="inspector-panel-data"
 						aria-selected={detailTab === 'data'}
+						tabIndex={detailTab === 'data' ? 0 : -1}
 						className={detailTab === 'data' ? 'active' : undefined}
 						onClick={() => setDetailTab('data')}
 					>
@@ -611,7 +631,13 @@ export default function Inspector({
 			)}
 
 			{node && detailTab === 'data' ? (
-				<div className="fields data-tab">
+				<div
+					className="fields data-tab"
+					role="tabpanel"
+					id="inspector-panel-data"
+					aria-labelledby="inspector-tab-data"
+					tabIndex={0}
+				>
 					<div className="data-bar">
 						<button
 							type="button"
@@ -675,7 +701,13 @@ export default function Inspector({
 					)}
 				</div>
 			) : container ? (
-				<div className="fields">
+				<div
+					className="fields"
+					role="tabpanel"
+					id="inspector-panel-form"
+					aria-labelledby="inspector-tab-form"
+					tabIndex={0}
+				>
 					<span className="hd node-hd" title={`${container.kind} · ${container.id}`}>
 						{container.kind} · {container.id}
 					</span>
@@ -864,7 +896,13 @@ export default function Inspector({
 					</div>
 				</div>
 			) : widget ? (
-				<div className="fields">
+				<div
+					className="fields"
+					role="tabpanel"
+					id="inspector-panel-form"
+					aria-labelledby="inspector-tab-form"
+					tabIndex={0}
+				>
 					<span className="hd node-hd" title={`${widget.type} · ${widget.id}`}>
 						{widget.type} · {widget.id}
 					</span>

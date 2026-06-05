@@ -35,8 +35,16 @@ export default function MqttSettings() {
 	const [configured, setConfigured] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const [entries, setEntries] = useState<MqttCatalogEntry[]>([]);
 	const [refreshing, setRefreshing] = useState(false);
+
+	// Auto-dismiss the "Saved ✓" tick like a toast (it otherwise lingers until the next edit).
+	useEffect(() => {
+		if (!saved) return;
+		const t = setTimeout(() => setSaved(false), 2500);
+		return () => clearTimeout(t);
+	}, [saved]);
 
 	useEffect(() => {
 		let alive = true;
@@ -68,6 +76,7 @@ export default function MqttSettings() {
 	const onSave = async () => {
 		if (!canSubmit) return;
 		setSaving(true);
+		setSaveError(null);
 		try {
 			await saveMqttConfig({
 				host: host.trim(),
@@ -86,6 +95,10 @@ export default function MqttSettings() {
 			setPassword(''); // back to write-only / unchanged
 			setSaved(true);
 			setEntries(await refreshMqttCatalog());
+		} catch (err) {
+			// Surface the failure instead of swallowing it (was a silent try/finally → unhandled rejection).
+			setSaved(false);
+			setSaveError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setSaving(false);
 		}
@@ -244,11 +257,18 @@ export default function MqttSettings() {
 			</details>
 
 			<div className="has-actions">
-				<button type="button" className="has-primary" onClick={onSave} disabled={!canSubmit}>
+				<button
+					type="button"
+					className="has-primary"
+					onClick={onSave}
+					disabled={!canSubmit}
+					aria-busy={saving}
+				>
 					{saving ? 'Saving…' : 'Save & connect'}
 				</button>
 				{saved && <span className="has-ok">Saved ✓</span>}
 			</div>
+			{saveError && <div className="has-test err">Couldn&rsquo;t save: {saveError}</div>}
 
 			<div className="rp-hd">Topics</div>
 			<div className="has-help">

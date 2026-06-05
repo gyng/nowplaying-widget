@@ -56,6 +56,13 @@ export default function LlmSettings() {
 	const [models, setModels] = useState<LlmModel[]>([]);
 	const [agentControl, setAgentControl] = useState(false);
 
+	// Auto-dismiss the "Saved ✓" tick like a toast (it otherwise lingers until the next edit).
+	useEffect(() => {
+		if (!saved) return;
+		const t = setTimeout(() => setSaved(false), 2500);
+		return () => clearTimeout(t);
+	}, [saved]);
+
 	const meta = providerMeta(provider);
 
 	useEffect(() => {
@@ -299,7 +306,13 @@ export default function LlmSettings() {
 			</details>
 
 			<div className="has-actions">
-				<button type="button" className="has-primary" onClick={onSave} disabled={!canSubmit}>
+				<button
+					type="button"
+					className="has-primary"
+					onClick={onSave}
+					disabled={!canSubmit}
+					aria-busy={saving}
+				>
 					{saving ? 'Saving…' : 'Save'}
 				</button>
 				<button type="button" onClick={onTest} disabled={saving}>
