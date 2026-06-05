@@ -10,8 +10,19 @@ import {
 	type Condition,
 	type ConditionContext
 } from '../../core/condition';
+import type { WindowDescriptor } from '../../core/windowMatch';
 
 export type ConditionalNode = { id: string; condition: Condition };
+
+/** A stable, order-independent signature of the open-window set, over ONLY the fields conditions
+ * match on (exe/className/title). Used for change-detection so window moves, z-order churn, or handle
+ * changes (which appOpen ignores) don't trigger needless re-renders every poll. Pure. */
+export function windowsKey(windows: readonly WindowDescriptor[]): string {
+	return windows
+		.map((w) => `${w.exe}|${w.className}|${w.title}`)
+		.sort()
+		.join('\n');
+}
 
 /** Every container in the subtree that carries a condition (depth-first, stable order). */
 export function collectConditions(node: LayoutNode): ConditionalNode[] {

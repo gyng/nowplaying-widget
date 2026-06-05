@@ -4,12 +4,22 @@
 // `.state`. The pure work lives in conditionVisibility.ts / condition.ts; this is the reactive glue.
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { Container } from '../../core/layoutTree';
-import type { TelemetryHub } from '../../core/telemetry';
+import type { SensorValue, TelemetryHub } from '../../core/telemetry';
 import type { WindowDescriptor } from '../../core/windowMatch';
 import { WINDOWS_SENSOR, type ConditionContext } from '../../core/condition';
-import { collectConditions, conditionSensorRefs, hiddenContainerIds } from './conditionVisibility';
+import {
+	collectConditions,
+	conditionSensorRefs,
+	hiddenContainerIds,
+	windowsKey
+} from './conditionVisibility';
 
 const EMPTY: ReadonlySet<string> = new Set();
+
+/** The open-window list carried by the WINDOWS_SENSOR json value (empty until first polled). */
+function windowsOf(v: SensorValue | null | undefined): WindowDescriptor[] {
+	return v && v.kind === 'json' && Array.isArray(v.value) ? (v.value as WindowDescriptor[]) : [];
+}
 
 /**
  * `active` gates the whole thing: in edit/preview (or the studio) we pass false so conditional
@@ -21,12 +31,12 @@ export function useConditionHidden(
 	active: boolean
 ): ReadonlySet<string> {
 	const conds = useMemo(() => collectConditions(root), [root]);
-	// Only subscribe when active AND there are conditions — otherwise an empty ref list (no work).
-	const refsKey = useMemo(
-		() => (active && conds.length ? conditionSensorRefs(conds).join('\n') : ''),
+	// Sensors to subscribe to — gated by `active` so the studio / edit mode doesn't keep a condition's
+	// sensor marked active (demand-gating). Identity only changes when the conditions or active flag do.
+	const refs = useMemo(
+		() => (active && conds.length ? conditionSensorRefs(conds) : []),
 		[active, conds]
 	);
-	const refs = useMemo(() => (refsKey ? refsKey.split('\n') : []), [refsKey]);
 
 	const subscribe = useCallback(
 		(cb: () => void) => {
@@ -35,22 +45,25 @@ export function useConditionHidden(
 		},
 		[hub, refs]
 	);
-	// A stable string signature of every referenced sensor value; changes → re-render → recompute.
+	// Change signature: the window list reduces to a move/z-order-INDEPENDENT key (only the exe/class/
+	// title appOpen matches on), so window jitter / alt-tab doesn't re-render the whole flow tree every
+	// poll; other sensors stringify their small scalar/text/json value.
 	const getSig = useCallback(
-		() => refs.map((id) => JSON.stringify(hub.sensor(id).getSnapshot().value)).join('|'),
+		() =>
+			refs
+				.map((id) => {
+					const v = hub.sensor(id).getSnapshot().value;
+					return id === WINDOWS_SENSOR ? windowsKey(windowsOf(v)) : JSON.stringify(v);
+				})
+				.join('|'),
 		[hub, refs]
 	);
 	const sig = useSyncExternalStore(subscribe, getSig, getSig);
 
 	return useMemo(() => {
 		if (!active || conds.length === 0) return EMPTY;
-		const win = hub.sensor(WINDOWS_SENSOR).getSnapshot().value;
-		const windows: WindowDescriptor[] =
-			win && win.kind === 'json' && Array.isArray(win.value)
-				? (win.value as WindowDescriptor[])
-				: [];
 		const ctx: ConditionContext = {
-			windows,
+			windows: windowsOf(hub.sensor(WINDOWS_SENSOR).getSnapshot().value),
 			sensorValue: (id) => hub.sensor(id).getSnapshot().value
 		};
 		return hiddenContainerIds(conds, ctx);

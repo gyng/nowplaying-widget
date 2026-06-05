@@ -52,9 +52,12 @@ export default function ConditionEditor({ value, sensors = [], onChange, dirty }
 								{ value: 'sensor', label: 'a sensor value' }
 							]}
 							onChange={(kind) =>
+								// Only switch to a sensor condition when there's a real sensor to bind — otherwise
+								// it'd persist an empty sensorId that parseCondition drops on reload, silently
+								// losing the condition. With none available, stay on appOpen.
 								emit(
-									kind === 'sensor'
-										? { kind: 'sensor', sensorId: sensors[0] ?? '', op: '>', value: '', negate }
+									kind === 'sensor' && sensors.length > 0
+										? { kind: 'sensor', sensorId: sensors[0], op: '>', value: '', negate }
 										: { kind: 'appOpen', negate }
 								)
 							}
@@ -110,10 +113,8 @@ export default function ConditionEditor({ value, sensors = [], onChange, dirty }
 								sensor
 								<Select
 									value={value.sensorId}
-									options={[
-										{ value: '', label: '— pick —' },
-										...sensors.map((s) => ({ value: s, label: s }))
-									]}
+									options={sensors.map((s) => ({ value: s, label: s }))}
+									placeholder="pick a sensor"
 									onChange={(sensorId) => emit({ ...value, sensorId })}
 									aria-label="condition sensor"
 								/>

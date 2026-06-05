@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { container, leaf, type WidgetInstance } from '../../core/layoutTree';
 import { WINDOWS_SENSOR, type ConditionContext } from '../../core/condition';
-import { collectConditions, conditionSensorRefs, hiddenContainerIds } from './conditionVisibility';
+import {
+	collectConditions,
+	conditionSensorRefs,
+	hiddenContainerIds,
+	windowsKey
+} from './conditionVisibility';
 import type { WindowDescriptor } from '../../core/windowMatch';
 
 const w = (id: string) =>
@@ -70,5 +75,30 @@ describe('hiddenContainerIds', () => {
 			sensorValue: () => ({ kind: 'scalar', value: 95 })
 		};
 		expect(hiddenContainerIds(conds, ctx).size).toBe(0);
+	});
+});
+
+describe('windowsKey', () => {
+	const d = (
+		exe: string,
+		className: string,
+		title: string,
+		rect = { x: 0, y: 0, w: 1, h: 1 },
+		hwnd = 1
+	): WindowDescriptor => ({ hwnd, exe, className, title, rect });
+	it('is order-independent (z-order churn must not change it)', () => {
+		const a = d('a.exe', 'A', 'one');
+		const b = d('b.exe', 'B', 'two');
+		expect(windowsKey([a, b])).toBe(windowsKey([b, a]));
+	});
+	it('ignores rect and hwnd (window moves / handle changes must not change it)', () => {
+		expect(windowsKey([d('a.exe', 'A', 'one', { x: 0, y: 0, w: 1, h: 1 }, 11)])).toBe(
+			windowsKey([d('a.exe', 'A', 'one', { x: 500, y: 300, w: 80, h: 60 }, 99)])
+		);
+	});
+	it('changes when an app opens / closes or a title changes', () => {
+		const base = windowsKey([d('a.exe', 'A', 'one')]);
+		expect(windowsKey([d('a.exe', 'A', 'one'), d('b.exe', 'B', 'two')])).not.toBe(base);
+		expect(windowsKey([d('a.exe', 'A', 'changed')])).not.toBe(base);
 	});
 });

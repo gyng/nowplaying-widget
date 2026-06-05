@@ -57,6 +57,21 @@ describe('ConditionEditor', () => {
 		});
 	});
 
+	it('does not switch to a sensor condition when no sensors exist (avoids losing the condition)', () => {
+		const onChange = vi.fn();
+		render(
+			<ConditionEditor
+				value={{ kind: 'appOpen', matchExe: 'a.exe' }}
+				sensors={[]}
+				onChange={onChange}
+			/>
+		);
+		fireEvent.click(screen.getByLabelText('condition type'));
+		fireEvent.click(screen.getByText('a sensor value'));
+		// Never emits a sensor condition with an empty sensorId (which would be dropped on reload).
+		for (const call of onChange.mock.calls) expect(call[0]?.kind).not.toBe('sensor');
+	});
+
 	it('toggles negate (invert)', () => {
 		const onChange = vi.fn();
 		render(<ConditionEditor value={{ kind: 'appOpen', matchExe: 'a.exe' }} onChange={onChange} />);

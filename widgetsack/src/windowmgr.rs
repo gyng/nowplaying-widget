@@ -21,6 +21,9 @@ use crate::clickthrough::ScreenRect;
 /// passed back only to act on the window. It crosses to JS as a number (exact below 2^53, which all
 /// real Win64 handle-table values are).
 #[derive(Clone, Debug, Serialize)]
+// REQUIRED for the TS bridge: the camelCase rename makes `class_name` serialize as `className`, which
+// the mirror type `WindowDescriptor` in client/src/lib/core/windowMatch.ts expects. Dropping it would
+// silently send `class_name`, leaving `win.className` undefined and breaking appOpen class matching.
 #[serde(rename_all = "camelCase")]
 pub struct WindowDescriptor {
     pub hwnd: i64,
