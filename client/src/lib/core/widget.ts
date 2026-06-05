@@ -536,6 +536,50 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		binds: 'none',
 		label: 'Spacer',
 		defaultSize: { w: 60, h: 40 }
+	},
+	{
+		// Timer: a countdown timer or stopwatch with start/pause/reset. Self-sourcing (drives its own
+		// tick) + interactive so the controls catch clicks on the passive overlay.
+		type: 'timer',
+		description:
+			'A countdown timer or stopwatch with start / pause / reset. A countdown can loop when it reaches zero. Pick the time format; the controls work on the overlay (interactive).',
+		binds: 'none',
+		interactive: true,
+		label: 'Timer',
+		defaultSize: { w: 160, h: 96 },
+		defaultConfig: {
+			mode: 'countdown',
+			duration: 300,
+			format: 'auto',
+			loop: false,
+			label: '',
+			color: ''
+		},
+		configFields: [
+			{
+				key: 'mode',
+				label: 'mode',
+				kind: 'select',
+				options: ['countdown', 'stopwatch'],
+				help: 'count down from a duration, or up from zero'
+			},
+			num('duration', 'duration (s)', { min: 0, help: 'countdown length in seconds' }),
+			{
+				key: 'format',
+				label: 'format',
+				kind: 'select',
+				options: ['auto', 'mm:ss', 'hh:mm:ss', 'ss'],
+				help: 'time display format'
+			},
+			{
+				key: 'loop',
+				label: 'loop',
+				kind: 'toggle',
+				help: 'restart automatically when a countdown reaches zero'
+			},
+			text('label', 'label', { help: 'header text' }),
+			color('color', 'color', { help: 'text colour (blank = theme)' })
+		]
 	}
 ];
 

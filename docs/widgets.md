@@ -248,3 +248,22 @@ An invisible spacer: empty whitespace that occupies layout space to push other w
 
 _No configurable fields._
 
+
+### Timer — `timer`
+
+![Timer widget](img/widgets/timer.png)
+
+A countdown timer or stopwatch with start / pause / reset. A countdown can loop when it reaches zero. Pick the time format; the controls work on the overlay (interactive).
+
+- **Sensor:** none (self-sourcing)
+- **Default size:** 160×96
+- **Interactive:** catches clicks in passive mode (per-widget click-through)
+
+| key | type | default | options / range | description |
+| --- | --- | --- | --- | --- |
+| `mode` | select | "countdown" | `countdown`, `stopwatch` | count down from a duration, or up from zero |
+| `duration` | number | 300 | min 0 | countdown length in seconds |
+| `format` | select | "auto" | `auto`, `mm:ss`, `hh:mm:ss`, `ss` | time display format |
+| `loop` | toggle | false |  | restart automatically when a countdown reaches zero |
+| `label` | text | "" |  | header text |
+| `color` | color | "" |  | text colour (blank = theme) |

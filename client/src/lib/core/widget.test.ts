@@ -58,7 +58,8 @@ describe('meta registry', () => {
 			'spectrum',
 			'iframe',
 			'zone',
-			'spacer'
+			'spacer',
+			'timer'
 		]);
 		expect(getMeta('gauge')).toMatchObject({ label: 'Gauge', binds: 'scalar' });
 		expect(getMeta('sparkline')?.binds).toBe('series');

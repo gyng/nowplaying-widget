@@ -17,6 +17,7 @@ import Spectrum from './meters/Spectrum';
 import Iframe from './meters/Iframe';
 import Zone from './meters/Zone';
 import Spacer from './meters/Spacer';
+import Timer from './meters/Timer';
 
 export type { MeterComponent };
 
@@ -32,7 +33,8 @@ const components: Record<string, MeterComponent> = {
 	spectrum: Spectrum as unknown as MeterComponent,
 	iframe: Iframe as unknown as MeterComponent,
 	zone: Zone as unknown as MeterComponent,
-	spacer: Spacer as unknown as MeterComponent
+	spacer: Spacer as unknown as MeterComponent,
+	timer: Timer as unknown as MeterComponent
 };
 
 /** Back-compat alias used by WidgetHost (`registry[instance.type]`). */
