@@ -22,6 +22,8 @@
 //!   `disk.<letter>.busy.pct` (active time).
 //! - Host: `host.uptime` (s), `host.procs` (count, gated), `host.idle` (s since last input, Windows),
 //!   `host.handles` / `host.threads` (counts, Windows, gated).
+//! - Processes (gated): the busiest process — `proc.cpu.top.name` (text) + `proc.cpu.top.pct` (% of the
+//!   whole machine), and the hungriest — `proc.mem.top.name` (text) + `proc.mem.top.bytes` (RSS bytes).
 //! - GPU (gated, NVIDIA/NVML): `gpu.util` / `gpu.mem.util` / `gpu.fan` (%), `gpu.vram` (%),
 //!   `gpu.vram.{total,used,free}` (bytes), `gpu.temp` (°C), `gpu.clock.{core,mem}` (MHz),
 //!   `gpu.power` / `gpu.power.limit` (W — NVML reports mW, divided here), `gpu.name` (text).
@@ -117,6 +119,52 @@ fn rate_per_sec(bytes: u64, interval_ms: u64) -> f64 {
 /// Stable sensor id for a per-core CPU usage reading (zero-indexed).
 fn core_sensor_id(index: usize) -> String {
     format!("cpu.core.{index}")
+}
+
+/// The `(name, value)` with the greatest value (NaN-safe), or `None` when empty. Pure seam for
+/// picking the top process by CPU or memory.
+fn top_of(items: &[(String, f64)]) -> Option<&(String, f64)> {
+    items
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+}
+
+/// Flatten the latest-value map to a `{ id: number|string }` JSON object — Scalar and Text only
+/// (Series/Json are dropped; not useful in a flat snapshot). Pure seam for the MCP live-state file.
+fn flatten_latest(latest: &HashMap<String, SensorValue>) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for (id, v) in latest {
+        match v {
+            SensorValue::Scalar(n) => {
+                out.insert(id.clone(), serde_json::json!(n));
+            }
+            SensorValue::Text(t) => {
+                out.insert(id.clone(), serde_json::json!(t));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Mirror the latest sensor values to `<app_config_dir>/mcp/state.json` so the (out-of-process) MCP
+/// server can read LIVE readings — the file-based MCP can't reach this in-memory state otherwise.
+/// Written to an `mcp/` SUBDIR so the NonRecursive config-dir watchers never see it. Best-effort.
+fn write_state_snapshot<R: Runtime>(app: &AppHandle<R>, latest: &HashMap<String, SensorValue>) {
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let mcp_dir = dir.join("mcp");
+    if std::fs::create_dir_all(&mcp_dir).is_err() {
+        return;
+    }
+    let snapshot = serde_json::json!({
+        "ts_ms": now_ms(),
+        "sensors": flatten_latest(latest),
+    });
+    if let Ok(txt) = serde_json::to_string(&snapshot) {
+        let _ = std::fs::write(mcp_dir.join("state.json"), txt);
+    }
 }
 
 /// The lowercased drive-letter slug for a volume's mount point, e.g. `C:\` → `"c"`. Used to build
@@ -650,6 +698,11 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
         .and_then(|d| d.name().ok())
         .filter(|s| !s.is_empty());
 
+    // Latest value per sensor id, mirrored to <config>/mcp/state.json every few ticks for the MCP
+    // server's read_sensors tool (live readings for an external agent).
+    let mut latest: HashMap<String, SensorValue> = HashMap::new();
+    let mut snap_tick: u32 = 0;
+
     let mut ticker = tokio::time::interval(Duration::from_millis(INTERVAL_MS));
     loop {
         ticker.tick().await;
@@ -709,7 +762,7 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
         // (NVML, process enumeration, disk refresh, frequency refresh) — the std Mutex must never be
         // held across an await or a blocking driver call.
         #[allow(clippy::type_complexity)]
-        let (want_gpu, want_disks, want_disk_io, want_procs, want_freq, want_perf, want_cpufreq, want_netlink) = {
+        let (want_gpu, want_disks, want_disk_io, want_procs, want_proctop, want_freq, want_perf, want_cpufreq, want_netlink) = {
             let active: tauri::State<ActiveSensors> = app.state();
             let g = active.0.lock().unwrap_or_else(|e| e.into_inner());
             (
@@ -717,6 +770,7 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
                 any_wanted(&g, |id| id.starts_with("disk.")),
                 any_wanted(&g, is_disk_io_id),
                 any_wanted(&g, |id| id == "host.procs"),
+                any_wanted(&g, |id| id.starts_with("proc.")),
                 any_wanted(&g, |id| id == "cpu.freq"),
                 any_wanted(&g, is_perf_id),
                 any_wanted(&g, is_cpufreq_id),
@@ -736,9 +790,40 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
             }
         }
 
-        if want_procs {
+        if want_procs || want_proctop {
             let n = sys.refresh_processes(ProcessesToUpdate::All, true);
-            batch.push(SensorSample::scalar("host.procs", ts, n as f64));
+            if want_procs {
+                batch.push(SensorSample::scalar("host.procs", ts, n as f64));
+            }
+            if want_proctop {
+                // Highest-CPU + highest-memory process — the "what's eating my machine" sensors.
+                // sysinfo's per-process cpu_usage sums across cores (can exceed 100%); divide by the
+                // logical core count so it reads as "% of the whole machine", like cpu.total.
+                let ncpu = sys.cpus().len().max(1) as f64;
+                let mut by_cpu: Vec<(String, f64)> = Vec::new();
+                let mut by_mem: Vec<(String, f64)> = Vec::new();
+                for proc in sys.processes().values() {
+                    let name = proc.name().to_string_lossy().to_string();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    by_cpu.push((name.clone(), proc.cpu_usage() as f64 / ncpu));
+                    by_mem.push((name, proc.memory() as f64));
+                }
+                // Skip the first gated tick's misleading sample: sysinfo CPU% needs two refreshes, so
+                // the first reads 0 for every process and top_of would pick an arbitrary one. Emit only
+                // once there's a real (>0) busiest process; memory is valid from the first refresh.
+                if let Some((name, pct)) = top_of(&by_cpu)
+                    && *pct > 0.0
+                {
+                    batch.push(SensorSample::text("proc.cpu.top.name", ts, name.clone()));
+                    batch.push(SensorSample::scalar("proc.cpu.top.pct", ts, *pct));
+                }
+                if let Some((name, bytes)) = top_of(&by_mem) {
+                    batch.push(SensorSample::text("proc.mem.top.name", ts, name.clone()));
+                    batch.push(SensorSample::scalar("proc.mem.top.bytes", ts, *bytes));
+                }
+            }
         }
 
         if want_disks || want_disk_io {
@@ -823,6 +908,15 @@ pub async fn run_system_sensors<R: Runtime>(app: AppHandle<R>) {
             log::error("sensors", "failed to emit telemetry")
                 .field("error", err)
                 .emit();
+        }
+
+        // Mirror the latest values to the MCP live-state snapshot (~every 3s — cheap, small file).
+        for s in &batch {
+            latest.insert(s.sensor.clone(), s.value.clone());
+        }
+        snap_tick = snap_tick.wrapping_add(1);
+        if snap_tick.is_multiple_of(3) {
+            write_state_snapshot(&app, &latest);
         }
     }
 }
@@ -1056,5 +1150,33 @@ mod tests {
         let star = active(&[("studio", &["*"])]);
         assert!(any_wanted(&star, |id| id == "cpu.freq"));
         assert!(any_wanted(&star, |id| id.starts_with("disk.")));
+
+        // proc.* gating is independent of host.procs.
+        let proctop = active(&[("main", &["proc.cpu.top.name"])]);
+        assert!(any_wanted(&proctop, |id| id.starts_with("proc.")));
+        assert!(!any_wanted(&proctop, |id| id == "host.procs"));
+    }
+
+    #[test]
+    fn flatten_latest_keeps_scalar_and_text_drops_others() {
+        let mut latest: HashMap<String, SensorValue> = HashMap::new();
+        latest.insert("cpu.total".into(), SensorValue::Scalar(42.0));
+        latest.insert("net.adapter".into(), SensorValue::Text("Ethernet".into()));
+        latest.insert("cpu.series".into(), SensorValue::Series(vec![1.0, 2.0]));
+        let flat = flatten_latest(&latest);
+        assert_eq!(flat.get("cpu.total"), Some(&serde_json::json!(42.0)));
+        assert_eq!(flat.get("net.adapter"), Some(&serde_json::json!("Ethernet")));
+        assert!(!flat.contains_key("cpu.series")); // Series dropped
+    }
+
+    #[test]
+    fn top_of_picks_the_max_and_handles_empty() {
+        let items = vec![
+            ("a.exe".to_string(), 3.0),
+            ("b.exe".to_string(), 9.5),
+            ("c.exe".to_string(), 1.0),
+        ];
+        assert_eq!(top_of(&items).map(|(n, _)| n.as_str()), Some("b.exe"));
+        assert!(top_of(&[]).is_none());
     }
 }

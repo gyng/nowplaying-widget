@@ -49,6 +49,11 @@ export const KNOWN_SENSORS = [
 	'host.idle',
 	'host.handles',
 	'host.threads',
+	// Processes — the busiest + hungriest process (gated)
+	'proc.cpu.top.name',
+	'proc.cpu.top.pct',
+	'proc.mem.top.name',
+	'proc.mem.top.bytes',
 	// GPU (NVIDIA / NVML)
 	'gpu.util',
 	'gpu.mem.util',
