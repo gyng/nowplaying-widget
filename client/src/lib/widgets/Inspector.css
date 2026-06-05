@@ -7,10 +7,10 @@
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
-	background: rgba(10, 10, 12, 0.92);
-	border: 1px solid rgba(119, 196, 211, 0.5);
+	background: var(--ui-surface);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	border-radius: 4px;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	pointer-events: auto;
@@ -36,7 +36,7 @@
 }
 
 .inspector .hd {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 }
@@ -48,6 +48,39 @@
 	align-items: center;
 }
 
+/* A template that exposes insert-time options (the clock cluster): a full-width card with the option
+   selects in a 2-col grid + an Insert button, set off from the one-click template buttons around it. */
+.inspector .palette .tpl-opts {
+	flex: 1 1 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 6px;
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.25);
+	border-radius: 3px;
+}
+
+.inspector .palette .tpl-opts-name {
+	color: rgb(var(--ui-accent-rgb));
+	font-weight: bold;
+}
+
+.inspector .palette .tpl-opts-fields {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 4px 6px;
+}
+
+.inspector .palette .tpl-opts-fields label {
+	gap: 2px;
+	font-size: 10px;
+	color: var(--dim-fg);
+}
+
+.inspector .palette .tpl-opts-insert {
+	align-self: flex-start;
+}
+
 /* The Add/Library palette as a collapsible disclosure — open when nothing is selected (the primary
    add affordance), collapsed once a node is selected so its properties sit at the TOP of the rail. */
 .inspector details.add-panel {
@@ -57,7 +90,7 @@
 }
 
 .inspector details.add-panel > summary {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	cursor: pointer;
@@ -66,7 +99,7 @@
 }
 
 .inspector details.add-panel > summary:hover {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 /* The selected node's "type · id" heading: truncate the (long) id rather than overflow the rail. */
@@ -84,7 +117,7 @@
 }
 
 .inspector .tokens {
-	border-top: 1px solid #333;
+	border-top: 1px solid var(--ui-border);
 	padding-top: 6px;
 }
 
@@ -114,14 +147,14 @@
 
 /* Dirty (unsaved) field indicator (item 2): accent the label + tint the control. */
 .inspector label.dirty {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .inspector label.dirty > input,
 .inspector label.dirty > select,
 .inspector label.dirty > textarea {
-	border-color: rgba(119, 196, 211, 0.75);
-	background: rgba(119, 196, 211, 0.07);
+	border-color: rgba(var(--ui-accent-rgb), 0.75);
+	background: rgba(var(--ui-accent-rgb), 0.07);
 }
 
 .inspector .actions {
@@ -132,9 +165,9 @@
 .inspector input,
 .inspector textarea,
 .inspector select {
-	background: #1a1a1e;
-	border: 1px solid #333;
-	color: #eee;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 4px;
@@ -150,18 +183,18 @@
 .inspector textarea:focus,
 .inspector select:focus {
 	outline: none;
-	border-color: rgb(119, 196, 211);
-	box-shadow: 0 0 0 1px rgba(119, 196, 211, 0.35), 0 0 6px rgba(119, 196, 211, 0.15);
+	border-color: rgb(var(--ui-accent-rgb));
+	box-shadow: 0 0 0 1px rgba(var(--ui-accent-rgb), 0.35), 0 0 6px rgba(var(--ui-accent-rgb), 0.15);
 }
 
 .inspector textarea.error {
-	border-color: rgb(220, 120, 120);
+	border-color: rgb(var(--ui-danger-rgb));
 }
 
 .inspector button {
-	background: #1a1a1e;
-	border: 1px solid #444;
-	color: #eee;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 6px;
@@ -171,13 +204,13 @@
 }
 
 .inspector button:hover {
-	border-color: rgb(119, 196, 211);
-	box-shadow: 0 0 4px rgba(119, 196, 211, 0.15);
+	border-color: rgb(var(--ui-accent-rgb));
+	box-shadow: 0 0 4px rgba(var(--ui-accent-rgb), 0.15);
 }
 
 /* Tactile press: a tiny inset shadow so a click reads as "received". */
 .inspector button:active {
-	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+	box-shadow: inset 0 1px 2px var(--ui-scrim);
 }
 
 /* The Add palette is the studio's primary "add a widget" surface — give its items a subtle hover-lift
@@ -198,8 +231,8 @@
 }
 
 .inspector .remove {
-	border-color: rgba(220, 120, 120, 0.6);
-	color: rgb(230, 160, 160);
+	border-color: rgba(var(--ui-danger-rgb), 0.6);
+	color: var(--ui-danger-fg);
 }
 
 .inspector .hint {
@@ -221,7 +254,7 @@
 }
 
 .inspector details.adv > summary:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 /* A config field: the <label> (control) plus a reset-to-default button pinned to its top-right.
@@ -237,7 +270,7 @@
 	z-index: 1;
 	border: none;
 	background: transparent;
-	color: #888;
+	color: var(--ui-fg-dim);
 	padding: 0 2px;
 	font-size: 11px;
 	line-height: 1;
@@ -245,7 +278,7 @@
 }
 
 .inspector .reset-field:hover:not(:disabled) {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .inspector .reset-field:disabled {
@@ -267,11 +300,11 @@
 	white-space: pre;
 }
 .inspector .cfg-expr-refs .unknown {
-	color: rgb(220, 150, 120);
+	color: var(--ui-warn-fg);
 }
 
 .inspector .meta {
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	word-break: break-all;
 }
 
@@ -291,7 +324,7 @@
 
 .inspector .libitem .x {
 	border-left: none;
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 	padding: 2px 4px;
 }
 
@@ -312,7 +345,7 @@
 	flex-direction: column;
 	gap: 2px;
 	padding: 4px;
-	border: 1px solid #2a2a2e;
+	border: 1px solid var(--ui-border);
 	border-radius: 3px;
 }
 
@@ -339,11 +372,11 @@
 }
 
 .inspector .macro-row-ops .x {
-	color: rgb(220, 150, 120);
+	color: var(--ui-warn-fg);
 }
 
 .inspector .macro-data.error {
-	border-color: rgb(220, 120, 120);
+	border-color: rgb(var(--ui-danger-rgb));
 }
 
 .inspector .macro-add {
@@ -353,21 +386,21 @@
 /* CodeMirror CSS editor (widget / def / group css): show the unsaved (dirty) tint on the editor
    border, mirroring the textarea fields. The colours/borders themselves come from cssEditorExt. */
 .inspector label.dirty .cm-editor {
-	border-color: rgba(119, 196, 211, 0.75);
+	border-color: rgba(var(--ui-accent-rgb), 0.75);
 }
 
 /* --- "Data" tab: Form / Data switcher + the JSON/YAML representation of the selected node --- */
 .inspector .detail-tabs {
 	display: flex;
 	gap: 2px;
-	border-bottom: 1px solid #333;
+	border-bottom: 1px solid var(--ui-border);
 }
 
 .inspector .detail-tabs button {
 	background: transparent;
 	border: none;
 	border-bottom: 2px solid transparent;
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 3px 8px;
@@ -378,12 +411,12 @@
 }
 
 .inspector .detail-tabs button:hover {
-	color: #eee;
+	color: var(--ui-fg);
 }
 
 .inspector .detail-tabs button.active {
-	color: rgb(150, 214, 228);
-	border-bottom-color: rgb(119, 196, 211);
+	color: var(--ui-accent-fg);
+	border-bottom-color: rgb(var(--ui-accent-rgb));
 }
 
 .inspector .data-bar {
@@ -397,8 +430,8 @@
 }
 
 .inspector .data-bar button.active {
-	border-color: rgb(119, 196, 211);
-	color: rgb(150, 214, 228);
+	border-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-accent-fg);
 }
 
 .inspector .data-area {
@@ -412,9 +445,9 @@
 }
 
 .inspector .data-area.error {
-	border-color: rgb(220, 120, 120);
+	border-color: rgb(var(--ui-danger-rgb));
 }
 
 .inspector .data-err {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }

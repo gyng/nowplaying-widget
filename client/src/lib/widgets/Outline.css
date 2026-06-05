@@ -6,10 +6,10 @@
 	max-height: 50vh;
 	overflow-y: auto;
 	padding: 6px;
-	background: rgba(10, 10, 12, 0.92);
-	border: 1px solid rgba(119, 196, 211, 0.5);
+	background: var(--ui-surface);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	border-radius: 4px;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	pointer-events: auto;
@@ -37,7 +37,7 @@
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	margin-bottom: 4px;
@@ -45,7 +45,7 @@
 
 .outline .hd2 {
 	margin-top: 6px;
-	border-top: 1px solid #333;
+	border-top: 1px solid var(--ui-border);
 	padding-top: 4px;
 }
 
@@ -82,7 +82,7 @@
 	position: absolute;
 	left: 6px;
 	top: 0;
-	border-left: 1px solid var(--ol-line, rgba(119, 196, 211, 0.4));
+	border-left: 1px solid rgba(var(--ui-accent-rgb), 0.4);
 }
 /* An ancestor that still has siblings below → a full-height vertical guide. */
 .outline .lane.v::before {
@@ -102,7 +102,7 @@
 	left: 6px;
 	top: 50%;
 	width: 7px;
-	border-top: 1px solid var(--ol-line, rgba(119, 196, 211, 0.4));
+	border-top: 1px solid rgba(var(--ui-accent-rgb), 0.4);
 }
 
 .outline .row.root {
@@ -110,7 +110,7 @@
 	text-align: left;
 	border: none;
 	background: transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	cursor: pointer;
@@ -118,30 +118,30 @@
 }
 
 .outline .row.sel {
-	background: rgba(119, 196, 211, 0.18);
+	background: rgba(var(--ui-accent-rgb), 0.18);
 	/* A solid 2px (vs the dashed/faint drop states) full-opacity outline so selection reads by SHAPE,
 	   not only the mint tint — survives low vision / low-quality panels (WCAG 1.4.1). */
-	outline: 2px solid rgb(119, 196, 211);
+	outline: 2px solid rgb(var(--ui-accent-rgb));
 	outline-offset: -1px;
 }
 
 /* Cross-highlight: this row's widget/container is hovered on the stage (or this row is hovered). */
 .outline .row.hover:not(.sel) {
-	background: rgba(119, 196, 211, 0.1);
+	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
 /* Drop target highlight while dragging a row/palette widget over a container — a full-opacity DASHED
    outline (distinct in shape from the solid selection outline above). */
 .outline .row.dropok {
-	background: rgba(119, 196, 211, 0.32);
-	outline: 2px dashed rgb(119, 196, 211);
+	background: rgba(var(--ui-accent-rgb), 0.32);
+	outline: 2px dashed rgb(var(--ui-accent-rgb));
 	outline-offset: -1px;
 }
 
 /* Dragging over a LEAF row (not a valid drop target): read as rejected instead of doing nothing. */
 .outline .row.dropno {
-	background: rgba(220, 120, 120, 0.12);
-	outline: 1px dashed rgba(230, 150, 150, 0.7);
+	background: rgba(var(--ui-danger-rgb), 0.12);
+	outline: 1px dashed rgba(var(--ui-danger-rgb), 0.7);
 	cursor: no-drop;
 }
 
@@ -154,7 +154,7 @@
 	text-align: left;
 	border: none;
 	background: transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	cursor: pointer;
@@ -196,25 +196,25 @@
    margin), reddening only on hover, so a mis-aimed click is far less likely to delete a node. */
 .outline .btns button.rm {
 	margin-left: 5px;
-	color: #888;
+	color: var(--ui-fg-dim);
 }
 
 .outline .btns button.rm:hover:not(:disabled) {
-	color: rgb(230, 160, 160);
-	border-color: rgb(220, 120, 120);
+	color: var(--ui-danger-fg);
+	border-color: rgb(var(--ui-danger-rgb));
 }
 
 .outline button {
-	background: #1a1a1e;
-	border: 1px solid #444;
-	color: #eee;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 10px;
 	cursor: pointer;
 }
 
 .outline button:hover:not(:disabled) {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .outline button:disabled {
@@ -224,6 +224,6 @@
 
 /* Keyboard focus must be visible against the dark rail (the UA default ring is faint here). */
 .outline button:focus-visible {
-	outline: 2px solid rgb(150, 214, 228);
+	outline: 2px solid var(--ui-accent-fg);
 	outline-offset: -1px;
 }

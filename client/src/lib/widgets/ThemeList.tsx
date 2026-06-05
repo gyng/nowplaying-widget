@@ -1,63 +1,138 @@
-// The studio's theme picker (Themes section): a selectable list of themes with the active one
-// badged + highlighted, replacing a bare <select> dropdown — so all themes are visible at a glance
-// and a long name truncates instead of overflowing. A filter box appears once there are enough
-// themes to be worth searching. "(default)" (no theme = the meters' token fallbacks) is always
-// offered as the reset, regardless of the filter.
+// The studio's theme picker (Themes section): the synthetic "(default)" reset, then the built-in
+// presets grouped Classic / Light / Dark / Fun, then the user's own themes ("Your themes"). The
+// active row is badged + highlighted. Built-ins are immutable, so they expose only "duplicate to
+// edit" (⎘); user themes get edit (✎) / duplicate (⎘) / delete (✕). A filter box appears once the
+// list is long enough to be worth searching, and matches across every group by label.
 import { useState } from 'react';
+import { DEFAULT_SWATCH, type Swatch } from '../core/tokens';
+import ColorSwatch from './ColorSwatch';
 
-/** Case-insensitive substring filter over theme names (pure — unit-tested). Empty query → all. */
+/** Case-insensitive substring filter over a list of labels (pure — unit-tested). Empty query → all. */
 export function filterThemes(names: string[], query: string): string[] {
 	const q = query.trim().toLowerCase();
 	if (!q) return names;
 	return names.filter((n) => n.toLowerCase().includes(q));
 }
 
-/** Show the filter box only once the list is long enough that scanning it is tedious. */
-const FILTER_THRESHOLD = 6;
+/** Show the filter box only once the combined list is long enough that scanning it is tedious. */
+const FILTER_THRESHOLD = 8;
+
+export type ThemeItem = { value: string; label: string; swatch?: Swatch };
+export type ThemeGroup = { key: string; label: string; items: ThemeItem[] };
 
 function ThemeRow({
-	name,
+	value,
 	label,
+	swatch,
 	active,
-	onPick
+	onPick,
+	onEdit,
+	onDuplicate,
+	onDelete
 }: {
-	name: string;
+	value: string;
 	label: string;
+	swatch?: Swatch;
 	active: boolean;
-	onPick: (name: string) => void;
+	onPick: (value: string) => void;
+	// Per-row actions. A built-in passes only `onDuplicate` (fork-to-edit); a user theme passes all
+	// three; the "(default)" reset passes none. Each is keyed off the row's selection `value`.
+	onEdit?: (value: string) => void;
+	onDuplicate?: (value: string) => void;
+	onDelete?: (value: string) => void;
 }) {
+	const hasActions = Boolean(onEdit || onDuplicate || onDelete);
 	return (
-		<button
-			type="button"
-			className={['theme-row', active && 'active'].filter(Boolean).join(' ')}
-			title={label}
-			aria-pressed={active}
-			onClick={() => onPick(name)}
-		>
-			<span className="rp-id">{label}</span>
-			{active ? <span className="rp-badge">active</span> : null}
-		</button>
+		<div className={['theme-item', active && 'cur'].filter(Boolean).join(' ')}>
+			<button
+				type="button"
+				className={['theme-row', active && 'active'].filter(Boolean).join(' ')}
+				title={label}
+				aria-pressed={active}
+				onClick={() => onPick(value)}
+			>
+				<ColorSwatch sw={swatch} />
+				<span className="rp-id">{label}</span>
+				{active ? <span className="rp-badge">active</span> : null}
+			</button>
+			{hasActions && (
+				<span className="theme-acts">
+					{onEdit && (
+						<button
+							type="button"
+							className="dl-icon"
+							title={`Edit "${label}" CSS`}
+							aria-label={`Edit ${label} CSS`}
+							onClick={() => onEdit(value)}
+						>
+							✎
+						</button>
+					)}
+					{onDuplicate && (
+						<button
+							type="button"
+							className="dl-icon"
+							title={`Duplicate "${label}" to a new editable theme`}
+							aria-label={`Duplicate ${label}`}
+							onClick={() => onDuplicate(value)}
+						>
+							⎘
+						</button>
+					)}
+					{onDelete && (
+						<button
+							type="button"
+							className="dl-icon dl-del"
+							title={`Delete "${label}"`}
+							aria-label={`Delete ${label}`}
+							onClick={() => onDelete(value)}
+						>
+							✕
+						</button>
+					)}
+				</span>
+			)}
+		</div>
 	);
 }
 
 type Props = {
-	themes: string[]; // named themes (the synthetic "(default)" is added here)
-	active: string; // '' = default
-	onPick: (name: string) => void;
+	groups: ThemeGroup[]; // built-in presets, grouped (item.value = `builtin:<id>`)
+	userThemes: ThemeItem[]; // the user's own themes (value = filename), with parsed swatches
+	active: string; // current selection ('' = default)
+	onPick: (value: string) => void;
+	onEdit: (name: string) => void; // user themes only
+	onDuplicate: (value: string) => void; // built-ins + user (built-ins fork to a copy)
+	onDelete: (name: string) => void; // user themes only
 };
 
-export default function ThemeList({ themes, active, onPick }: Props) {
+export default function ThemeList({
+	groups,
+	userThemes,
+	active,
+	onPick,
+	onEdit,
+	onDuplicate,
+	onDelete
+}: Props) {
 	const [query, setQuery] = useState('');
 	const q = query.trim().toLowerCase();
-	const filtered = filterThemes(themes, query);
-	// "(default)" is always the reset; it shows unless a non-empty query excludes the word "default".
-	const showDefault = q === '' || 'default'.includes(q);
-	const total = themes.length + 1; // + default
-	const shown = filtered.length + (showDefault ? 1 : 0);
+	const match = (label: string) => q === '' || label.toLowerCase().includes(q);
+
+	// Filter every section by label; drop sections that end up empty.
+	const shownGroups = groups
+		.map((g) => ({ ...g, items: g.items.filter((it) => match(it.label)) }))
+		.filter((g) => g.items.length > 0);
+	const shownUser = userThemes.filter((it) => match(it.label));
+	const showDefault = match('(default)');
+
+	const total = groups.reduce((n, g) => n + g.items.length, 0) + userThemes.length + 1; // + default
+	const shown =
+		shownGroups.reduce((n, g) => n + g.items.length, 0) + shownUser.length + (showDefault ? 1 : 0);
 
 	return (
 		<>
-			{themes.length > FILTER_THRESHOLD && (
+			{total - 1 > FILTER_THRESHOLD && (
 				<div className="rp-filter">
 					<input
 						type="search"
@@ -72,14 +147,57 @@ export default function ThemeList({ themes, active, onPick }: Props) {
 			{shown === 0 ? (
 				<div className="rp-stub">No themes match.</div>
 			) : (
-				<div className="theme-list">
+				<>
 					{showDefault && (
-						<ThemeRow name="" label="(default)" active={active === ''} onPick={onPick} />
+						<div className="theme-list">
+							<ThemeRow
+								label="(default)"
+								value=""
+								swatch={DEFAULT_SWATCH}
+								active={active === ''}
+								onPick={onPick}
+							/>
+						</div>
 					)}
-					{filtered.map((n) => (
-						<ThemeRow key={n} name={n} label={n} active={active === n} onPick={onPick} />
+					{shownGroups.map((g) => (
+						<div key={g.key} className="theme-group">
+							<div className="rp-hd">{g.label}</div>
+							<div className="theme-list">
+								{g.items.map((it) => (
+									<ThemeRow
+										key={it.value}
+										value={it.value}
+										label={it.label}
+										swatch={it.swatch}
+										active={active === it.value}
+										onPick={onPick}
+										onDuplicate={onDuplicate}
+									/>
+								))}
+							</div>
+						</div>
 					))}
-				</div>
+					{shownUser.length > 0 && (
+						<div className="theme-group">
+							<div className="rp-hd">Your themes</div>
+							<div className="theme-list">
+								{shownUser.map((it) => (
+									<ThemeRow
+										key={it.value}
+										value={it.value}
+										label={it.label}
+										swatch={it.swatch}
+										active={active === it.value}
+										onPick={onPick}
+										onEdit={onEdit}
+										onDuplicate={onDuplicate}
+										onDelete={onDelete}
+									/>
+								))}
+							</div>
+						</div>
+					)}
+				</>
 			)}
 		</>
 	);

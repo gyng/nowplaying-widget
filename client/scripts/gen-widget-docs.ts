@@ -2,8 +2,9 @@
 // (the single source of truth):
 //   docs/widgets.md     — every shipped widget type + its config schema (the widget registry)
 //   docs/templating.md  — the formula/template language (helper fns, formats, expr fields)
-//   npm run gen:docs    — (re)write both files
-//   npm run check:docs  — exit non-zero if either committed file is stale (for CI / pre-commit)
+//   docs/theming.md     — the theming system (token vocabulary, cascade, scoping)
+//   npm run gen:docs    — (re)write the files
+//   npm run check:docs  — exit non-zero if any committed file is stale (for CI / pre-commit)
 // Importing core/widget registers the built-in (shipped) metas. Plugin widget types register at
 // runtime in the webview (their import graph touches browser globals absent under vite-node), so the
 // studio's "Copy widget reference" button is the way to get the complete set; this documents built-ins.
@@ -13,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { listMetas } from '../src/lib/core/widget';
 import { widgetReferenceMarkdown } from '../src/lib/core/widgetDocs';
 import { templatingReferenceMarkdown } from '../src/lib/core/templatingDocs';
+import { themingReferenceMarkdown } from '../src/lib/core/themingDocs';
 
 const check = process.argv.includes('--check');
 const metas = listMetas();
@@ -29,6 +31,11 @@ const docs: { rel: string; md: string; label: string }[] = [
 		rel: '../../docs/templating.md',
 		md: templatingReferenceMarkdown(metas),
 		label: 'templating language'
+	},
+	{
+		rel: '../../docs/theming.md',
+		md: themingReferenceMarkdown(),
+		label: 'theming system'
 	}
 ];
 

@@ -41,7 +41,7 @@
 }
 
 .transcribe-mic.is-recording {
-	color: #e5484d;
+	color: var(--np-danger, #e5484d);
 	opacity: 1;
 }
 

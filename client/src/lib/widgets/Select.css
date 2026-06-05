@@ -1,5 +1,5 @@
 /* The shared <Select> control. Mirrors the studio's native input/select look (dark, monospace, 11px,
-   #333 border, accent on hover/focus). The menu is portaled to <body> and fixed-positioned, so these
+   var(--ui-border) border, accent on hover/focus). The menu is portaled to <body> and fixed-positioned, so these
    .np-select-menu styles are intentionally NOT scoped to any panel. */
 
 .np-select {
@@ -14,10 +14,10 @@
 	gap: 4px;
 	width: 100%;
 	box-sizing: border-box;
-	background: #1a1a1e;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border);
 	border-radius: 0;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 4px;
@@ -29,10 +29,10 @@
 	cursor: text;
 }
 .np-select-trigger:hover {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 .np-select-combo:focus-within .np-select-trigger {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 .np-select-value {
@@ -42,7 +42,7 @@
 	white-space: nowrap;
 }
 .np-select-ph {
-	color: var(--dim-fg, #888);
+	color: var(--dim-fg, var(--ui-fg-dim));
 }
 
 .np-select-input {
@@ -50,7 +50,7 @@
 	min-width: 0;
 	background: transparent;
 	border: none;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 4px;
@@ -63,14 +63,14 @@
 	flex: 0 0 auto;
 	background: transparent;
 	border: none;
-	color: #888;
+	color: var(--ui-fg-dim);
 	font-size: 9px;
 	line-height: 1;
 	padding: 0 2px;
 	cursor: pointer;
 }
 .np-select-combo .np-select-caret:hover {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .np-select-trigger:disabled,
@@ -85,46 +85,48 @@
 	margin: 0;
 	padding: 2px;
 	list-style: none;
-	background: #16161a;
-	border: 1px solid rgba(119, 196, 211, 0.5);
+	background: var(--ui-raised);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	border-radius: 3px;
 	max-height: 248px;
 	overflow-y: auto;
 	z-index: 50;
-	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+	box-shadow: 0 6px 18px var(--ui-scrim);
 	font-family: monospace;
 	font-size: 11px;
 }
 
 .np-select-option {
 	display: flex;
-	align-items: baseline;
+	/* center (not baseline) so a leading colour swatch lines up with the label text */
+	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
 	padding: 3px 6px;
 	border-radius: 2px;
-	color: #ddd;
+	color: var(--ui-fg);
 	cursor: pointer;
 }
 .np-select-option[data-highlighted] {
-	background: rgba(119, 196, 211, 0.18);
-	color: #fff;
+	background: rgba(var(--ui-accent-rgb), 0.18);
+	color: var(--ui-fg);
 }
 .np-select-option[data-selected] {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 .np-select-opt-label {
+	flex: 1 1 auto; /* take the slack so a leading swatch + label sit left, the hint to the right */
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .np-select-opt-hint {
 	flex: 0 0 auto;
-	color: #888;
+	color: var(--ui-fg-dim);
 	font-size: 10px;
 }
 
 .np-select-empty {
 	padding: 3px 6px;
-	color: #888;
+	color: var(--ui-fg-dim);
 }

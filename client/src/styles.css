@@ -21,6 +21,43 @@ body {
 	--ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
 }
 
+/* --- Studio-chrome theme tokens ------------------------------------------------------------------
+   The editor UI's colour vocabulary, centralized so surfaces/text/borders/accents aren't copy-pasted
+   as literals across a dozen chrome stylesheets — change a colour HERE, not in 11 files. The defaults
+   below ARE today's dark/teal look. Unlike before, chrome is now THEMEABLE: a theme (built-in or
+   user) sets these `--ui-*` at `:root` (alongside the widget `--np-*` tokens) and the whole studio —
+   title bar, rails, panels, backgrounds — follows it, so a light theme yields a light studio. The
+   active theme's CSS is injected after this block (via <StyleLayer>), so it wins the cascade. Accent
+   and state colours are stored as RGB CHANNELS (not whole colours) so BOTH the solid
+   `rgb(var(--ui-accent-rgb))` and translucent `rgba(var(--ui-accent-rgb), a)` forms work with
+   universal browser support (no relative-colour-syntax dependency). Overlays (`.app`, no `.studio`)
+   have no chrome, so these are inert there. */
+:root {
+	/* Surfaces */
+	--ui-bg: #0b0b0e; /* base window + opaque panels */
+	--ui-surface: rgba(10, 10, 12, 0.92); /* translucent rails / docked panels */
+	--ui-bar-bg: rgba(10, 10, 12, 0.95); /* top / sub / bottom bars */
+	--ui-raised: #1a1a1e; /* inputs, buttons, raised rows */
+	--ui-scrim: rgba(0, 0, 0, 0.5); /* menu / modal backdrops */
+	/* Text */
+	--ui-fg: #eee; /* primary text */
+	--ui-fg-muted: #aaa; /* secondary text */
+	--ui-fg-dim: #8a8a8a; /* tertiary text (== legacy --dim-fg) */
+	/* Borders */
+	--ui-border: #2a2a30;
+	--ui-border-strong: #444;
+	/* Accent (mint/cyan) */
+	--ui-accent-rgb: 119, 196, 211;
+	--ui-accent-fg: rgb(150, 214, 228); /* bright accent text / icons */
+	/* State */
+	--ui-danger-rgb: 220, 120, 120;
+	--ui-danger-fg: rgb(230, 160, 160);
+	--ui-success-rgb: 140, 200, 170;
+	--ui-success-fg: rgb(140, 200, 170);
+	--ui-warn-rgb: 255, 160, 90;
+	--ui-warn-fg: rgb(220, 180, 140);
+}
+
 /* Honour the OS "reduce motion" setting everywhere (a11y): collapse animations + transitions to
    near-instant so nothing moves for users who asked for stillness. The well-known global reset. */
 @media (prefers-reduced-motion: reduce) {
@@ -41,7 +78,7 @@ body {
 .app.studio {
 	position: fixed;
 	inset: 0;
-	background: #0b0b0e;
+	background: var(--ui-bg);
 }
 
 /* Visually-hidden but kept in the accessibility tree: screen-reader-only labels + polite live regions
@@ -65,6 +102,6 @@ body {
    border-colour change keep `el:focus { outline: none; … }` — that selector is more specific than this
    baseline, so it still wins for those inputs; everything else inherits this ring. */
 .canvas :focus-visible {
-	outline: 2px solid rgb(150, 214, 228);
+	outline: 2px solid var(--ui-accent-fg);
 	outline-offset: 1px;
 }

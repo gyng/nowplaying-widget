@@ -13,9 +13,17 @@
 	flex-direction: column;
 	gap: 4px;
 	padding: 6px 8px;
-	border: 1px solid rgba(119, 196, 211, 0.18);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.18);
 	border-radius: 4px;
-	background: rgba(119, 196, 211, 0.04);
+	background: rgba(var(--ui-accent-rgb), 0.04);
+}
+
+/* The native (Rust host) process row — set apart from the per-webview rows with a stronger accent
+   edge, since it's a different kind of thing (one process for the whole app, not a window). */
+.diag-proc {
+	border-color: rgba(var(--ui-accent-rgb), 0.4);
+	background: rgba(var(--ui-accent-rgb), 0.08);
+	border-left-width: 2px;
 }
 
 .diag-win-hd {
@@ -27,7 +35,7 @@
 
 .diag-label {
 	font-weight: bold;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .diag-win-hd .dim {
@@ -55,7 +63,7 @@
 }
 
 .diag-widget b {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	font-weight: bold;
 }
 
@@ -67,8 +75,8 @@
 }
 
 .diag-actions button {
-	background: rgba(119, 196, 211, 0.85);
-	color: #07181c;
+	background: rgba(var(--ui-accent-rgb), 0.85);
+	color: var(--ui-bg);
 	border: none;
 	border-radius: 3px;
 	padding: 2px 8px;
@@ -78,7 +86,7 @@
 }
 
 .diag-actions button:hover {
-	background: rgb(119, 196, 211);
+	background: rgb(var(--ui-accent-rgb));
 }
 
 .diag-toggle {

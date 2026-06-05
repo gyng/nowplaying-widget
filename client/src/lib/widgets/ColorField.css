@@ -1,0 +1,51 @@
+/* The colour token control: swatch + text + clear, laid out in a row inside a .tk-field / label.
+   Children are sized with flex-basis (which wins over the inherited `width:100%` on token inputs,
+   so this needs no specificity war with NavRail.css / Inspector.css). */
+.color-field {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	width: 100%;
+}
+
+.color-field .cf-swatch {
+	flex: 0 0 22px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid #333;
+	border-radius: 3px;
+	background: none;
+	cursor: pointer;
+}
+
+/* Strip the native swatch chrome so it reads as a tidy colour chip. */
+.color-field .cf-swatch::-webkit-color-swatch-wrapper {
+	padding: 1px;
+}
+.color-field .cf-swatch::-webkit-color-swatch {
+	border: none;
+	border-radius: 2px;
+}
+
+.color-field .cf-text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.color-field .cf-clear {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	line-height: 1;
+	padding: 0;
+	background: transparent;
+	border: 1px solid #3a3a40;
+	border-radius: 3px;
+	color: var(--dim-fg, #999);
+	cursor: pointer;
+}
+
+.color-field .cf-clear:hover {
+	border-color: rgb(var(--ui-danger-rgb));
+	color: rgb(230, 160, 160);
+}

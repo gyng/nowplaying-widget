@@ -17,7 +17,7 @@
 }
 
 .widget.editable {
-	outline: 1px dashed rgba(119, 196, 211, 0.7);
+	outline: 1px dashed rgba(var(--ui-accent-rgb), 0.7);
 	outline-offset: 2px;
 }
 
@@ -26,7 +26,7 @@
 }
 
 .widget.selected {
-	outline-color: rgb(119, 196, 211);
+	outline-color: rgb(var(--ui-accent-rgb));
 	outline-style: solid;
 }
 
@@ -38,10 +38,10 @@
 
 @keyframes widget-select {
 	from {
-		box-shadow: 0 0 0 0 rgba(119, 196, 211, 0.5);
+		box-shadow: 0 0 0 0 rgba(var(--ui-accent-rgb), 0.5);
 	}
 	to {
-		box-shadow: 0 0 0 6px rgba(119, 196, 211, 0);
+		box-shadow: 0 0 0 6px rgba(var(--ui-accent-rgb), 0);
 	}
 }
 
@@ -52,25 +52,25 @@
    stage instead of silently switching outline style. */
 .widget.selected.multi-member {
 	outline-style: dashed;
-	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.5);
+	box-shadow: 0 0 0 2px rgba(var(--ui-accent-rgb), 0.5);
 	animation: widget-multi-join var(--motion, 150ms) var(--ease-out, ease-out);
 }
 
 @keyframes widget-multi-join {
 	from {
-		box-shadow: 0 0 0 5px rgba(119, 196, 211, 0.4);
+		box-shadow: 0 0 0 5px rgba(var(--ui-accent-rgb), 0.4);
 	}
 	to {
-		box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.5);
+		box-shadow: 0 0 0 2px rgba(var(--ui-accent-rgb), 0.5);
 	}
 }
 
 /* Cross-highlight while the matching Outline tree row is hovered: a soft glow that reads even
    when the widget isn't selected (selection keeps its solid accent outline). */
 .widget.hl {
-	outline-color: rgba(218, 237, 226, 0.85);
+	outline-color: rgba(var(--ui-accent-rgb), 0.85);
 	outline-style: solid;
-	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.35);
+	box-shadow: 0 0 0 2px rgba(var(--ui-accent-rgb), 0.35);
 }
 
 .drag-overlay {
@@ -98,8 +98,8 @@
 	margin: 0;
 	padding: 0;
 	box-sizing: border-box;
-	border: 1px solid rgba(119, 196, 211, 0.9);
-	background: #0b0b0b;
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.9);
+	background: var(--ui-bg);
 	z-index: 1;
 }
 
@@ -154,7 +154,7 @@
 .missing {
 	font-family: monospace;
 	font-size: 11px;
-	color: rgba(255, 120, 120, 0.9);
+	color: rgba(var(--ui-danger-rgb), 0.9);
 }
 
 /* A widget whose render crashed (caught by WidgetErrorBoundary). Subtle on the desktop but legible,
@@ -162,7 +162,7 @@
 .widget-error {
 	font-family: monospace;
 	font-size: 11px;
-	color: rgba(255, 170, 90, 0.9);
+	color: rgba(var(--ui-warn-rgb), 0.9);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;

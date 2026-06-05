@@ -8,10 +8,10 @@
 	inset: 0;
 	pointer-events: none;
 	overflow: hidden; /* clip stray/edge widgets instead of scrolling (overlay + studio) */
-	/* The single "dim text" token (sensor values, empty-states, help/sub-labels). #8a8a8a clears
-	   WCAG 1.4.3 AA (~5.7:1) on the near-black panels — the old #777 sat just under 4.5:1. Defined on
+	/* The single "dim text" token (sensor values, empty-states, help/sub-labels). var(--ui-fg-dim) clears
+	   WCAG 1.4.3 AA (~5.7:1) on the near-black panels — the old var(--ui-fg-dim) sat just under 4.5:1. Defined on
 	   the shared canvas root so every studio panel (Inspector / Outline / rails) inherits one value. */
-	--dim-fg: #8a8a8a;
+	--dim-fg: var(--ui-fg-dim);
 }
 
 .canvas.edit {
@@ -53,7 +53,7 @@
 	--rail-l: 250px;
 	--rail-r: 264px;
 	--pane-gap: 6px; /* empty gutter at each resizable divider — the drag handle lives here */
-	background: #0b0b0e;
+	background: var(--ui-bg);
 	top: calc(var(--bar-h) + var(--subbar-h)); /* the stage (only) drops by the subbar row */
 	left: var(--rail-l);
 	right: var(--rail-r);
@@ -112,8 +112,8 @@
 }
 
 .canvas.studio .pane-resize:hover::after {
-	background: rgb(119, 196, 211);
-	box-shadow: 0 0 4px rgba(119, 196, 211, 0.85);
+	background: rgb(var(--ui-accent-rgb));
+	box-shadow: 0 0 4px rgba(var(--ui-accent-rgb), 0.85);
 }
 
 .canvas.studio .pane-resize.left {
@@ -151,7 +151,7 @@
 /* The monitor's work-area frame + nested pane outlines (designer only). */
 .canvas .monitor-frame {
 	position: absolute;
-	border: 1px solid rgba(119, 196, 211, 0.55);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.55);
 	pointer-events: none;
 }
 
@@ -160,8 +160,8 @@
    The stage is inset by --tree-w to make room for the def's structure tree to its left. */
 .canvas.studio.designing {
 	left: calc(var(--rail-l) + var(--tree-w));
-	background: #14141a;
-	background-image: radial-gradient(rgba(119, 196, 211, 0.08) 1px, transparent 1px);
+	background: var(--ui-raised);
+	background-image: radial-gradient(rgba(var(--ui-accent-rgb), 0.08) 1px, transparent 1px);
 	background-size: 16px 16px;
 }
 
@@ -173,28 +173,28 @@
 }
 
 .canvas.designing .monitor-frame {
-	border-color: rgba(119, 196, 211, 0.85);
-	box-shadow: 0 0 0 1px rgba(11, 11, 14, 0.8);
-	background: rgba(11, 11, 14, 0.55);
+	border-color: rgba(var(--ui-accent-rgb), 0.85);
+	box-shadow: 0 0 0 1px var(--ui-surface);
+	background: var(--ui-surface);
 }
 
 .canvas .cbound {
 	position: absolute;
 	/* A touch stronger at rest (0.45) so container nesting stays traceable over bright meters; hover
 	   (.chl) + selection (.csel) raise it further. Empty grid cells stay faint (quiet until needed). */
-	border: 1px dashed rgba(218, 237, 226, 0.45);
+	border: 1px dashed rgba(var(--ui-accent-rgb), 0.45);
 	pointer-events: none;
 }
 
 .canvas .cbound.csel {
-	border-color: rgba(119, 196, 211, 0.9);
+	border-color: rgba(var(--ui-accent-rgb), 0.9);
 	border-style: solid;
 }
 
 /* Cross-highlight from the Outline tree: this container's row is hovered. */
 .canvas .cbound.chl {
-	border-color: rgba(218, 237, 226, 0.7);
-	background: rgba(119, 196, 211, 0.06);
+	border-color: rgba(var(--ui-accent-rgb), 0.7);
+	background: rgba(var(--ui-accent-rgb), 0.06);
 }
 
 /* The container tag (row/col/grid) doubles as a SELECT button — the .cbound itself is
@@ -208,8 +208,8 @@
 	font-family: monospace;
 	font-size: 10px;
 	line-height: 1.4;
-	color: rgba(218, 237, 226, 0.85);
-	background: rgba(10, 10, 12, 0.85);
+	color: rgba(var(--ui-accent-rgb), 0.85);
+	background: var(--ui-surface);
 	pointer-events: auto;
 	cursor: pointer;
 	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
@@ -218,8 +218,8 @@
 }
 
 .canvas .cbound .ctag:hover {
-	color: rgb(150, 214, 228);
-	background: rgba(10, 10, 12, 0.95);
+	color: var(--ui-accent-fg);
+	background: var(--ui-bar-bg);
 }
 
 /* Tactile press + a keyboard focus ring for the container tag. */
@@ -227,19 +227,19 @@
 	transform: scale(0.96);
 }
 .canvas .cbound .ctag:focus-visible {
-	outline: 1px solid rgba(119, 196, 211, 0.6);
+	outline: 1px solid rgba(var(--ui-accent-rgb), 0.6);
 	outline-offset: 1px;
 }
 
 .canvas .cbound.csel .ctag {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 /* Empty grid cells: faint dashed boxes showing where the next widgets will land. */
 .canvas .grid-cell {
 	position: absolute;
 	box-sizing: border-box;
-	border: 1px dashed rgba(119, 196, 211, 0.25);
+	border: 1px dashed rgba(var(--ui-accent-rgb), 0.25);
 	background: transparent;
 	padding: 0;
 	cursor: pointer;
@@ -252,8 +252,8 @@
 		background var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 .canvas .grid-cell:hover {
-	border-color: rgba(119, 196, 211, 0.7);
-	background: rgba(119, 196, 211, 0.08);
+	border-color: rgba(var(--ui-accent-rgb), 0.7);
+	background: rgba(var(--ui-accent-rgb), 0.08);
 }
 
 /* Draggable boundary between two fr children of a row/col (custom proportions). Above the flow + the
@@ -273,7 +273,7 @@
 }
 .canvas .splitter:hover,
 .canvas .splitter:active {
-	background: rgba(119, 196, 211, 0.55);
+	background: rgba(var(--ui-accent-rgb), 0.55);
 }
 
 /* A faint always-on midpoint tick so a draggable boundary is discoverable at rest (no longer purely
@@ -282,7 +282,7 @@
 .canvas .splitter::after {
 	content: '';
 	position: absolute;
-	background: rgba(119, 196, 211, 0.45);
+	background: rgba(var(--ui-accent-rgb), 0.45);
 	pointer-events: none;
 	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
@@ -293,8 +293,8 @@
 .canvas .splitter:hover::after,
 .canvas .splitter:active::after,
 .canvas .splitter:focus-visible::after {
-	background: rgba(119, 196, 211, 0.85);
-	box-shadow: 0 0 6px rgba(119, 196, 211, 0.5);
+	background: rgba(var(--ui-accent-rgb), 0.85);
+	box-shadow: 0 0 6px rgba(var(--ui-accent-rgb), 0.5);
 }
 /* The splitter is a thin invisible pad; a normal outline would hug nothing. Drop the default ring
    (the brightened tick above is the focus affordance) but keep the keyboard cue obvious. */
@@ -320,8 +320,8 @@
 .canvas .dropzone {
 	position: absolute;
 	box-sizing: border-box;
-	border: 1px solid rgb(119, 196, 211);
-	background: rgba(119, 196, 211, 0.12);
+	border: 1px solid rgb(var(--ui-accent-rgb));
+	background: rgba(var(--ui-accent-rgb), 0.12);
 	pointer-events: none;
 	z-index: 3;
 	/* A quick fade as the drop target lights up, so it "announces" itself under the cursor. */
@@ -339,7 +339,7 @@
 
 .canvas .guide {
 	position: absolute;
-	background: rgba(119, 196, 211, 0.4);
+	background: rgba(var(--ui-accent-rgb), 0.4);
 	pointer-events: none;
 	z-index: 2;
 }
@@ -350,8 +350,8 @@
 	padding: 2px 6px;
 	font-family: monospace;
 	font-size: 10px;
-	color: #0b0b0b;
-	background: rgba(218, 237, 226, 0.95);
+	color: var(--ui-bg);
+	background: rgba(var(--ui-accent-rgb), 0.95);
 	border-radius: 3px;
 	pointer-events: none;
 	white-space: nowrap;
@@ -372,8 +372,8 @@
 
 .canvas .dropbar {
 	position: absolute;
-	background: rgb(119, 196, 211);
-	box-shadow: 0 0 4px rgba(119, 196, 211, 0.9);
+	background: rgb(var(--ui-accent-rgb));
+	box-shadow: 0 0 4px rgba(var(--ui-accent-rgb), 0.9);
 	pointer-events: none;
 	z-index: 3;
 	/* The insertion line fades in as it appears, giving the landing point a touch of momentum. */
@@ -397,22 +397,22 @@
 /* The structure a split creates: a dashed outline per resulting region (the region that keeps the
    existing content). */
 .canvas .ctx-preview-cell {
-	border: 1px dashed rgba(119, 196, 211, 0.6);
+	border: 1px dashed rgba(var(--ui-accent-rgb), 0.6);
 }
 
 /* NEW space the op opens up (a fresh split cell, or the container an "Add inside" targets): a solid
    outline + faint fill so it reads as "this region will be added". */
 .canvas .ctx-preview-zone {
-	border: 1px solid rgb(119, 196, 211);
-	background: rgba(119, 196, 211, 0.14);
+	border: 1px solid rgb(var(--ui-accent-rgb));
+	background: rgba(var(--ui-accent-rgb), 0.14);
 }
 
 /* Insertion line for "Add beside" / the trailing edge of an "Add inside": a glowing mint bar. Its
    full geometry — position AND thickness/orientation — comes from the inline rect (menuPreview's
    afterBar sizes it per axis), so no orientation rule is needed here. */
 .canvas .ctx-preview-bar {
-	background: rgb(119, 196, 211);
-	box-shadow: 0 0 5px rgba(119, 196, 211, 0.9);
+	background: rgb(var(--ui-accent-rgb));
+	box-shadow: 0 0 5px rgba(var(--ui-accent-rgb), 0.9);
 	border-radius: 1px;
 }
 
@@ -420,8 +420,8 @@
 .canvas .marquee {
 	position: absolute;
 	box-sizing: border-box;
-	border: 1px dashed rgb(119, 196, 211);
-	background: rgba(119, 196, 211, 0.1);
+	border: 1px dashed rgb(var(--ui-accent-rgb));
+	background: rgba(var(--ui-accent-rgb), 0.1);
 	pointer-events: none;
 	z-index: 6;
 }
@@ -443,8 +443,8 @@
 	flex-direction: column;
 	min-width: 132px;
 	padding: 3px;
-	background: rgba(10, 10, 12, 0.97);
-	border: 1px solid rgba(119, 196, 211, 0.6);
+	background: var(--ui-bar-bg);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.6);
 	border-radius: 4px;
 	z-index: 10;
 	pointer-events: auto;
@@ -468,7 +468,7 @@
 	background: transparent;
 	border: none;
 	border-left: 2px solid transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 12px;
 	text-align: left;
@@ -481,24 +481,24 @@
 
 .canvas .ctx button:hover,
 .canvas .ctx button:focus-visible {
-	background: rgba(119, 196, 211, 0.25);
-	border-left-color: rgb(119, 196, 211);
+	background: rgba(var(--ui-accent-rgb), 0.25);
+	border-left-color: rgb(var(--ui-accent-rgb));
 	outline: none;
 }
 
 .canvas .ctx button.rm {
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }
 
 /* The currently-targeted item in the overlap stack picker. */
 .canvas .ctx button.cur {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 }
 
 .canvas .ctx-sep {
 	height: 1px;
 	margin: 3px 4px;
-	background: #333;
+	background: var(--ui-border);
 }
 
 .canvas .ctx-hd {
@@ -507,7 +507,7 @@
 	font-size: 10px;
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 }
 
 .canvas .def-banner {
@@ -521,16 +521,16 @@
 	padding: 4px 10px;
 	font-family: monospace;
 	font-size: 12px;
-	color: #0b0b0b;
-	background: rgb(218, 237, 226);
+	color: var(--ui-bg);
+	background: var(--ui-accent-fg);
 	border-radius: 3px;
 	pointer-events: auto;
 	z-index: 4;
 }
 
 .canvas .def-banner button {
-	background: #0b0b0b;
-	color: rgb(218, 237, 226);
+	background: var(--ui-bg);
+	color: var(--ui-accent-fg);
 	border: none;
 	border-radius: 2px;
 	padding: 1px 8px;
@@ -542,15 +542,17 @@
    a dashed border the editable banner doesn't — a non-color (shape) cue for the read-only mode, so
    the distinction survives a quick glance / colour-vision differences, not just the amber fill. */
 .canvas .def-banner.preview {
-	background: rgb(237, 224, 186);
-	border: 1px dashed rgba(11, 11, 14, 0.6);
+	background: var(--ui-warn-fg);
+	border: 1px dashed var(--ui-surface);
 }
 
 .canvas .def-banner.preview button {
-	color: rgb(237, 224, 186);
+	color: var(--ui-warn-fg);
 }
 
-/* The studio's full-width top bar (in the reserved margin above the stage). */
+/* The studio's full-width top bar (in the reserved margin above the stage). Doubles as the borderless
+   window's TITLE BAR: it carries data-tauri-drag-region (the empty space + label + mascot move the
+   window), and themes via --ui-* so it follows the active theme instead of an OS frame. */
 .canvas .studio-bar {
 	position: fixed;
 	top: 0;
@@ -562,13 +564,60 @@
 	gap: 8px;
 	align-items: center;
 	padding: 0 10px;
-	background: rgba(10, 10, 12, 0.95);
-	border-bottom: 1px solid rgba(119, 196, 211, 0.5);
-	color: #eee;
+	background: var(--ui-bar-bg);
+	border-bottom: 1px solid rgba(var(--ui-accent-rgb), 0.5);
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	pointer-events: auto;
 	z-index: 7;
+}
+
+/* App mascot as the title-bar identity glyph (left). Not an HTML5 drag source — it's part of the
+   window drag region. */
+.canvas .studio-bar .sb-mascot {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+/* The window-control cluster (— ▢ ✕), pushed to the far right; the gap before it is a drag region. */
+.canvas .studio-bar .win-controls {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+/* Borderless square window buttons — override the generic .studio-bar button chrome. */
+.canvas .studio-bar button.winbtn {
+	margin: 0;
+	padding: 0;
+	width: 30px;
+	height: calc(var(--bar-h, 36px) - 8px);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: none;
+	border-radius: 3px;
+	color: var(--ui-fg-muted);
+	font-size: 12px;
+	line-height: 1;
+}
+
+.canvas .studio-bar button.winbtn:hover {
+	background: rgba(var(--ui-accent-rgb), 0.16);
+	border-color: transparent;
+	color: var(--ui-fg);
+}
+
+.canvas .studio-bar button.winbtn-close:hover {
+	background: rgba(var(--ui-danger-rgb), 0.9);
+	color: #fff;
 }
 
 /* The contextual subbar shares all .studio-bar styling (labels / checkboxes / buttons / zoom level),
@@ -580,8 +629,8 @@
 	left: var(--rail-l, 250px);
 	right: var(--rail-r, 264px);
 	height: var(--subbar-h, 30px);
-	background: rgba(10, 10, 12, 0.9);
-	border-bottom-color: rgba(119, 196, 211, 0.25);
+	background: var(--ui-bar-bg);
+	border-bottom-color: rgba(var(--ui-accent-rgb), 0.25);
 	/* Clip to the stage column so a tight fit (narrow window / widened details rail) can't spill the
 	   controls rightward over the Inspector — it sits at a lower z-index, so the overflow would paint
 	   on top of it. The rightmost (least-essential) controls clip first; undo/redo + toggles survive. */
@@ -609,10 +658,10 @@
 	padding: 4px;
 	display: flex;
 	flex-direction: column;
-	background: rgba(14, 14, 18, 0.98);
-	border: 1px solid rgba(119, 196, 211, 0.4);
+	background: var(--ui-bar-bg);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.4);
 	border-radius: 4px;
-	box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+	box-shadow: 0 8px 22px var(--ui-scrim);
 	pointer-events: auto;
 }
 .canvas .studio-menu button {
@@ -623,18 +672,18 @@
 	border: none;
 	border-radius: 3px;
 	background: transparent;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	cursor: pointer;
 	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 .canvas .studio-menu button:hover {
-	background: rgba(119, 196, 211, 0.18);
+	background: rgba(var(--ui-accent-rgb), 0.18);
 }
 
 .canvas .studio-bar .lbl {
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	/* Extra leading space before each section label chunks the 16-control bar by proximity (Gestalt),
@@ -646,11 +695,20 @@
 	margin-left: 0;
 }
 
+/* Theme / Display pickers: a bounded, consistent width so a long theme or monitor name truncates
+   (ellipsis) instead of stretching the bar, while a short one keeps a clickable minimum. Overrides
+   the .np-select width:100% so it sizes to the bar, not its flex slot. */
+.canvas .studio-bar .np-select.sb-select {
+	width: auto;
+	min-width: 104px;
+	max-width: 168px;
+}
+
 .canvas .studio-bar .chk {
 	display: inline-flex;
 	align-items: center;
 	gap: 3px;
-	color: #ccc;
+	color: var(--ui-fg-muted);
 	cursor: pointer;
 	white-space: nowrap;
 }
@@ -658,7 +716,7 @@
 .canvas .studio-bar .zlevel {
 	min-width: 34px;
 	text-align: right;
-	color: #ccc;
+	color: var(--ui-fg-muted);
 }
 
 /* Which physical monitor this stage is editing (screen-space, top-left of the stage). */
@@ -670,9 +728,9 @@
 	font-family: monospace;
 	font-size: 10px;
 	letter-spacing: 0.5px;
-	color: rgb(119, 196, 211);
-	background: rgba(10, 10, 12, 0.7);
-	border: 1px solid rgba(119, 196, 211, 0.4);
+	color: rgb(var(--ui-accent-rgb));
+	background: var(--ui-surface);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.4);
 	border-radius: 3px;
 	pointer-events: none;
 	z-index: 5;
@@ -691,9 +749,9 @@
 	align-items: stretch;
 	gap: 0;
 	padding: 0;
-	background: rgba(10, 10, 12, 0.95);
-	border-top: 1px solid rgba(119, 196, 211, 0.5);
-	color: #ccc;
+	background: var(--ui-bar-bg);
+	border-top: 1px solid rgba(var(--ui-accent-rgb), 0.5);
+	color: var(--ui-fg-muted);
 	font-family: monospace;
 	font-size: 10px;
 	pointer-events: auto;
@@ -725,32 +783,32 @@
 
 /* Alternate the segment shading so the angled edges read as powerline arrows. */
 .canvas .powerbar .seg:nth-child(odd) {
-	background: rgba(119, 196, 211, 0.1);
+	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
 .canvas .powerbar .seg:nth-child(even) {
-	background: rgba(119, 196, 211, 0.04);
+	background: rgba(var(--ui-accent-rgb), 0.04);
 }
 
 .canvas .powerbar .seg kbd {
 	font-family: monospace;
 	font-size: 10px;
-	color: #0b0b0e;
-	background: rgb(119, 196, 211);
+	color: var(--ui-bg);
+	background: rgb(var(--ui-accent-rgb));
 	border-radius: 2px;
 	padding: 0 4px;
 	line-height: 14px;
 }
 
 .canvas .powerbar .seg .lbl {
-	color: #bbb;
+	color: var(--ui-fg-muted);
 	text-transform: lowercase;
 	letter-spacing: 0.3px;
 }
 
 /* Transient "✓ saved" confirmation segment (after an explicit Save). Calm green, no kbd chip. */
 .canvas .powerbar .seg.flash {
-	background: rgba(140, 200, 170, 0.16);
+	background: rgba(var(--ui-success-rgb), 0.16);
 	/* A small one-shot pop so a successful Save is felt, not just seen. */
 	animation: seg-saved var(--motion-slow, 240ms) var(--ease-spring, ease-out);
 }
@@ -771,18 +829,21 @@
 }
 
 .canvas .powerbar .seg.flash .lbl {
-	color: rgb(150, 210, 180);
+	color: var(--ui-success-fg);
 }
 
 .canvas .studio-bar select,
 .canvas .studio-bar button {
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 2px 6px;
 	cursor: pointer;
+	/* Keep multi-token labels (e.g. "● Save" / "✓ Saved") on a single row — the bar is a fixed-height
+	   flex strip, so a wrapped label would clip instead of growing the bar. */
+	white-space: nowrap;
 	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		background var(--motion-fast, 100ms) var(--ease-out, ease-out),
@@ -791,7 +852,7 @@
 }
 
 .canvas .studio-bar button:hover {
-	border-color: rgb(119, 196, 211);
+	border-color: rgb(var(--ui-accent-rgb));
 }
 
 /* Tactile press on toolbar buttons (transform only — no layout shift). */
@@ -803,14 +864,14 @@
 	/* 0.55 (not 0.4) so the rest state — empty undo/redo history on open — doesn't read as "broken". */
 	opacity: 0.55;
 	cursor: default;
-	border-color: #333;
+	border-color: var(--ui-border);
 }
 
 /* Save glows while there are unsaved changes; disabled (= "Saved") when clean. */
 .canvas .studio-bar button.save.hot {
-	border-color: rgb(119, 196, 211);
-	color: rgb(170, 230, 240);
-	background: rgba(119, 196, 211, 0.18);
+	border-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-accent-fg);
+	background: rgba(var(--ui-accent-rgb), 0.18);
 	opacity: 1;
 }
 
@@ -818,8 +879,8 @@
    positive status shouldn't read as deactivation. (Overrides the :disabled dim above by specificity.) */
 .canvas .studio-bar button.save.saved {
 	opacity: 1;
-	color: rgb(140, 200, 170);
-	border-color: rgba(140, 200, 170, 0.35);
+	color: var(--ui-success-fg);
+	border-color: rgba(var(--ui-success-rgb), 0.35);
 	background: transparent;
 }
 
@@ -833,10 +894,10 @@
 	flex-direction: column;
 	gap: 6px;
 	padding: 8px;
-	background: rgba(12, 12, 16, 0.98);
-	border: 1px solid rgba(119, 196, 211, 0.6);
+	background: var(--ui-bar-bg);
+	border: 1px solid rgba(var(--ui-accent-rgb), 0.6);
 	border-radius: 4px;
-	color: #eee;
+	color: var(--ui-fg);
 	font-family: monospace;
 	font-size: 11px;
 	pointer-events: auto;
@@ -847,7 +908,7 @@
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	color: rgb(119, 196, 211);
+	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
 }
@@ -855,14 +916,14 @@
 .canvas .theme-editor .te-close {
 	background: transparent;
 	border: none;
-	color: #aaa;
+	color: var(--ui-fg-muted);
 	cursor: pointer;
 	font-size: 12px;
 	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .canvas .theme-editor .te-close:hover {
-	color: #eee;
+	color: var(--ui-fg);
 }
 
 .canvas .theme-editor .te-name {
@@ -873,9 +934,9 @@
 
 .canvas .theme-editor input,
 .canvas .theme-editor textarea {
-	background: #1a1a1e;
-	color: #eee;
-	border: 1px solid #333;
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border);
 	font-family: monospace;
 	font-size: 11px;
 	padding: 4px;
@@ -890,26 +951,41 @@
 .canvas .theme-editor .te-actions {
 	display: flex;
 	justify-content: flex-end;
+	gap: 6px;
 }
 
 .canvas .theme-editor .te-actions button {
-	background: rgb(119, 196, 211);
-	color: #07181c;
+	background: rgb(var(--ui-accent-rgb));
+	color: var(--ui-bg);
 	border: none;
 	border-radius: 3px;
 	padding: 4px 10px;
 	cursor: pointer;
 	font-family: monospace;
 	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		transform var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
 .canvas .theme-editor .te-actions button:hover {
-	background: rgb(150, 214, 228);
+	background: var(--ui-accent-fg);
 }
 
 .canvas .theme-editor .te-actions button:active {
 	transform: translateY(1px);
+}
+
+/* Cancel is the secondary action: a ghost button so "Save & apply" stays the clear primary. */
+.canvas .theme-editor .te-actions button.te-cancel {
+	background: transparent;
+	color: var(--ui-fg-muted);
+	border: 1px solid var(--ui-border-strong);
+}
+
+.canvas .theme-editor .te-actions button.te-cancel:hover {
+	background: transparent;
+	border-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-fg);
 }
 
 /* Prose vs values: monospace stays the studio default (and keeps all data/value columns aligned),
@@ -932,7 +1008,7 @@
 }
 
 .canvas .de-title {
-	color: rgb(150, 214, 228);
+	color: var(--ui-accent-fg);
 	text-transform: uppercase;
 	letter-spacing: 1px;
 	font-size: 11px;
@@ -951,8 +1027,8 @@
 	padding: 2px 6px;
 	font-family: monospace;
 	font-size: 10px;
-	color: #fff;
-	background: rgba(119, 196, 211, 0.85);
+	color: var(--ui-fg);
+	background: rgba(var(--ui-accent-rgb), 0.85);
 	border-radius: 3px;
 	pointer-events: none;
 }

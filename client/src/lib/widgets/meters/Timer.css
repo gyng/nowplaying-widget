@@ -25,7 +25,7 @@
 }
 
 .timer.is-done .timer-time {
-	color: #e5484d;
+	color: var(--np-danger, #e5484d);
 }
 
 .timer-controls {

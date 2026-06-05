@@ -13,6 +13,7 @@ import {
 	isGroup,
 	isLeaf
 } from './layoutTree';
+import { DEFAULT_TOKENS, tokensToCss } from './tokens';
 
 /**
  * Scope a user CSS block to `selector` via native CSS nesting: `selector { <css> }`. Both
@@ -28,18 +29,26 @@ export function scopeCss(css: string | undefined, selector: string): string {
 
 /**
  * Assemble a monitor's full stylesheet. Order encodes the cascade:
+ *   0. (opt-in) the DEFAULT_TOKENS base at `:root`, so the token vocabulary is the actual runtime
+ *      source of truth — a meter can read bare `var(--np-accent)` and a theme/override still wins
+ *      because it comes later in the cascade. Off by default so the unit tests (and any non-widget
+ *      caller) get just the authored CSS.
  *   1. the global theme, verbatim (sets tokens + may target `np-*` hooks)
  *   2. each library def's css, scoped to `[data-def="<id>"]` (styles every instance)
- *   3. each instance's css (`[data-w="<id>"]`) and each group instance's css
- *      (`[data-group="<id>"]`), most-specific last so it wins.
+ *   3. each instance's per-widget token overrides + css (`[data-w="<id>"]`) and each group
+ *      instance's (`[data-group="<id>"]`), most-specific last so it wins. The scoped tokens come
+ *      just before that unit's css and beat the global `:root` tokens for this widget's subtree.
  * Pure — the host carries the matching `data-w`/`data-def`/`data-group` attributes.
  */
 export function assembleStyles(opts: {
 	themeCss?: string;
 	library?: Library;
 	monitor: MonitorLayout;
+	includeDefaults?: boolean;
 }): string {
 	const parts: string[] = [];
+
+	if (opts.includeDefaults) parts.push(tokensToCss(DEFAULT_TOKENS));
 
 	const theme = (opts.themeCss ?? '').trim();
 	if (theme) parts.push(theme);
@@ -51,6 +60,8 @@ export function assembleStyles(opts: {
 
 	const leafCss = (lf: Leaf): void => {
 		const sel = isGroup(lf.unit) ? `[data-group="${lf.id}"]` : `[data-w="${lf.id}"]`;
+		const tk = lf.unit.tokens;
+		if (tk && Object.keys(tk).length) parts.push(tokensToCss(tk, sel));
 		const s = scopeCss(lf.unit.css, sel);
 		if (s) parts.push(s);
 	};

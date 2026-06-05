@@ -1,0 +1,28 @@
+/* Theme colour swatch (see ColorSwatch.tsx): the surface filled + an accent and a foreground dot.
+   Used by the Themes panel picker AND the app-bar theme dropdown. The dropdown's menu is portaled to
+   <body>, so these are BARE global classes (not scoped to .canvas); --ui-* resolve from :root either
+   way. Fixed-size — the label takes the slack beside it. */
+.np-swatch {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	width: 24px;
+	height: 16px;
+	border-radius: 3px;
+	border: 1px solid var(--ui-border-strong, #444);
+	overflow: hidden;
+}
+
+.np-swatch-dot {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); /* hairline so a dot matching the surface still reads */
+}
+
+/* No parsed swatch yet (a user theme still loading) → a neutral raised chip, no dots. */
+.np-swatch-empty {
+	background: var(--ui-raised, #1a1a1e);
+}

@@ -8,9 +8,9 @@
 /* Placeholder shown while the CodeMirror chunk loads (sized to avoid a layout jump). */
 .css-editor-loading {
 	min-height: 46px;
-	border: 1px solid #333;
+	border: 1px solid var(--ui-border);
 	border-radius: 3px;
-	background: #1a1a1e;
+	background: var(--ui-raised);
 }
 
 .css-editor .cm-editor {
