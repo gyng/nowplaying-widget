@@ -12,6 +12,7 @@
 		"lint": "prettier --check . && eslint . --max-warnings 0",
 		"lint:fix": "prettier --write . && eslint . --max-warnings 0 --fix",
 		"format": "prettier --write .",
+		"mcp": "vite-node mcp/server.ts",
 		"gen:docs": "vite-node scripts/gen-widget-docs.ts",
 		"check:docs": "vite-node scripts/gen-widget-docs.ts --check",
 		"gen:shots": "node scripts/screenshots.mjs",
