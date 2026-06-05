@@ -47,8 +47,16 @@ export type ScalarFormat = { name: string; summary: string; example: string };
 export const SCALAR_FORMATS: ScalarFormat[] = [
 	{ name: 'integer', summary: 'Rounded to a whole number.', example: '37' },
 	{ name: 'percent', summary: 'A whole-number percentage with a `%` suffix.', example: '37%' },
-	{ name: 'rate', summary: 'Bytes/second, binary-scaled, with a `/s` suffix.', example: '1.0 KiB/s' },
-	{ name: 'bytes', summary: 'Binary-scaled bytes (B / KiB / MiB / GiB / TiB).', example: '16.0 GiB' },
+	{
+		name: 'rate',
+		summary: 'Bytes/second, binary-scaled, with a `/s` suffix.',
+		example: '1.0 KiB/s'
+	},
+	{
+		name: 'bytes',
+		summary: 'Binary-scaled bytes (B / KiB / MiB / GiB / TiB).',
+		example: '16.0 GiB'
+	},
 	{
 		name: 'duration',
 		summary: 'A whole-seconds duration, two most-significant units.',

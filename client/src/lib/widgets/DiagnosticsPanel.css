@@ -1,0 +1,95 @@
+/* Studio Diagnostics panel — matches the rail's monospace-values / accent-button look. Scoped to
+   .diag (rendered only inside the studio settings rail). */
+.diag {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	font-family: monospace;
+	font-size: 11px;
+}
+
+.diag-win {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 6px 8px;
+	border: 1px solid rgba(119, 196, 211, 0.18);
+	border-radius: 4px;
+	background: rgba(119, 196, 211, 0.04);
+}
+
+.diag-win-hd {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.diag-label {
+	font-weight: bold;
+	color: rgb(119, 196, 211);
+}
+
+.diag-win-hd .dim {
+	opacity: 0.6;
+	font-size: 10px;
+}
+
+.diag-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	opacity: 0.9;
+}
+
+.diag-widgets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px 8px;
+	opacity: 0.85;
+	font-size: 10px;
+}
+
+.diag-widget {
+	white-space: nowrap;
+}
+
+.diag-widget b {
+	color: rgb(119, 196, 211);
+	font-weight: bold;
+}
+
+.diag-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 2px;
+}
+
+.diag-actions button {
+	background: rgba(119, 196, 211, 0.85);
+	color: #07181c;
+	border: none;
+	border-radius: 3px;
+	padding: 2px 8px;
+	cursor: pointer;
+	font-family: monospace;
+	font-size: 11px;
+}
+
+.diag-actions button:hover {
+	background: rgb(119, 196, 211);
+}
+
+.diag-toggle {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+	user-select: none;
+}
+
+.diag-note {
+	opacity: 0.7;
+	line-height: 1.4;
+}

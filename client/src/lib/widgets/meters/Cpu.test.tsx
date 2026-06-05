@@ -17,7 +17,11 @@ function hubWith(coreCount: number, withFreq = false): TelemetryHub {
 		for (let i = 0; i < coreCount; i++) {
 			batch.push({ sensor: `cpu.core.${i}`, ts_ms: t, value: { kind: 'scalar', value: 10 + i } });
 			if (withFreq) {
-				batch.push({ sensor: `cpu.core.${i}.freq`, ts_ms: t, value: { kind: 'scalar', value: 4000 } });
+				batch.push({
+					sensor: `cpu.core.${i}.freq`,
+					ts_ms: t,
+					value: { kind: 'scalar', value: 4000 }
+				});
 			}
 		}
 		hub.ingestBatch(batch);

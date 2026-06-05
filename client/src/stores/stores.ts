@@ -1,4 +1,5 @@
 import { createStore } from './createStore';
+import { mergeMediaForward, upsertSession } from '../lib/components/NowPlaying/priority';
 
 export type ManagerEventWrapper = unknown;
 
@@ -16,8 +17,11 @@ export type SessionRecord = {
 	source: string;
 	timestamp_created: SystemTime | null;
 	timestamp_updated: SystemTime | null;
-	last_media_update: SessionUpdateEventMedia;
-	last_model_update: SessionUpdateEventModel;
+	// Both mirror Rust `Option<SessionUpdateEventWrapper>` (state.rs) — nullable. The backend also now
+	// omits `last_media_update` (sends null) on model/timeline updates to avoid re-shipping the album-art
+	// bytes every play/pause/seek tick; the frontend carries the prior media forward (see mergeMediaForward).
+	last_media_update: SessionUpdateEventMedia | null;
+	last_model_update: SessionUpdateEventModel | null;
 };
 
 export type MonitorInfo = {
@@ -166,9 +170,15 @@ export function handleInitialize(opts: HandleInitializeOpts) {
 	if (!opts) return;
 
 	mediaStore.update((cur) => {
+		// Fold the backend snapshot through upsertSession so a same-source duplicate in the initial
+		// set can't seed the leak at startup (the live overlay path uses the same eviction).
+		const sessions = Object.values(opts.sessions).reduce<Record<number, SessionRecord>>(
+			(acc, rec) => upsertSession(acc, rec),
+			{}
+		);
 		return {
 			...cur,
-			sessions: opts.sessions
+			sessions
 		};
 	});
 }
@@ -178,12 +188,17 @@ export type HandleUpdateOpts = {
 };
 export function handleUpdate(opts: HandleUpdateOpts) {
 	mediaStore.update((cur) => {
+		// Restore the album art the backend omits on model/timeline updates (carried forward by id), then
+		// upsert keyed by session_id while evicting any stale record for the SAME source — a player that
+		// recreates its SMTC session would otherwise leak an orphaned record (with its album-art bytes)
+		// per recreation, OOMing the overlay over time.
+		const record = mergeMediaForward(
+			cur.sessions[opts.sessionRecord.session_id],
+			opts.sessionRecord
+		);
 		return {
 			...cur,
-			sessions: {
-				...cur.sessions,
-				[opts.sessionRecord.session_id]: opts.sessionRecord
-			}
+			sessions: upsertSession(cur.sessions, record)
 		};
 	});
 }

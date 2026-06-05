@@ -80,6 +80,8 @@ import SensorList from './SensorList';
 import { SYSTEM_GROUP } from '../core/sensorList';
 import ThemeList from './ThemeList';
 import StyleLayer from './StyleLayer';
+import DiagnosticsPanel from './DiagnosticsPanel';
+import { startDiagResponder } from '../diag';
 import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
 import { snapRectToPeers } from '../core/align';
@@ -278,6 +280,17 @@ export default function Canvas({ studio = false }: Props) {
 
 	// Stable telemetry hub (item 5): one per Canvas, provided via Context (replaces setContext).
 	const hub = useRef(createTelemetryHub()).current;
+
+	// Diagnostics bridge: every window (overlay + main + studio) answers the studio's Diagnostics-panel
+	// poll with its heap/counts and obeys targeted debug commands (open devtools / toggle click-through).
+	// Mounted once here so it covers both roles. No StrictMode in this app, so a single mount is correct.
+	useEffect(() => {
+		let teardown: (() => void) | undefined;
+		void startDiagResponder(() => hub).then((un) => {
+			teardown = un;
+		});
+		return () => teardown?.();
+	}, [hub]);
 
 	// This window's monitor key. In the studio this is switchable AND sticky across reloads (restored
 	// from localStorage); overlays pin to their `?monitor=` param and ignore the stored choice.
@@ -1242,7 +1255,9 @@ export default function Canvas({ studio = false }: Props) {
 		const path = await saveLayoutAs(name, json);
 		setLayoutNames(await listLayouts());
 		if (!path) {
-			window.alert('Could not save the layout. Names allow letters, numbers, spaces, _ and - (≤64).');
+			window.alert(
+				'Could not save the layout. Names allow letters, numbers, spaces, _ and - (≤64).'
+			);
 		}
 	}, [editingDefId]);
 
@@ -3032,6 +3047,8 @@ export default function Canvas({ studio = false }: Props) {
 										<button type="button" onClick={openDevtools}>
 											⌗ Inspect (devtools)
 										</button>
+										<div className="rp-hd">Diagnostics</div>
+										<DiagnosticsPanel />
 										<div className="rp-hd">Danger</div>
 										<button type="button" className="rp-danger" onClick={clearMonitor}>
 											✕ Clear this monitor
@@ -3249,9 +3266,7 @@ export default function Canvas({ studio = false }: Props) {
 														})
 													}
 												>
-													{menuConvertKind === 'col'
-														? '⬍ Convert to column'
-														: '⬌ Convert to row'}
+													{menuConvertKind === 'col' ? '⬍ Convert to column' : '⬌ Convert to row'}
 												</button>
 											)}
 											<div className="ctx-sep" />

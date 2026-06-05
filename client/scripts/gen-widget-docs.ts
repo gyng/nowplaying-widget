@@ -20,8 +20,16 @@ const metas = listMetas();
 const norm = (s: string): string => s.replace(/\r\n/g, '\n');
 
 const docs: { rel: string; md: string; label: string }[] = [
-	{ rel: '../../docs/widgets.md', md: widgetReferenceMarkdown(metas), label: `${metas.length} built-in widgets` },
-	{ rel: '../../docs/templating.md', md: templatingReferenceMarkdown(metas), label: 'templating language' }
+	{
+		rel: '../../docs/widgets.md',
+		md: widgetReferenceMarkdown(metas),
+		label: `${metas.length} built-in widgets`
+	},
+	{
+		rel: '../../docs/templating.md',
+		md: templatingReferenceMarkdown(metas),
+		label: 'templating language'
+	}
 ];
 
 let stale = false;

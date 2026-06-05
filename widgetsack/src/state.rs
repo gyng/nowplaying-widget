@@ -41,6 +41,10 @@ pub fn updater(
             ("session_create", None)
         }
         NpSessionEvent::Update(session_id, ev) => {
+            // Model/timeline (play/pause/seek) updates carry NO new album art — capture that before `ev`
+            // is consumed so the emit below can strip the (unchanged) cover bytes rather than re-shipping
+            // hundreds of KB over the IPC bridge on every tick.
+            let is_model = matches!(ev, SessionUpdateEventWrapper::Model(_));
             let maybe_existing = (*sessions).get(&session_id);
             // TODO: create np-widget-specific models for sessions and map gsmtc to it
 
@@ -85,7 +89,19 @@ pub fn updater(
             };
 
             let _ = (*sessions).insert(session_id, updated_record.clone());
-            ("session_update", Some(updated_record))
+            // The stored record (above) keeps the art; the EMITTED one drops it on a model/timeline
+            // update so we don't re-serialise + re-send the cover bytes to every webview each tick. The
+            // frontend carries the previous cover forward by session_id (see stores.ts mergeMediaForward).
+            // A media update keeps its art so a new cover still reaches the overlay.
+            let emitted = if is_model {
+                SessionRecord {
+                    last_media_update: None,
+                    ..updated_record
+                }
+            } else {
+                updated_record
+            };
+            ("session_update", Some(emitted))
         }
         NpSessionEvent::Delete(session_id, _ev) => {
             let maybe_deleted_record = (*sessions).remove(&session_id);
@@ -164,6 +180,52 @@ mod tests {
         assert_eq!(record.source.as_deref(), Some("fooplayer"));
         assert!(record.last_model_update.is_some());
         assert!(record.timestamp_updated.is_some());
+    }
+
+    #[test]
+    fn model_update_strips_album_art_from_emitted_record_but_keeps_it_stored() {
+        use crate::listener::ImageWrapper;
+        let mut sessions = HashMap::new();
+        let _ = updater(
+            &mut sessions,
+            NpSessionEvent::Create(
+                7,
+                ManagerEventWrapper::SessionCreated {
+                    session_id: 7,
+                    source: "p".to_string(),
+                },
+            ),
+        );
+
+        // A media update lands cover art on the session — and DOES carry it to the bridge.
+        let media_ev = SessionUpdateEventWrapper::Media(
+            model("p"),
+            Some(ImageWrapper {
+                content_type: "image/png".to_string(),
+                data: vec![1, 2, 3, 4],
+            }),
+        );
+        let (_, media_delta) = updater(&mut sessions, NpSessionEvent::Update(7, media_ev));
+        assert!(
+            media_delta.expect("media update yields a record").last_media_update.is_some(),
+            "a media update must ship its album art"
+        );
+
+        // A following model (play/pause/seek) update must NOT re-ship the art on the emitted record…
+        let (kind, model_delta) = updater(
+            &mut sessions,
+            NpSessionEvent::Update(7, SessionUpdateEventWrapper::Model(model("p"))),
+        );
+        assert_eq!(kind, "session_update");
+        assert!(
+            model_delta.expect("model update yields a record").last_media_update.is_none(),
+            "an emitted model/timeline update must not re-ship the (unchanged) album art"
+        );
+        // …but the STORED record keeps it, so get_initial_sessions / the frontend retain the cover.
+        assert!(
+            sessions.get(&7).unwrap().last_media_update.is_some(),
+            "the stored record must keep the art for later reads"
+        );
     }
 
     #[test]

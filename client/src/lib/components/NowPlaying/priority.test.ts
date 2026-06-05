@@ -2,7 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 import type { PlaybackModel, SessionModel, SessionRecord } from '../../../stores/stores';
-import { filterIgnored, sortSessionsByPriority } from './priority';
+import {
+	filterIgnored,
+	mergeMediaForward,
+	sortSessionsByPriority,
+	sumArtBytes,
+	upsertSession
+} from './priority';
 
 const playback: PlaybackModel = {
 	auto_repeat: 'None',
@@ -173,5 +179,110 @@ describe('filterIgnored', () => {
 		const sessions = make({ 0: 'foobar2000.exe', 1: 'spotify.exe', 2: 'chrome.exe' });
 		const kept = filterIgnored(sessions, 'foobar2000\n\nchrome');
 		expect(Object.values(kept).map((s) => s.source)).toEqual(['spotify.exe']);
+	});
+});
+
+describe('upsertSession', () => {
+	const rec = (session_id: number, source: string): SessionRecord => ({
+		...sessionRecord,
+		session_id,
+		source
+	});
+
+	it('replaces the record for the same session_id without growing the map', () => {
+		const sessions = { 7: rec(7, 'spotify.exe') };
+		const next = upsertSession(sessions, rec(7, 'spotify.exe'));
+		expect(Object.keys(next)).toEqual(['7']);
+	});
+
+	it('evicts a stale entry that shares the source under a different session_id (the leak fix)', () => {
+		// Spotify recreated its SMTC session: same source, new id, no session_delete for the old one.
+		const sessions = { 7: rec(7, 'spotify.exe'), 9: rec(9, 'foobar2000.exe') };
+		const next = upsertSession(sessions, rec(12, 'spotify.exe'));
+		// The orphaned id 7 (and its retained art bytes) is gone; the unrelated player survives.
+		expect(Object.keys(next).sort()).toEqual(['12', '9']);
+		expect(next[12].source).toBe('spotify.exe');
+		expect(next[9].source).toBe('foobar2000.exe');
+	});
+
+	it('keeps sessions with distinct sources', () => {
+		const sessions = { 1: rec(1, 'spotify.exe') };
+		const next = upsertSession(sessions, rec(2, 'foobar2000.exe'));
+		expect(Object.keys(next).sort()).toEqual(['1', '2']);
+	});
+
+	it('does not dedupe a record with no source (can not identify the player)', () => {
+		const sessions = { 1: rec(1, ''), 2: rec(2, '') };
+		const next = upsertSession(sessions, rec(3, ''));
+		expect(Object.keys(next).sort()).toEqual(['1', '2', '3']);
+	});
+
+	it('returns a new map (does not mutate the input)', () => {
+		const sessions = { 7: rec(7, 'spotify.exe') };
+		const next = upsertSession(sessions, rec(8, 'spotify.exe'));
+		expect(next).not.toBe(sessions);
+		expect(Object.keys(sessions)).toEqual(['7']); // original untouched
+	});
+});
+
+describe('mergeMediaForward', () => {
+	// A record whose media (title/art) is present, vs a model-only update that omits it.
+	const withMedia = (session_id: number): SessionRecord => ({
+		...sessionRecord,
+		session_id,
+		last_media_update: { Media: [{ ...session, source: 'p.exe' }, { data: [1, 2, 3] }] }
+	});
+	const modelOnly = (session_id: number): SessionRecord => ({
+		...sessionRecord,
+		session_id,
+		last_media_update: null,
+		last_model_update: { Model: { ...session, playback: { ...playback, status: 'Paused' } } }
+	});
+
+	it('carries the previous media forward when the update omits it (paused/seek tick)', () => {
+		const prev = withMedia(7);
+		const merged = mergeMediaForward(prev, modelOnly(7));
+		// Cover + metadata preserved from prev; the new model (Paused) is taken from the incoming record.
+		expect(merged.last_media_update).toBe(prev.last_media_update);
+		expect(merged.last_model_update?.Model?.playback?.status).toBe('Paused');
+	});
+
+	it('keeps the incoming media when the update carries its own (real track change)', () => {
+		const prev = withMedia(7);
+		const incoming = withMedia(7);
+		const merged = mergeMediaForward(prev, incoming);
+		expect(merged.last_media_update).toBe(incoming.last_media_update);
+	});
+
+	it('is a no-op for a first-seen session (no prev to carry from)', () => {
+		const incoming = modelOnly(9);
+		expect(mergeMediaForward(undefined, incoming)).toBe(incoming);
+		expect(mergeMediaForward(undefined, incoming).last_media_update).toBeNull();
+	});
+});
+
+describe('sumArtBytes', () => {
+	const withArt = (session_id: number, bytes: number[]): SessionRecord => ({
+		...sessionRecord,
+		session_id,
+		last_media_update: { Media: [{ ...session, source: 'p.exe' }, { data: bytes }] }
+	});
+
+	it('sums album-art byte lengths across sessions', () => {
+		const sessions = { 1: withArt(1, [1, 2, 3]), 2: withArt(2, [4, 5]) };
+		expect(sumArtBytes(sessions)).toBe(5);
+	});
+
+	it('ignores sessions with no art (null media or no data)', () => {
+		const sessions = {
+			1: withArt(1, [1, 2, 3]),
+			2: { ...sessionRecord, session_id: 2, last_media_update: null },
+			3: { ...sessionRecord, session_id: 3 } // fixture default: Media[1] is null
+		};
+		expect(sumArtBytes(sessions)).toBe(3);
+	});
+
+	it('is 0 for an empty set', () => {
+		expect(sumArtBytes({})).toBe(0);
 	});
 });

@@ -171,7 +171,9 @@ function gridTracks(c: Container, available: number, count: number, horizontal: 
 	let flexWeight = 0;
 	for (let t = 0; t < count; t++) if (fixed[t] == null) flexWeight += trackWeight(weights, t);
 	const leftover = Math.max(0, available - gap * (count - 1) - fixedSum);
-	return fixed.map((v, t) => (v != null ? v : flexWeight > 0 ? (leftover * trackWeight(weights, t)) / flexWeight : 0));
+	return fixed.map((v, t) =>
+		v != null ? v : flexWeight > 0 ? (leftover * trackWeight(weights, t)) / flexWeight : 0
+	);
 }
 
 function gridColWidths(c: Container, contentW: number): number[] {

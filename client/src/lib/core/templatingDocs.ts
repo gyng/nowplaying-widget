@@ -19,7 +19,9 @@ function functionsTable(): string {
 }
 
 function formatsTable(): string {
-	const rows = SCALAR_FORMATS.map((f) => `| \`${f.name}\` | ${cell(f.summary)} | ${cell(f.example)} |`);
+	const rows = SCALAR_FORMATS.map(
+		(f) => `| \`${f.name}\` | ${cell(f.summary)} | ${cell(f.example)} |`
+	);
 	return ['| format | description | example |', '| --- | --- | --- |', ...rows].join('\n');
 }
 
@@ -30,7 +32,7 @@ function exprFieldsTable(metas: WidgetMeta[]): string {
 	for (const m of metas) {
 		for (const f of (m.configFields ?? []).filter(isExpr)) {
 			const accepts = f.result === 'text' ? 'template → text' : 'formula → number';
-			const note = f.target && f.target !== f.key ? `overrides \`${f.target}\`` : (f.help ?? '');
+			const note = f.target && f.target !== f.key ? `overrides \`${f.target}\`` : f.help ?? '';
 			rows.push(`| \`${m.type}\` | \`${f.key}\` | ${accepts} | ${cell(note)} |`);
 		}
 	}

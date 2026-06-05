@@ -35,9 +35,14 @@ const grid2x2 = () =>
 		rows: 2
 	});
 const withWidget = (id: string) =>
-	container(id, 'col', [leaf({ id: 'w', type: 'clock', rect: { x: 0, y: 0, w: 10, h: 10 }, config: {} })], {
-		align: 'stretch'
-	});
+	container(
+		id,
+		'col',
+		[leaf({ id: 'w', type: 'clock', rect: { x: 0, y: 0, w: 10, h: 10 }, config: {} })],
+		{
+			align: 'stretch'
+		}
+	);
 
 const gridOf = (p: ReturnType<typeof patchContainerOp>) =>
 	(p.monitor as MonitorLayout).root.children[0] as Container;
@@ -62,7 +67,9 @@ describe('patchContainerOp — grid cell reconciliation', () => {
 	});
 
 	it('leaves a non-grid container untouched on a cols patch', () => {
-		const root = container('root', 'col', [container('r', 'row', [cell('a'), cell('b'), cell('c')])]);
+		const root = container('root', 'col', [
+			container('r', 'row', [cell('a'), cell('b'), cell('c')])
+		]);
 		const r = gridOf(patchContainerOp(stub(root), 'r', { cols: 1 }));
 		expect(r.children).toHaveLength(3);
 	});

@@ -10,12 +10,20 @@ describe('innermostContainerAt', () => {
 	it('picks the deepest container when a nested cell FILLS its parent (equal rects)', () => {
 		// Pre-order order (parent before child), all the same rect — the regression case: splitting
 		// must target `inner`, the cell actually under the cursor, not the equal-sized `outer` wrapper.
-		const boxes = [box('root', 0, 0, 100, 100), box('outer', 0, 0, 100, 100), box('inner', 0, 0, 100, 100)];
+		const boxes = [
+			box('root', 0, 0, 100, 100),
+			box('outer', 0, 0, 100, 100),
+			box('inner', 0, 0, 100, 100)
+		];
 		expect(innermostContainerAt(boxes, { x: 50, y: 50 }, 'root')).toBe('inner');
 	});
 
 	it('picks the strictly-smaller cell the cursor is inside', () => {
-		const boxes = [box('root', 0, 0, 100, 100), box('left', 0, 0, 50, 100), box('right', 50, 0, 50, 100)];
+		const boxes = [
+			box('root', 0, 0, 100, 100),
+			box('left', 0, 0, 50, 100),
+			box('right', 50, 0, 50, 100)
+		];
 		expect(innermostContainerAt(boxes, { x: 10, y: 50 }, 'root')).toBe('left');
 		expect(innermostContainerAt(boxes, { x: 90, y: 50 }, 'root')).toBe('right');
 	});
