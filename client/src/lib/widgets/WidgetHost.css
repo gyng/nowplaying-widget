@@ -45,12 +45,24 @@
 	}
 }
 
-/* Part of a MULTI-selection: a dashed (vs the single-select solid) outline + a faint ring, so the
+/* Part of a MULTI-selection: a dashed (vs the single-select solid) outline + a ring, so the
    stage itself shows "several are selected" — the cue lives where the gaze is, not only in the
-   Inspector. Keeps the single mint accent (no new hue); the shape difference carries the meaning. */
+   Inspector. Keeps the single mint accent (no new hue); the shape difference carries the meaning.
+   A one-shot pulse plays as each member joins the marquee so a rubber-band release "lands" on the
+   stage instead of silently switching outline style. */
 .widget.selected.multi-member {
 	outline-style: dashed;
-	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.28);
+	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.5);
+	animation: widget-multi-join var(--motion, 150ms) var(--ease-out, ease-out);
+}
+
+@keyframes widget-multi-join {
+	from {
+		box-shadow: 0 0 0 5px rgba(119, 196, 211, 0.4);
+	}
+	to {
+		box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.5);
+	}
 }
 
 /* Cross-highlight while the matching Outline tree row is hovered: a soft glow that reads even
