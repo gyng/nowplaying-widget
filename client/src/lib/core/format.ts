@@ -24,7 +24,7 @@ export function formatPercent(value: number, decimals = 0): string {
 	return `${value.toFixed(decimals)}%`;
 }
 
-/** A whole-seconds duration as a compact, Rainmeter-Uptime-like string (two most-significant
+/** A whole-seconds duration as a compact, uptime-style string (two most-significant
  * units): '3d 4h', '4h 12m', '12m 8s', '8s'. Negative/non-finite → '0s'. */
 export function formatDuration(totalSeconds: number): string {
 	if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0s';
@@ -185,7 +185,7 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Localized month/day names (Sunday-first, matching Date.getDay()). `ddd` in 'ja' gives the
-// single-kanji weekday glyph (日月火水木金土) the Rainmeter DateTime skin used. Extend with more
+// single-kanji weekday glyph (日月火水木金土) the DateTime skin used. Extend with more
 // locales as needed; an unknown locale falls back to English.
 type LocaleNames = { months: string[]; monthsShort: string[]; days: string[]; daysShort: string[] };
 const MONTHS_JA = [
@@ -209,6 +209,14 @@ const LOCALES: Record<string, LocaleNames> = {
 		monthsShort: MONTHS_JA,
 		days: ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'],
 		daysShort: ['日', '月', '火', '水', '木', '金', '土']
+	},
+	// Chinese: numeric months read the same as Japanese ("6月"); the short weekday is the day-number
+	// glyph (Sun 日, Mon 一 … Sat 六), the long form 星期X.
+	zh: {
+		months: MONTHS_JA,
+		monthsShort: MONTHS_JA,
+		days: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
+		daysShort: ['日', '一', '二', '三', '四', '五', '六']
 	}
 };
 

@@ -1,4 +1,4 @@
-// Self-sourcing analog clock meter, Rainmeter-style (an Enigma Clock "Icon" ring + ROUNDLINE hands).
+// Self-sourcing analog clock meter (an Enigma Clock "Icon"-style ring + ROUNDLINE hands).
 // PURE DOM — no SVG, no inline look — so it restyles entirely from CSS like the NowPlaying meter:
 // every colour/size is a CSS variable (config overrides) or a class the editable `css` field can
 // target. Only the per-tick hand ROTATION is inline (it's data, not style). Ticks: each is wrapped in

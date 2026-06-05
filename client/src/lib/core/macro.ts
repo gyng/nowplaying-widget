@@ -1,5 +1,5 @@
-// A macro is an ordered list of actions bound to a control press (Rainmeter-bang style:
-// `LeftMouseUpAction=[!Action1][!Action2]`). Each action is a single {domain, service, data?}
+// A macro is an ordered list of actions bound to a control press (a chained sequence run in
+// order on press). Each action is a single {domain, service, data?}
 // call — structurally the widgets-layer ControlEvent — run in sequence when the button is clicked.
 // This is the pure DOMAIN: the schema, the sequential runner, and the immutable edit ops all live
 // here so they're testable without Tauri/React. The side-effecting dispatch (the actual `invoke`)

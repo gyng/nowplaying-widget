@@ -17,7 +17,7 @@ export type OverlayLayer = 'top' | 'bottom' | 'wallpaper';
 
 export type OverlayPrefs = {
 	// true (default): the flow layout fills the monitor WORK AREA (excludes the taskbar);
-	// false: it fills the whole monitor (draws over the taskbar, Rainmeter-style).
+	// false: it fills the whole monitor (draws over the taskbar).
 	respectWorkArea: boolean;
 	// Where the overlay sits in the window z-order (see OverlayLayer). Default 'bottom'.
 	overlayLayer: OverlayLayer;

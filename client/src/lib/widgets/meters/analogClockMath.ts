@@ -6,7 +6,7 @@ export type HandAngles = { hour: number; minute: number; second: number };
 
 /** Hour/minute/second hand angles for `d`. Every hand advances continuously (sub-second precision),
  * so how smooth the motion looks is purely a function of the sample/update rate: a 1000ms tick reads
- * as a per-second step (Rainmeter-style), a fast tick sweeps. */
+ * as a per-second step, a fast tick sweeps. */
 export function handAngles(d: Date): HandAngles {
 	const s = d.getSeconds() + d.getMilliseconds() / 1000;
 	const min = d.getMinutes() + s / 60;

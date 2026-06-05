@@ -1,5 +1,5 @@
 // The screenshot gallery: one capturable "stage" per registered widget type, plus a curated demo
-// sidebar that mirrors the Rainmeter-style layout. Every widget renders through the real WidgetHost
+// sidebar that mirrors the desktop-widget layout. Every widget renders through the real WidgetHost
 // with a seeded telemetry hub, so what you see is exactly what the app draws. The Playwright rig
 // (scripts/screenshots.mjs) screenshots each `[data-shot]` element and reads `window.__GALLERY__`
 // for the per-widget metadata used to generate the docs pages.

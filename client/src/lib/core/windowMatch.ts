@@ -58,14 +58,32 @@ export function globMatch(pattern: string, value: string): boolean {
 	return new RegExp(`^${re}$`, 'i').test(value);
 }
 
+/** A bare window-match rule (no zone binding): exe (exact basename) + class/title globs. The shared
+ * shape behind both zone rules and conditional-container conditions (core/condition.ts). */
+export type WindowFields = { exe?: string; className?: string; title?: string };
+
+/** True iff every field the rule specifies matches the window. A fieldless rule never matches (no
+ * accidental catch-all). The primitive both ZoneRule matching and the appOpen condition build on. */
+export function windowMatches(win: WindowDescriptor, fields: WindowFields): boolean {
+	const set = [fields.exe, fields.className, fields.title].filter((f) => f !== undefined);
+	if (set.length === 0) return false;
+	if (fields.exe !== undefined && exeBasename(fields.exe) !== exeBasename(win.exe)) return false;
+	if (fields.className !== undefined && !globMatch(fields.className, win.className)) return false;
+	if (fields.title !== undefined && !globMatch(fields.title, win.title)) return false;
+	return true;
+}
+
+/** True iff ANY window in `windows` matches `fields` (the reactive "is app X open" predicate). */
+export function anyWindowMatches(
+	windows: readonly WindowDescriptor[],
+	fields: WindowFields
+): boolean {
+	return windows.some((w) => windowMatches(w, fields));
+}
+
 /** True iff every field the rule specifies matches the window. A rule with no fields never matches. */
 function ruleMatches(rule: ZoneRule, win: WindowDescriptor): boolean {
-	const fields = [rule.exe, rule.className, rule.title].filter((f) => f !== undefined);
-	if (fields.length === 0) return false;
-	if (rule.exe !== undefined && exeBasename(rule.exe) !== exeBasename(win.exe)) return false;
-	if (rule.className !== undefined && !globMatch(rule.className, win.className)) return false;
-	if (rule.title !== undefined && !globMatch(rule.title, win.title)) return false;
-	return true;
+	return windowMatches(win, { exe: rule.exe, className: rule.className, title: rule.title });
 }
 
 /** Specificity score: exe is weighted highest (the primary key), class/title are refiners. */

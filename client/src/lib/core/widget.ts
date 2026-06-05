@@ -292,7 +292,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				key: 'locale',
 				label: 'locale',
 				kind: 'select',
-				options: ['en', 'ja'],
+				options: ['en', 'ja', 'zh'],
 				help: 'month/day names'
 			},
 			text('label', 'label'),
@@ -300,7 +300,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		]
 	},
 	{
-		// Self-sourcing analog clock (Rainmeter-style face + hands). binds:none; ticks internally.
+		// Self-sourcing analog clock (classic face + hands). binds:none; ticks internally.
 		type: 'analogclock',
 		description: 'Analog clock face with hour / minute / second hands (self-sourcing).',
 		binds: 'none',
@@ -354,7 +354,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 	},
 	{
 		// Self-sourcing CPU widget: reads cpu.total + cpu.core.* from the hub (binds:none). Toggles
-		// between a combined gauge and a per-core sparkline grid (the Rainmeter System skin).
+		// between a combined gauge and a per-core sparkline grid (the classic System skin).
 		type: 'cpu',
 		description: 'Self-sourcing CPU widget: a per-core sparkline grid or one combined gauge.',
 		binds: 'none',

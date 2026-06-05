@@ -52,12 +52,24 @@ describe('ControlsPanel', () => {
 		expect(onReset).toHaveBeenCalledWith('studio.save');
 	});
 
+	// Regression: ControlsPanel renders inside the settings panel's `.pl-detail`. If its root were a
+	// `.rail-panel` (position: fixed, left:nav-w → right:0) it would cover the settings tab list and
+	// trap the user on the Controls tab. Keep the root a plain in-flow `.controls-panel` block.
+	it('renders a plain in-flow root, not a fixed .rail-panel that would cover the settings tabs', () => {
+		const { container } = render(
+			<ControlsPanel overrides={{}} onRebind={noop} onReset={noop} onResetAll={noop} />
+		);
+		const root = container.firstElementChild as HTMLElement;
+		expect(root.classList.contains('controls-panel')).toBe(true);
+		expect(root.classList.contains('rail-panel')).toBe(false);
+	});
+
 	it('Reset all fires the bulk reset', () => {
 		const onResetAll = vi.fn();
 		const { getByText } = render(
 			<ControlsPanel overrides={{}} onRebind={noop} onReset={noop} onResetAll={onResetAll} />
 		);
-		fireEvent.click(getByText('Reset all'));
+		fireEvent.click(getByText(/Reset all/));
 		expect(onResetAll).toHaveBeenCalledTimes(1);
 	});
 });

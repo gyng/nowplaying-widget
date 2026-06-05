@@ -5,6 +5,7 @@
 // live in core/diagnostics.ts; Tauri lives only here.
 
 import { emit, emitTo, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
 	aggregateWidgets,
@@ -25,6 +26,33 @@ const DIAG_CMD = 'diag:cmd'; // studio → one window (by label): a debug comman
 
 /** A debug action the studio can drive on a target window. */
 export type DiagCommand = { action: 'devtools' } | { action: 'interactive'; value: boolean };
+
+/** The native (Rust HOST) process's perf snapshot. Mirrors `ProcessDiag` in
+ * `widgetsack/src/process_diag.rs`. On Windows the WebView2 renderers are SEPARATE processes (their JS
+ * heap is the per-window rows), so this is the Tauri host process alone. */
+export type ProcessDiag = {
+	pid: number;
+	/** CPU usage as a percent of the whole machine (like `cpu.total`). */
+	cpuPercent: number;
+	/** Resident set size (physical memory) in bytes. */
+	memBytes: number;
+	/** Virtual memory size in bytes. */
+	virtualBytes: number;
+	/** Seconds the process has been running. */
+	uptimeSecs: number;
+	/** Logical CPU count. */
+	cpus: number;
+};
+
+/** Poll the native process's CPU% + memory (studio only). Resolves `null` outside Tauri (tests) or if
+ * the command fails, so the panel just omits the row rather than erroring. */
+export async function getProcessDiagnostics(): Promise<ProcessDiag | null> {
+	try {
+		return await invoke<ProcessDiag>('process_diagnostics');
+	} catch {
+		return null;
+	}
+}
 
 /** Read this window's heap (Chromium / WebView2 only `performance.memory`) past the type checker. */
 function readMemory(): DiagMemory | undefined {

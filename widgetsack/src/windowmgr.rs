@@ -117,17 +117,11 @@ pub fn restore_top_left(
 
 /// Foreign-window manipulation is powerful and has NO Tauri capability/sandbox gate (the moves are
 /// raw Win32), so the access control is restricting these commands to our own windows — the same
-/// label-guard shape `ha.rs` / `mqtt.rs` use. Authoring/enumeration (`list_windows`, `save_zones`)
-/// is studio-only; the actuation (`snap_window`) is also reachable from the overlay, which performs
-/// the live drag-to-zone snap.
-fn require_studio(window: &tauri::WebviewWindow) -> Result<(), String> {
-    if window.label() != "studio" {
-        return Err("window management is only allowed from the studio window".to_string());
-    }
-    Ok(())
-}
-
-/// The studio OR an overlay (main / overlay-N) — the windows allowed to snap a foreign window.
+/// label-guard shape `ha.rs` / `mqtt.rs` use. Enumeration (`list_windows`) and actuation
+/// (`snap_window`) are both reachable from the studio AND the overlays: the overlay runs the live
+/// drag-to-zone snap and the conditional-container "is app X open" poll.
+///
+/// The studio OR an overlay (main / overlay-N) — the windows allowed to manage foreign windows.
 fn require_app_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     let label = window.label();
     if label == "studio" || label == "main" || label.starts_with("overlay-") {
@@ -137,10 +131,13 @@ fn require_app_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     }
 }
 
-/// List the arrangeable top-level windows (the studio's window picker). Studio-only.
+/// List the arrangeable top-level windows. Used by the studio's window picker AND by the overlay's
+/// conditional-container poller ("is app X open"), so it's allowed from any app window (not just the
+/// studio) — same trust boundary as `snap_window`. It only enumerates window metadata we already
+/// surface in the studio; no new capability is exposed to web content.
 #[tauri::command]
 pub fn list_windows(window: tauri::WebviewWindow) -> Result<Vec<WindowDescriptor>, String> {
-    require_studio(&window)?;
+    require_app_window(&window)?;
     list_arrangeable()
 }
 

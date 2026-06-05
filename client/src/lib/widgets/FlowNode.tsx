@@ -34,6 +34,10 @@ type Props = {
 	prefix?: string; // id namespace from enclosing group leaves (matches the solver's keying)
 	parentOverlap?: boolean; // parent is an overlap (stacking) container → occupy the shared cell
 	fill?: boolean; // the top-level node fills its parent (.world) instead of being content-sized
+	// Container ids whose runtime condition is unmet → render with visibility:hidden (keep their
+	// layout space but hide contents). Threaded down so nested conditional containers are covered.
+	// Only set on the passive overlay (the studio passes none so conditional content stays editable).
+	hiddenIds?: ReadonlySet<string>;
 };
 
 const merge = (...parts: Record<string, string | number>[]): CSSProperties =>
@@ -46,7 +50,8 @@ export default function FlowNode({
 	library,
 	prefix = '',
 	parentOverlap = false,
-	fill = false
+	fill = false,
+	hiddenIds
 }: Props) {
 	const id = prefix + node.id;
 	const self = itemStyle(node, parentKind);
@@ -54,11 +59,18 @@ export default function FlowNode({
 	const fillStyle: Record<string, string | number> = fill ? { width: '100%', height: '100%' } : {};
 
 	if (isContainer(node)) {
+		// An unmet conditional container keeps its slot but hides its subtree (visibility inherits to
+		// descendants, and hidden elements don't take pointer events). Keyed by raw node id.
+		const hidden = hiddenIds?.has(node.id);
+		const hideStyle: Record<string, string> = hidden ? { visibility: 'hidden' } : {};
 		return (
 			<div
 				data-id={id}
 				data-kind={node.kind}
-				style={merge(self, overlap, containerStyle(node), fillStyle, { boxSizing: 'border-box' })}
+				data-hidden={hidden ? '' : undefined}
+				style={merge(self, overlap, containerStyle(node), fillStyle, hideStyle, {
+					boxSizing: 'border-box'
+				})}
 			>
 				{node.children.map((child) => (
 					<FlowNode
@@ -69,6 +81,7 @@ export default function FlowNode({
 						library={library}
 						prefix={prefix}
 						parentOverlap={!!node.overlap}
+						hiddenIds={hiddenIds}
 					/>
 				))}
 			</div>
@@ -99,6 +112,7 @@ export default function FlowNode({
 						library={library}
 						prefix={`${id}/`}
 						fill
+						hiddenIds={hiddenIds}
 					/>
 				) : null}
 			</div>

@@ -18,6 +18,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useCombobox, useSelect } from 'downshift';
 import { displayValue, filterOptions, optionFor, type SelectOption } from './selectOptions';
+import ColorSwatch from './ColorSwatch';
 import './Select.css';
 
 export type { SelectOption };
@@ -108,6 +109,7 @@ function SelectListbox({
 				title={title}
 				aria-label={ariaLabel}
 			>
+				{selectedItem?.swatch ? <ColorSwatch sw={selectedItem.swatch} /> : null}
 				<span className={selectedItem ? 'np-select-value' : 'np-select-value np-select-ph'}>
 					{selectedItem?.label ?? placeholder ?? ''}
 				</span>
@@ -130,6 +132,7 @@ function SelectListbox({
 								data-selected={o.value === value || undefined}
 								{...getItemProps({ item: o, index: i, disabled: o.disabled })}
 							>
+								{o.swatch ? <ColorSwatch sw={o.swatch} /> : null}
 								<span className="np-select-opt-label">{o.label}</span>
 								{o.hint ? <span className="np-select-opt-hint">{o.hint}</span> : null}
 							</li>
@@ -228,6 +231,7 @@ function SelectCombobox({
 			ref={wrapRef}
 		>
 			<div className="np-select-trigger">
+				{selectedItem?.swatch ? <ColorSwatch sw={selectedItem.swatch} /> : null}
 				<input
 					className="np-select-input"
 					placeholder={placeholder}
@@ -258,6 +262,7 @@ function SelectCombobox({
 								data-selected={o.value === value || undefined}
 								{...getItemProps({ item: o, index: i, disabled: o.disabled })}
 							>
+								{o.swatch ? <ColorSwatch sw={o.swatch} /> : null}
 								<span className="np-select-opt-label">{o.label}</span>
 								{o.hint ? <span className="np-select-opt-hint">{o.hint}</span> : null}
 							</li>

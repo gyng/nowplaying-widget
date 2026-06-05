@@ -1,12 +1,16 @@
 // Pure helpers for the shared <Select> control (kept out of the component so the matching/typeahead
 // logic is unit-testable without a DOM). An option's `value` is what's stored; `label` is shown; the
-// optional `hint` is dim secondary text (e.g. a sensor's raw id next to its friendly name).
+// optional `hint` is dim secondary text (e.g. a sensor's raw id next to its friendly name); the
+// optional `swatch` shows a leading colour chip (the theme picker — see ColorSwatch).
+
+import type { Swatch } from '../core/tokens';
 
 export type SelectOption = {
 	value: string;
 	label: string;
 	hint?: string;
 	disabled?: boolean;
+	swatch?: Swatch;
 };
 
 /**

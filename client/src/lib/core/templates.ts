@@ -1,4 +1,4 @@
-// Built-in layout templates ("presets"): the author's Rainmeter `gyng\*` skins recreated as
+// Built-in layout templates ("presets"): the author's `gyng\*` desktop skins recreated as
 // RESPONSIVE FLOW GROUPS. Each template is a flow TREE (row/col + basis + halign) that becomes a
 // reusable WidgetDef (one draggable group) when dropped from the studio — so the layout hugs/fills
 // instead of being pinned to fixed pixel rects. Framework-agnostic and pure (no Svelte/Tauri), so
@@ -50,11 +50,23 @@ const lf = (
 	...(box?.pad !== undefined ? { pad: box.pad } : {})
 });
 
+// Map the `separator` option to the literal that sits between the hour and the minute (none = the
+// gyng\DateTime "HHmm" look). The time format then composes the hour width + separator + AM/PM marker.
+const TIME_SEPARATORS: Record<string, string> = { none: '', colon: ':', dot: '.' };
+function timeFormat(hour: string, separator: string): string {
+	const sep = TIME_SEPARATORS[separator] ?? '';
+	return hour === '12' ? `h${sep}mm A` : `HH${sep}mm`;
+}
+
 // gyng\DateTime (+ the Enigma analog icon on top, as in the saved layout): a small clock icon, the
-// HHmm time (24h, no separator), the Japanese weekday glyph, and a "D MMMM" date row. Text leaves use
-// basis 'content' so each hugs its own text (the date "5" + month "JUNE" sit adjacent); the icon is a
-// fixed square with a bottom margin so it sits clear of the time.
-function clockTree(): Container {
+// time, the weekday glyph, and a "D MMMM" date row. Text leaves use basis 'content' so each hugs its
+// own text (the date "5" + month "JUNE" sit adjacent); the icon is a fixed square with a bottom margin
+// so it sits clear of the time. The languages + hour + separator come from the template's options; the
+// defaults reproduce the original (ja weekday, en date, 24-hour, no separator → "1700 / 火 / 5 JUNE").
+function clockTree(opts: Record<string, string> = {}): Container {
+	const weekdayLang = opts.weekdayLang ?? 'ja';
+	const dateLang = opts.dateLang ?? 'en';
+	const time = timeFormat(opts.hour ?? '24', opts.separator ?? 'none');
 	return container(
 		'dt-root',
 		'col',
@@ -70,18 +82,24 @@ function clockTree(): Container {
 				'left',
 				{ margin: { t: 0, r: 0, b: 8, l: 0 } }
 			),
-			lf(prim('dt-time', 'clock', { format: 'HHmm' }, { w: 150, h: 34 }), 'content'),
-			lf(prim('dt-day', 'clock', { format: 'ddd', locale: 'ja' }, { w: 60, h: 34 }), 'content'),
+			lf(prim('dt-time', 'clock', { format: time }, { w: 150, h: 34 }), 'content'),
+			lf(
+				prim('dt-day', 'clock', { format: 'ddd', locale: weekdayLang }, { w: 60, h: 34 }),
+				'content'
+			),
 			container(
 				'dt-date-row',
 				'row',
 				[
-					lf(prim('dt-date', 'clock', { format: 'D' }, { w: 30, h: 22 }), 'content'),
+					lf(
+						prim('dt-date', 'clock', { format: 'D', locale: dateLang }, { w: 30, h: 22 }),
+						'content'
+					),
 					lf(
 						prim(
 							'dt-month',
 							'clock',
-							{ format: 'MMMM' },
+							{ format: 'MMMM', locale: dateLang },
 							{ w: 100, h: 22, css: 'text-transform: uppercase;' }
 						),
 						'content'
@@ -127,14 +145,14 @@ function systemTree(): Container {
 				],
 				{ gap: 6, basis: 'content' }
 			),
-			// Per-core lines: thin, white, short window + rounded joins to match the Rainmeter LINE
-			// meters. `cols: 8` → 8 cores per row (the System skin's grid), wrapping to as many rows
-			// as the core count needs. A top margin sets the grid clear of the GPU/VRAM number row above.
+			// Per-core lines: thin, foreground-coloured (no baked literal → follows --np-fg / the active
+			// theme), short window + rounded joins to match the classic LINE meters. `cols: 8` → 8 cores
+			// per row (the System skin's grid), wrapping as needed. A top margin clears the number row above.
 			lf(
 				prim(
 					'sys-cores',
 					'cpu',
-					{ mode: 'cores', cols: 8, seconds: 20, color: 'rgb(255, 255, 255)', lineWidth: 1 },
+					{ mode: 'cores', cols: 8, seconds: 20, lineWidth: 1 },
 					{ w: 150, h: 70 }
 				),
 				{ fr: 1 },
@@ -184,7 +202,7 @@ function networkTree(): Container {
 				prim(
 					'net-up',
 					'sparkline',
-					{ histogram: true, min: 0, seconds: HIST_SECONDS, color: 'rgb(119, 196, 211)' },
+					{ histogram: true, min: 0, seconds: HIST_SECONDS, color: 'var(--np-accent)' },
 					{ sensor: 'net.up', w: 150, h: HIST_H }
 				),
 				HIST_H,
@@ -195,7 +213,7 @@ function networkTree(): Container {
 				prim(
 					'net-down',
 					'sparkline',
-					{ histogram: true, min: 0, seconds: HIST_SECONDS, color: 'rgb(218, 237, 226)' },
+					{ histogram: true, min: 0, seconds: HIST_SECONDS, color: 'var(--np-label)' },
 					{ sensor: 'net.down', w: 150, h: HIST_H }
 				),
 				HIST_H,
@@ -206,8 +224,8 @@ function networkTree(): Container {
 				'net-rates',
 				'row',
 				[
-					rate('net-up-txt', '▲', 'net.up', 'rgb(119, 196, 211)', true), // up: left cell, right-anchored
-					rate('net-down-txt', '▼', 'net.down', 'rgb(218, 237, 226)', false) // down: right cell, left-anchored
+					rate('net-up-txt', '▲', 'net.up', 'var(--np-accent)', true), // up: left cell, right-anchored
+					rate('net-down-txt', '▼', 'net.down', 'var(--np-label)', false) // down: right cell, left-anchored
 				],
 				{ gap: 6, basis: 'content' }
 			)
@@ -225,21 +243,63 @@ function musicLeaf(): Leaf {
 	});
 }
 
+/** One configurable choice a template exposes at insert time (a select). `tree(opts)` reads the chosen
+ * `value`s by `key`; `resolveTemplateOptions` fills any unset/invalid key with `default`. */
+export type TemplateOption = {
+	key: string;
+	label: string;
+	default: string;
+	choices: { value: string; label: string }[];
+};
+
 export type Template = {
 	id: string;
 	name: string;
 	description: string;
 	size: { w: number; h: number }; // the group def's canvas size
-	/** The flow tree (the def's child). Template-local ids; remapped to fresh ids on insert. */
-	tree: () => LayoutNode;
+	/** Insert-time options surfaced as selects in the studio picker (absent → a one-click insert). */
+	options?: TemplateOption[];
+	/** The flow tree (the def's child), built from the resolved options. Template-local ids; remapped
+	 * to fresh ids on insert. Templates with no options ignore the argument. */
+	tree: (opts?: Record<string, string>) => LayoutNode;
 };
+
+// The three clock languages, reused for both the weekday and the date selects.
+const CLOCK_LANGS: TemplateOption['choices'] = [
+	{ value: 'en', label: 'English' },
+	{ value: 'ja', label: '日本語' },
+	{ value: 'zh', label: '中文' }
+];
 
 export const TEMPLATES: Template[] = [
 	{
 		id: 'clock-jp',
 		name: 'Clock (JP weekday)',
-		description: 'Analog icon · time · Japanese weekday · date',
+		description: 'Analog icon · time · weekday · date (configurable)',
 		size: { w: 170, h: 150 },
+		options: [
+			{ key: 'weekdayLang', label: 'Weekday', default: 'ja', choices: CLOCK_LANGS },
+			{ key: 'dateLang', label: 'Date', default: 'en', choices: CLOCK_LANGS },
+			{
+				key: 'hour',
+				label: 'Hour',
+				default: '24',
+				choices: [
+					{ value: '24', label: '24-hour' },
+					{ value: '12', label: '12-hour' }
+				]
+			},
+			{
+				key: 'separator',
+				label: 'Separator',
+				default: 'none',
+				choices: [
+					{ value: 'none', label: 'None · 1700' },
+					{ value: 'colon', label: 'Colon · 17:00' },
+					{ value: 'dot', label: 'Dot · 17.00' }
+				]
+			}
+		],
 		tree: clockTree
 	},
 	{
@@ -267,4 +327,19 @@ export const TEMPLATES: Template[] = [
 
 export function getTemplate(id: string): Template | undefined {
 	return TEMPLATES.find((t) => t.id === id);
+}
+
+/** Fill a partial option map with each template option's default, dropping unknown keys and any value
+ * that isn't one of the option's choices. Pure — drives both the picker's initial state and the
+ * insert. A template with no options resolves to `{}`. */
+export function resolveTemplateOptions(
+	t: Template,
+	partial: Record<string, string> = {}
+): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const o of t.options ?? []) {
+		const v = partial[o.key];
+		out[o.key] = v !== undefined && o.choices.some((c) => c.value === v) ? v : o.default;
+	}
+	return out;
 }

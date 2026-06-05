@@ -175,6 +175,13 @@ describe('formatClock', () => {
 		expect(formatClock(d, 'HH:mm ddd', 'ja')).toBe('09:05 月');
 	});
 
+	it('renders Chinese weekday/month names for locale zh', () => {
+		// Monday → 一 (ddd) / 星期一 (dddd); June → 6月
+		expect(formatClock(d, 'ddd', 'zh')).toBe('一');
+		expect(formatClock(d, 'dddd', 'zh')).toBe('星期一');
+		expect(formatClock(d, 'MMMM', 'zh')).toBe('6月');
+	});
+
 	it('falls back to English for an unknown locale', () => {
 		expect(formatClock(d, 'ddd', 'xx')).toBe('Mon');
 	});

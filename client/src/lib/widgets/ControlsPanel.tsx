@@ -1,9 +1,14 @@
-// Controls section (a top-level nav peer, in the foot group beside Settings): lists every registered
-// control (grouped), shows its effective binding, lets the user rebind keyboard chords (capture the
-// next chord), flags conflicts, and resets one or all
-// remaps. All the logic (formatTrigger, detectConflicts, mergeOverrides) lives in core/controls.ts —
-// this is just the presentational shell + the capture interaction. Pointer/wheel gestures and the
-// multi-directional nudge are shown read-only; remap those by editing controls.json (it live-reloads).
+// Controls tab (Settings → Controls): lists every registered control (grouped), shows its effective
+// binding, lets the user rebind keyboard chords (capture the next chord), flags conflicts, and resets
+// one or all remaps. All the logic (formatTrigger, detectConflicts, mergeOverrides) lives in
+// core/controls.ts — this is just the presentational shell + the capture interaction. Pointer/wheel
+// gestures and the multi-directional nudge are shown read-only; remap those by editing controls.json
+// (it live-reloads).
+//
+// NOTE: this renders INSIDE the settings panel's `.pl-detail`, so its root must be a plain in-flow
+// block — NOT a `position: fixed` `.rail-panel` (which would cover the settings tab list and trap the
+// user on this tab). Its inner `.rp-*`/button styles still resolve via the outer `.settings-panel`,
+// which is itself a `.rail-panel`.
 import { useEffect, useMemo, useState } from 'react';
 import {
 	detectConflicts,
@@ -92,11 +97,10 @@ export default function ControlsPanel({ overrides, onRebind, onReset, onResetAll
 	const groups = GROUP_ORDER.filter((g) => all.some((c) => c.group === g));
 
 	return (
-		<div className="rail-panel controls-panel">
-			<div className="rp-hd">
-				Controls
+		<div className="controls-panel">
+			<div className="cp-head">
 				<button type="button" className="cp-resetall" onClick={onResetAll}>
-					Reset all
+					↺ Reset all
 				</button>
 			</div>
 			{groups.map((g) => (

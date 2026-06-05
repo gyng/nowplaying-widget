@@ -64,13 +64,15 @@ describe('Cpu (per-core grid)', () => {
 		expect(grid.style.gridTemplateColumns).toBe('repeat(4, 1fr)');
 	});
 
-	it('draws the core lines white by default (no accent tint)', () => {
+	it('defaults the core lines to --np-fg (follows the theme; white fallback, not the accent)', () => {
 		const { container } = renderCpu(<Cpu />, 4);
 		const line = container.querySelector('polyline') as SVGElement;
-		expect(line.style.stroke).toBe('rgb(255, 255, 255)');
+		// Token-driven so the cores track the active theme; the literal fallback keeps today's white look
+		// when no theme sets --np-fg. (NOT var(--np-accent) — the cores are foreground, not the accent.)
+		expect(line.style.stroke).toBe('var(--np-fg, rgb(255, 255, 255))');
 	});
 
-	it('lets an explicit color override the white default', () => {
+	it('lets an explicit color override the token default', () => {
 		const { container } = renderCpu(<Cpu color="red" />, 4);
 		const line = container.querySelector('polyline') as SVGElement;
 		expect(line.style.stroke).toBe('red');

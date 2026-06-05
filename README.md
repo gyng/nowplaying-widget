@@ -14,7 +14,7 @@ tokens, and it ships with Home Assistant, MQTT, and stock-quote integrations.
 
 ## Widget gallery
 
-See: [**widget reference**](docs/widgets.md) · [**templating & formulas**](docs/templating.md)
+See: [**widget reference**](docs/widgets.md) · [**templating & formulas**](docs/templating.md) · [**theming**](docs/theming.md)
 
 The screenshots regenerate from the registry: `npm run gen:gallery` (in `client/`); both reference
 docs regenerate from the code with `npm run gen:docs`.

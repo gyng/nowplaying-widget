@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { Rect } from './layout';
 import {
+	anyWindowMatches,
 	exeBasename,
 	globMatch,
 	matchWindowToZone,
+	windowMatches,
 	type WindowDescriptor,
 	type ZoneRule
 } from './windowMatch';
@@ -24,6 +26,28 @@ describe('exeBasename', () => {
 	it('handles forward slashes and a bare basename', () => {
 		expect(exeBasename('/usr/bin/Foo')).toBe('foo');
 		expect(exeBasename('Code.exe')).toBe('code.exe');
+	});
+});
+
+describe('windowMatches / anyWindowMatches', () => {
+	const spotify = win('C:\\x\\Spotify.exe', 'Chrome_WidgetWin_1', 'Artist - Song');
+	it('matches on exe basename (case-insensitive), ignoring path', () => {
+		expect(windowMatches(spotify, { exe: 'spotify.exe' })).toBe(true);
+		expect(windowMatches(spotify, { exe: 'firefox.exe' })).toBe(false);
+	});
+	it('refines with class/title globs; every specified field must match', () => {
+		expect(windowMatches(spotify, { exe: 'spotify.exe', title: '* - Song' })).toBe(true);
+		expect(windowMatches(spotify, { exe: 'spotify.exe', title: 'Nope' })).toBe(false);
+		expect(windowMatches(spotify, { className: 'Chrome_WidgetWin_?' })).toBe(true);
+	});
+	it('a fieldless rule never matches (no accidental catch-all)', () => {
+		expect(windowMatches(spotify, {})).toBe(false);
+	});
+	it('anyWindowMatches scans a list', () => {
+		const list = [win('a/Code.exe', 'C', 'T'), spotify];
+		expect(anyWindowMatches(list, { exe: 'spotify.exe' })).toBe(true);
+		expect(anyWindowMatches(list, { exe: 'notepad.exe' })).toBe(false);
+		expect(anyWindowMatches([], { exe: 'spotify.exe' })).toBe(false);
 	});
 });
 

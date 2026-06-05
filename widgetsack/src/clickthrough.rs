@@ -138,7 +138,7 @@ fn work_area_for(_window: &tauri::WebviewWindow) -> Result<ScreenRect, String> {
 
 /// EXPERIMENTAL "wallpaper layer" for the calling overlay window. When `enabled`, parent it to the
 /// desktop's WorkerW so it renders ON the wallpaper — behind the desktop icons and every app window,
-/// surviving Show Desktop (the Rainmeter/Wallpaper-Engine trick). When disabled, re-attach it to the
+/// surviving Show Desktop (the Wallpaper-Engine trick). When disabled, re-attach it to the
 /// desktop root so it's a normal top-level overlay again. Windows-only; a no-op error elsewhere.
 #[tauri::command]
 pub fn set_overlay_wallpaper(window: tauri::WebviewWindow, enabled: bool) -> Result<String, String> {
@@ -178,9 +178,21 @@ fn set_wallpaper_parent(window: &tauri::WebviewWindow, enabled: bool) -> Result<
     }
     // 2) Find the WorkerW that is the wallpaper surface (the one whose sibling hosts SHELLDLL_DefView,
     //    the desktop-icon layer). EnumWindows writes the match back through the LPARAM out-pointer.
+    //    The 0x052C message spawns that WorkerW asynchronously, so it can still be missing for a few
+    //    dozen ms after SendMessageTimeoutW returns — most visibly under `tauri dev`, where an HMR
+    //    reload re-applies the layer before the shell has settled (the "WorkerW host not found"
+    //    error). Poll briefly (≤ ~270 ms) instead of giving up on the first miss.
     let mut worker = HWND::default();
-    unsafe {
-        let _ = EnumWindows(Some(enum_find_workerw), LPARAM(&mut worker as *mut HWND as isize));
+    for attempt in 0..10 {
+        unsafe {
+            let _ = EnumWindows(Some(enum_find_workerw), LPARAM(&mut worker as *mut HWND as isize));
+        }
+        if !worker.is_invalid() {
+            break;
+        }
+        if attempt < 9 {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
     }
     if worker.is_invalid() {
         return Err("WorkerW (wallpaper host) not found".to_string());

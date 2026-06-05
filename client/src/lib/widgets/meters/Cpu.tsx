@@ -1,5 +1,5 @@
 // Self-sourcing CPU meter that toggles between a COMBINED view (a gauge of cpu.total) and a
-// PER-CORE view (a grid of cpu.core.* sparklines — like the Rainmeter System skin's LINE meters).
+// PER-CORE view (a grid of cpu.core.* sparklines — like the classic System skin's LINE meters).
 // It reads the telemetry hub from context (provided by Canvas) rather than a single bound sensor,
 // since it needs cpu.total AND every core. `binds: 'none'`. Composes Gauge + Sparkline.
 import { useContext, useEffect, useState } from 'react';
@@ -76,7 +76,7 @@ export default function Cpu({
 					history={history}
 					min={0}
 					max={100}
-					color={color ?? 'rgb(255, 255, 255)'}
+					color={color ?? 'var(--np-fg, rgb(255, 255, 255))'}
 					seconds={seconds}
 					histogram={histogram}
 					lineWidth={lineWidth}

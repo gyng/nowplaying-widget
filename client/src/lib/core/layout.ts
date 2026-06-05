@@ -2,6 +2,8 @@
 // (de)serializes to in Phase 3; for now Canvas hardcodes a list of instances.
 // No Svelte/Tauri imports — reused as-is by a future React port.
 
+import type { Tokens } from './tokens';
+
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export type WidgetInstance = {
@@ -13,6 +15,9 @@ export type WidgetInstance = {
 	interactive?: boolean; // catches clicks in passive mode (per-widget click-through)
 	config: Record<string, unknown>;
 	css?: string;
+	// Per-widget theme-token overrides (scoped to [data-w] by assembleStyles, beating the global
+	// :root tokens for just this widget). Frontend-owned; rides the unit through migration/persist.
+	tokens?: Tokens;
 };
 
 export type MonitorLayout = { widgets: WidgetInstance[] };

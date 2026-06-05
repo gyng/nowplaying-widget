@@ -124,7 +124,7 @@ Date / time clock using a date-fns format pattern (self-sourcing).
 | key | type | default | options / range | description |
 | --- | --- | --- | --- | --- |
 | `format` | text | "HH:mm:ss" |  | date-fns pattern, e.g. HH:mm:ss or dddd D MMMM |
-| `locale` | select |  | `en`, `ja` | month/day names |
+| `locale` | select |  | `en`, `ja`, `zh` | month/day names |
 | `label` | text |  |  |  |
 | `color` | color |  |  |  |
 

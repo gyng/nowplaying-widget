@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TEMPLATES, getTemplate } from './templates';
+import { TEMPLATES, getTemplate, resolveTemplateOptions, type Template } from './templates';
 import {
 	isContainer,
 	isGroup,
@@ -78,7 +78,84 @@ describe('templates', () => {
 		expect(ls.filter((w) => w.type === 'text' && w.config.format === 'rate')).toHaveLength(2);
 	});
 
+	it('templates colour from theme TOKENS, not baked literals (so widgets follow the active theme)', () => {
+		// A `color` set anywhere in a template config must be a var(--np-*) reference — a fixed rgb()/#hex
+		// would pin the widget's colour and defeat theming (the bug this guards: Network used literals).
+		for (const t of TEMPLATES) {
+			for (const w of leaves(t.tree())) {
+				const color = w.config.color;
+				if (typeof color === 'string') {
+					expect(color, `${t.id}/${w.id} color must track a token`).toMatch(/^var\(--np-/);
+				}
+			}
+		}
+	});
+
+	it('network: up tracks --np-accent, down tracks --np-label (two-tone, theme-driven)', () => {
+		const tree = treeOf('network');
+		expect(byId(tree, 'net-up')?.config.color).toBe('var(--np-accent)');
+		expect(byId(tree, 'net-down')?.config.color).toBe('var(--np-label)');
+		expect(byId(tree, 'net-up-txt')?.config.color).toBe('var(--np-accent)');
+		expect(byId(tree, 'net-down-txt')?.config.color).toBe('var(--np-label)');
+	});
+
 	it('returns a fresh, independent tree each call', () => {
 		expect(treeOf('system')).not.toBe(treeOf('system'));
+	});
+});
+
+function tplOf(id: string): Template {
+	const t = getTemplate(id);
+	if (!t) throw new Error(`template ${id} missing`);
+	return t;
+}
+const byId = (tree: LayoutNode, id: string): WidgetInstance | undefined =>
+	leaves(tree).find((w) => w.id === id);
+
+describe('clock cluster options', () => {
+	const clock = tplOf('clock-jp');
+
+	it('defaults reproduce the original (ja weekday, en date, 24-hour, no separator)', () => {
+		const tree = clock.tree();
+		expect(byId(tree, 'dt-time')?.config.format).toBe('HHmm');
+		expect(byId(tree, 'dt-day')?.config.locale).toBe('ja');
+		expect(byId(tree, 'dt-date')?.config.locale).toBe('en');
+		expect(byId(tree, 'dt-month')?.config.locale).toBe('en');
+	});
+
+	it('weekday and date languages are independent (en/ja/zh)', () => {
+		const tree = clock.tree({ weekdayLang: 'zh', dateLang: 'ja' });
+		expect(byId(tree, 'dt-day')?.config.locale).toBe('zh');
+		expect(byId(tree, 'dt-date')?.config.locale).toBe('ja');
+		expect(byId(tree, 'dt-month')?.config.locale).toBe('ja');
+	});
+
+	it('12/24-hour and separator compose the time format', () => {
+		const time = (opts: Record<string, string>) => byId(clock.tree(opts), 'dt-time')?.config.format;
+		expect(time({ hour: '24', separator: 'colon' })).toBe('HH:mm');
+		expect(time({ hour: '24', separator: 'dot' })).toBe('HH.mm');
+		expect(time({ hour: '12', separator: 'colon' })).toBe('h:mm A');
+		expect(time({ hour: '12', separator: 'none' })).toBe('hmm A');
+	});
+});
+
+describe('resolveTemplateOptions', () => {
+	it('fills every option with its default when nothing is passed', () => {
+		expect(resolveTemplateOptions(tplOf('clock-jp'))).toEqual({
+			weekdayLang: 'ja',
+			dateLang: 'en',
+			hour: '24',
+			separator: 'none'
+		});
+	});
+
+	it('keeps valid overrides but drops invalid values and unknown keys', () => {
+		expect(
+			resolveTemplateOptions(tplOf('clock-jp'), { weekdayLang: 'zh', hour: '13', bogus: 'x' })
+		).toEqual({ weekdayLang: 'zh', dateLang: 'en', hour: '24', separator: 'none' });
+	});
+
+	it('resolves a template with no options to an empty map', () => {
+		expect(resolveTemplateOptions(tplOf('system'))).toEqual({});
 	});
 });
