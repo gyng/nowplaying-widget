@@ -28,7 +28,7 @@
 }
 
 .inspector.multi .multi-note {
-	color: #888;
+	color: var(--dim-fg);
 	font-size: 11px;
 	font-style: italic;
 }

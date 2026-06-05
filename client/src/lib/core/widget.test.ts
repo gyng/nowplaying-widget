@@ -54,13 +54,24 @@ describe('meta registry', () => {
 			'clock',
 			'analogclock',
 			'button',
-			'cpu'
+			'cpu',
+			'spectrum',
+			'iframe',
+			'zone',
+			'spacer'
 		]);
 		expect(getMeta('gauge')).toMatchObject({ label: 'Gauge', binds: 'scalar' });
 		expect(getMeta('sparkline')?.binds).toBe('series');
 		expect(getMeta('clock')?.binds).toBe('none');
 		expect(getMeta('analogclock')).toMatchObject({ label: 'Analog Clock', binds: 'none' });
 		expect(getMeta('cpu')?.binds).toBe('none');
+		expect(getMeta('spectrum')).toMatchObject({ label: 'Spectrum', binds: 'none' });
+		expect(getMeta('iframe')).toMatchObject({
+			label: 'Web Frame',
+			binds: 'none',
+			interactive: true
+		});
+		expect(getMeta('spacer')).toMatchObject({ label: 'Spacer', binds: 'none' });
 	});
 
 	it('a registered plugin meta drives createWidget', () => {

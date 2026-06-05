@@ -10,6 +10,8 @@ import type {
 	Container,
 	Group,
 	Justify,
+	LayoutNode,
+	Leaf,
 	Length,
 	Rect,
 	WidgetDef,
@@ -17,9 +19,18 @@ import type {
 } from '../core/layoutTree';
 import { getMeta } from '../core/widget';
 import type { ConfigField } from '../core/widget';
+import { toYaml } from '../core/yaml';
+import { normalizeMacro } from '../core/macro';
+import MacroEditor from './MacroEditor';
+import CssEditor from './CssEditor';
+import BoxField from './BoxField';
+import Select, { type SelectOption } from './Select';
+import { TEMPLATES } from '../core/templates';
+import { exprRefs, templateRefs } from '../core/template';
 import type { LayoutOp } from './ops';
 import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
 import { containerAlignControls, LEAF_H_OPTIONS, LEAF_V_OPTIONS } from './canvas/alignControls';
+import { TOKEN_FIELDS } from './themeTokens';
 import './Inspector.css';
 
 type Props = {
@@ -51,17 +62,19 @@ type Props = {
 	// Optional id → display metadata, so HA (and other) sensor ids show a friendly label + unit in
 	// the dropdown instead of the raw id. Missing entries just render the bare id.
 	sensorMeta?: Record<string, { label?: string; unit?: string }>;
+	// Runtime options for a `catalog:'audioOutputs'` select field (the spectrum widget's device picker).
+	audioOutputs?: { id: string; name: string }[];
 	onOp?: (op: LayoutOp) => void;
+	// Deleting a library def from the Inspector routes through the container (which checks whether the
+	// def is in use and explains the block, matching the Widget-designer list) instead of the reducer's
+	// silent no-op. Falls back to a plain `deleteDef` op when not provided (e.g. the overlay).
+	onDeleteDef?: (defId: string, name: string) => void;
+	// The full selected node (Leaf or Container), for the "Data" tab's JSON/YAML representation — a
+	// structured, agent-friendly view that can be edited and applied back via the `replaceNode` op.
+	node?: LayoutNode | null;
+	// Copy helper supplied by the container (keeps the Tauri clipboard adapter out of this component).
+	onCopy?: (text: string) => void;
 };
-
-// The common tokens surfaced in the Theme panel (the rest are set via theme CSS).
-const TOKEN_FIELDS = [
-	{ key: '--np-accent', label: 'accent', ph: 'rgb(119, 196, 211)' },
-	{ key: '--np-fg', label: 'text', ph: '#ffffff' },
-	{ key: '--np-label', label: 'label', ph: 'rgb(218, 237, 226)' },
-	{ key: '--np-track', label: 'track', ph: 'rgba(255, 255, 255, 0.15)' },
-	{ key: '--np-font-display', label: 'font', ph: "'Bahnschrift', …" }
-];
 
 const RECT_KEYS = ['x', 'y', 'w', 'h'] as const;
 
@@ -97,6 +110,7 @@ function computeDirty(
 		if (!b || ne(c.rows, b.rows)) d.add('rows');
 		if (!b || ne(c.gap, b.gap)) d.add('gap');
 		if (!b || ne(c.pad, b.pad)) d.add('pad');
+		if (!b || ne(c.margin, b.margin)) d.add('margin');
 		if (!b || ne(c.align, b.align)) d.add('align');
 		if (!b || ne(c.justify, b.justify)) d.add('justify');
 		if (!b || ne(c.basis, b.basis)) d.add('basis');
@@ -122,6 +136,35 @@ function computeDirty(
 // String / boolean views of a config value (avoids `as` casts in the template).
 const cfgStr = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 const cfgBool = (v: unknown): boolean => !!v;
+
+// Authoring aid under a formula field: lists the sensors it references and flags any that aren't in
+// the known catalog (a typo, or a sensor not present on this machine) with a `?`. Pure — no engine.
+function ExprHint({
+	src,
+	result,
+	known
+}: {
+	src: string;
+	result: 'number' | 'text';
+	known: string[];
+}) {
+	if (!src.trim()) return null;
+	const refs = result === 'text' ? templateRefs(src) : exprRefs(src);
+	if (refs.length === 0) return null;
+	const live = new Set(known);
+	return (
+		<small className="field-help cfg-expr-refs">
+			sensors:{' '}
+			{refs.map((r, i) => (
+				<span key={r} className={live.has(r) ? undefined : 'unknown'}>
+					{i > 0 ? ', ' : ''}
+					{r}
+					{live.has(r) ? '' : ' ?'}
+				</span>
+			))}
+		</small>
+	);
+}
 // Whether a basis means "grow/stretch along the parent's main axis" (an `fr` length).
 const isFrBasis = (b?: Length): boolean => typeof b === 'object' && b !== null && 'fr' in b;
 
@@ -148,9 +191,74 @@ export default function Inspector({
 	configFields = [],
 	sensors = [],
 	sensorMeta = {},
-	onOp
+	audioOutputs = [],
+	onOp,
+	onDeleteDef,
+	node = null,
+	onCopy
 }: Props) {
 	const op = (o: LayoutOp) => onOp?.(o);
+	// Where a clicked palette widget lands: into the selected container, else as a floating widget.
+	// Mirrors addWidget in useEditorModel so the button names its real destination (no hidden mode).
+	const addDest = container ? `into ${container.kind}` : 'floating';
+
+	// Collapse the Add/Library palette once a node is selected, so the selected node's properties sit
+	// at the TOP of the rail (not below the palette you scroll past). Auto-set on selection change but
+	// still user-toggleable in between, and re-opens when nothing is selected (the primary add affordance).
+	const hasSelection = !!(widget || container || groupUnit);
+	const [addOpen, setAddOpen] = useState(!hasSelection);
+	useEffect(() => {
+		setAddOpen(!hasSelection);
+	}, [hasSelection]);
+
+	// Sensor combobox options: friendly "Name (unit)" label, the raw id kept as the value + shown as a
+	// dim hint. A bare id (no metadata) is its own label with no hint. Drives the typeahead sensor field.
+	const sensorOptions = useMemo<SelectOption[]>(
+		() =>
+			sensors.map((s) => {
+				const m = sensorMeta[s];
+				const label = m?.label && m.label !== s ? (m.unit ? `${m.label} (${m.unit})` : m.label) : s;
+				return label === s ? { value: s, label: s } : { value: s, label, hint: s };
+			}),
+		[sensors, sensorMeta]
+	);
+
+	// --- "Data" tab: a JSON/YAML view of the whole selected node, for agentic read + edit. The JSON
+	// is an editable buffer applied back via replaceNode; YAML is a read-only mirror. ---
+	const [detailTab, setDetailTab] = useState<'form' | 'data'>('form');
+	const [dataFormat, setDataFormat] = useState<'json' | 'yaml'>('json');
+	const [dataJson, setDataJson] = useState('');
+	const [dataError, setDataError] = useState<string | null>(null);
+	// Re-sync the JSON buffer whenever the selected node changes by identity (selection switch or an
+	// applied edit), mirroring the config-JSON box — so the buffer never goes stale under the agent.
+	useEffect(() => {
+		if (node) {
+			setDataJson(JSON.stringify(node, null, 2));
+			setDataError(null);
+		}
+	}, [node]);
+	function applyNodeJson() {
+		if (!node) return;
+		try {
+			const parsed = JSON.parse(dataJson) as Record<string, unknown>;
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+				throw new Error('Expected a JSON object.');
+			const looksLeaf = 'unit' in parsed && !!parsed.unit && typeof parsed.unit === 'object';
+			const looksContainer =
+				parsed.kind === 'row' || parsed.kind === 'col' || parsed.kind === 'grid';
+			if (!looksLeaf && !looksContainer)
+				throw new Error('Expected a widget (has "unit") or a container ("kind" + "children").');
+			// Keep the slot's id stable so selection + any references survive the replace.
+			op({
+				op: 'replaceNode',
+				id: node.id,
+				node: { ...parsed, id: node.id } as unknown as LayoutNode
+			});
+			setDataError(null);
+		} catch (e) {
+			setDataError((e as Error).message ?? String(e));
+		}
+	}
 
 	const [paramKey, setParamKey] = useState('');
 	const [paramTarget, setParamTarget] = useState('');
@@ -313,47 +421,50 @@ export default function Inspector({
 			<div className="row2">
 				<label>
 					horizontal
-					<select
+					<Select
 						value={widgetHalign ?? 'fill'}
-						onChange={(e) =>
-							op({
-								op: 'setLeafAlign',
-								id,
-								halign: e.currentTarget.value as AlignH,
-								valign: widgetValign ?? 'fill'
-							})
+						options={LEAF_H_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+						onChange={(v) =>
+							op({ op: 'setLeafAlign', id, halign: v as AlignH, valign: widgetValign ?? 'fill' })
 						}
-					>
-						{LEAF_H_OPTIONS.map((o) => (
-							<option key={o.value} value={o.value}>
-								{o.label}
-							</option>
-						))}
-					</select>
+						aria-label="horizontal align"
+					/>
 				</label>
 				<label>
 					vertical
-					<select
+					<Select
 						value={widgetValign ?? 'fill'}
-						onChange={(e) =>
-							op({
-								op: 'setLeafAlign',
-								id,
-								halign: widgetHalign ?? 'fill',
-								valign: e.currentTarget.value as AlignV
-							})
+						options={LEAF_V_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+						onChange={(v) =>
+							op({ op: 'setLeafAlign', id, halign: widgetHalign ?? 'fill', valign: v as AlignV })
 						}
-					>
-						{LEAF_V_OPTIONS.map((o) => (
-							<option key={o.value} value={o.value}>
-								{o.label}
-							</option>
-						))}
-					</select>
+						aria-label="vertical align"
+					/>
 				</label>
 			</div>
 		</>
 	);
+
+	// Per-leaf box: outer margin + inner padding (per-side, locked together by default). Both live on
+	// the Leaf wrapper (read from `node`), so this is shared by the primitive-widget and group flow
+	// branches. `id` is the leaf id (= widget.id / groupUnit.id by the leaf invariant).
+	const leafBoxControls = (id: string) => {
+		const lf = node as Leaf | null;
+		return (
+			<>
+				<BoxField
+					label="margin"
+					value={lf?.margin}
+					onChange={(v) => op({ op: 'setLeafBox', id, field: 'margin', value: v })}
+				/>
+				<BoxField
+					label="pad"
+					value={lf?.pad}
+					onChange={(v) => op({ op: 'setLeafBox', id, field: 'pad', value: v })}
+				/>
+			</>
+		);
+	};
 
 	// A flow leaf's own main-axis sizing inside its parent: fit (its own/def size) / grow / fixed px.
 	// Used for groups (custom widgets) — primitives have a richer select with 'content' measuring.
@@ -361,12 +472,16 @@ export default function Inspector({
 		<>
 			<label className="full">
 				size (in parent)
-				<select
+				<Select
 					value={
 						isFrBasis(widgetBasis) ? 'grow' : typeof widgetBasis === 'number' ? 'fixed' : 'fit'
 					}
-					onChange={(e) => {
-						const v = e.currentTarget.value;
+					options={[
+						{ value: 'fit', label: 'hug — its own size' },
+						{ value: 'grow', label: 'fill — grow to share' },
+						{ value: 'fixed', label: 'fixed (px)' }
+					]}
+					onChange={(v) =>
 						op({
 							op: 'setBasis',
 							id,
@@ -378,13 +493,10 @@ export default function Inspector({
 										? widgetBasis
 										: 100
 									: undefined
-						});
-					}}
-				>
-					<option value="fit">fit — use its own size</option>
-					<option value="grow">grow — stretch to fill</option>
-					<option value="fixed">fixed (px)</option>
-				</select>
+						})
+					}
+					aria-label="size in parent"
+				/>
 			</label>
 			{typeof widgetBasis === 'number' && (
 				<label className="full">
@@ -402,79 +514,214 @@ export default function Inspector({
 
 	return (
 		<div className={['inspector', docked && 'docked'].filter(Boolean).join(' ')}>
-			<div className="palette">
-				<span className="hd">Add</span>
-				{widgetTypes.map((w) => (
-					<button
-						key={w.type}
-						type="button"
-						draggable
-						title="Click to add, drag onto the canvas to place it, or onto a container in the Outline"
-						onClick={() => op({ op: 'addWidget', widgetType: w.type })}
-						onDragStart={(e: ReactDragEvent) =>
-							e.dataTransfer?.setData('text/x-widget-type', w.type)
-						}
-					>
-						{w.label}
-					</button>
-				))}
-			</div>
-
-			{defs.length ? (
+			<details
+				className="add-panel"
+				open={addOpen}
+				onToggle={(e) => setAddOpen(e.currentTarget.open)}
+			>
+				<summary>＋ Add widget · {addDest}</summary>
 				<div className="palette">
-					<span className="hd">Library</span>
-					{defs.map((d) => (
-						<span key={d.id} className="libitem">
-							<button type="button" onClick={() => op({ op: 'insertWidget', defId: d.id })}>
-								{d.name}
-							</button>
-							<button
-								type="button"
-								className="x"
-								title="Delete def (only if unused)"
-								onClick={() => op({ op: 'deleteDef', defId: d.id })}
-							>
-								✕
-							</button>
-						</span>
+					{widgetTypes.map((w) => (
+						<button
+							key={w.type}
+							type="button"
+							draggable
+							title={
+								container
+									? `Add "${w.label}" into the selected ${container.kind} — or drag it onto the canvas / a container in the Outline to place it elsewhere`
+									: `Add "${w.label}" as a floating widget — or drag it onto the canvas / a container in the Outline`
+							}
+							onClick={() => op({ op: 'addWidget', widgetType: w.type })}
+							onDragStart={(e: ReactDragEvent) =>
+								e.dataTransfer?.setData('text/x-widget-type', w.type)
+							}
+						>
+							{w.label}
+						</button>
 					))}
 				</div>
-			) : null}
 
-			{container ? (
+				{defs.length ? (
+					<div className="palette">
+						<span className="hd">Library</span>
+						{defs.map((d) => (
+							<span key={d.id} className="libitem">
+								<button
+									type="button"
+									title={d.name}
+									onClick={() => op({ op: 'insertWidget', defId: d.id })}
+								>
+									{d.name}
+								</button>
+								<button
+									type="button"
+									className="x"
+									title="Delete from library (only if unused)"
+									aria-label={`Delete ${d.name} from library`}
+									onClick={() =>
+										onDeleteDef ? onDeleteDef(d.id, d.name) : op({ op: 'deleteDef', defId: d.id })
+									}
+								>
+									✕
+								</button>
+							</span>
+						))}
+					</div>
+				) : null}
+
+				<div className="palette">
+					<span className="hd">Templates</span>
+					{TEMPLATES.map((t) => (
+						<button
+							key={t.id}
+							type="button"
+							title={`${t.description} — insert onto the canvas`}
+							onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
+						>
+							{t.name}
+						</button>
+					))}
+				</div>
+			</details>
+
+			{node && (
+				<div className="detail-tabs" role="tablist">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={detailTab === 'form'}
+						className={detailTab === 'form' ? 'active' : undefined}
+						onClick={() => setDetailTab('form')}
+					>
+						Fields
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={detailTab === 'data'}
+						className={detailTab === 'data' ? 'active' : undefined}
+						onClick={() => setDetailTab('data')}
+					>
+						Data
+					</button>
+				</div>
+			)}
+
+			{node && detailTab === 'data' ? (
+				<div className="fields data-tab">
+					<div className="data-bar">
+						<button
+							type="button"
+							className={dataFormat === 'json' ? 'active' : undefined}
+							onClick={() => setDataFormat('json')}
+						>
+							JSON
+						</button>
+						<button
+							type="button"
+							className={dataFormat === 'yaml' ? 'active' : undefined}
+							onClick={() => setDataFormat('yaml')}
+						>
+							YAML
+						</button>
+						<span className="data-spacer" />
+						<button
+							type="button"
+							title="Copy this representation to the clipboard"
+							onClick={() => onCopy?.(dataFormat === 'json' ? dataJson : toYaml(node))}
+						>
+							⧉ Copy
+						</button>
+					</div>
+					{dataFormat === 'json' ? (
+						<>
+							<textarea
+								className={['data-area', dataError && 'error'].filter(Boolean).join(' ')}
+								value={dataJson}
+								spellCheck={false}
+								aria-label="Node JSON"
+								onChange={(e) => setDataJson(e.currentTarget.value)}
+							/>
+							{dataError && <small className="field-help data-err">{dataError}</small>}
+							<div className="actions">
+								<button type="button" onClick={applyNodeJson}>
+									Apply
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										setDataJson(JSON.stringify(node, null, 2));
+										setDataError(null);
+									}}
+								>
+									Revert
+								</button>
+							</div>
+							<small className="field-help">
+								Edit the full node, then Apply (its id is kept). Undo with Ctrl+Z.
+							</small>
+						</>
+					) : (
+						<textarea
+							className="data-area"
+							readOnly
+							value={toYaml(node)}
+							spellCheck={false}
+							aria-label="Node YAML (read-only)"
+						/>
+					)}
+				</div>
+			) : container ? (
 				<div className="fields">
-					<span className="hd">
+					<span className="hd node-hd" title={`${container.kind} · ${container.id}`}>
 						{container.kind} · {container.id}
 					</span>
 					<label className={['full', dirtyKeys.has('kind') && 'dirty'].filter(Boolean).join(' ')}>
 						kind
-						<select value={container.kind} onChange={(e) => setKind(e.currentTarget.value)}>
-							<option value="row">row (hsplit)</option>
-							<option value="col">col (vsplit)</option>
-							<option value="grid">grid (panes)</option>
-						</select>
+						<Select
+							value={container.kind}
+							options={[
+								{ value: 'row', label: 'row (hsplit)' },
+								{ value: 'col', label: 'col (vsplit)' },
+								{ value: 'grid', label: 'grid (panes)' }
+							]}
+							onChange={setKind}
+							aria-label="kind"
+						/>
 					</label>
 					{container.kind === 'grid' && (
-						<div className="row2">
-							<label className={dirtyKeys.has('cols') ? 'dirty' : undefined}>
-								cols
-								<input
-									type="number"
-									min="1"
-									value={container.cols ?? 1}
-									onInput={(e) => patchContainer({ cols: Number(e.currentTarget.value) })}
-								/>
-							</label>
-							<label className={dirtyKeys.has('rows') ? 'dirty' : undefined}>
-								rows
-								<input
-									type="number"
-									min="1"
-									value={container.rows ?? 1}
-									onInput={(e) => patchContainer({ rows: Number(e.currentTarget.value) })}
-								/>
-							</label>
-						</div>
+						<>
+							<div className="row2">
+								<label className={dirtyKeys.has('cols') ? 'dirty' : undefined}>
+									cols
+									<input
+										type="number"
+										min="1"
+										value={container.cols ?? 1}
+										onInput={(e) => patchContainer({ cols: Number(e.currentTarget.value) })}
+									/>
+								</label>
+								<label className={dirtyKeys.has('rows') ? 'dirty' : undefined}>
+									rows
+									<input
+										type="number"
+										min="1"
+										value={container.rows ?? 1}
+										onInput={(e) => patchContainer({ rows: Number(e.currentTarget.value) })}
+									/>
+								</label>
+							</div>
+							{!!(container.colFr?.length || container.rowFr?.length) && (
+								<button
+									type="button"
+									className="full"
+									title="Reset dragged column/row sizes to an even split"
+									onClick={() => op({ op: 'distributeEvenly', containerId: container.id })}
+								>
+									Reset tracks (even)
+								</button>
+							)}
+						</>
 					)}
 					<div className="row2">
 						<label className={dirtyKeys.has('gap') ? 'dirty' : undefined}>
@@ -489,19 +736,20 @@ export default function Inspector({
 								}
 							/>
 						</label>
-						<label className={dirtyKeys.has('pad') ? 'dirty' : undefined}>
-							pad
-							<input
-								type="number"
-								min="0"
-								max={padMax}
-								value={typeof container.pad === 'number' ? container.pad : 0}
-								onInput={(e) =>
-									patchContainer({ pad: clampSpacing(Number(e.currentTarget.value), padMax) })
-								}
-							/>
-						</label>
 					</div>
+					<BoxField
+						label="pad"
+						value={container.pad}
+						max={padMax}
+						onChange={(v) => patchContainer({ pad: v })}
+						dirty={dirtyKeys.has('pad')}
+					/>
+					<BoxField
+						label="margin"
+						value={container.margin}
+						onChange={(v) => patchContainer({ margin: v })}
+						dirty={dirtyKeys.has('margin')}
+					/>
 					<span className="hd">Align children</span>
 					{containerAlignControls(container).map((ctl) => (
 						<label
@@ -509,21 +757,17 @@ export default function Inspector({
 							className={['full', dirtyKeys.has(ctl.field) && 'dirty'].filter(Boolean).join(' ')}
 						>
 							{ctl.label}
-							<select
+							<Select
 								value={ctl.value}
-								onChange={(e) => setAlignField(ctl.field, e.currentTarget.value)}
-							>
-								{ctl.options.map((o) => (
-									<option key={o.value} value={o.value}>
-										{o.label}
-									</option>
-								))}
-							</select>
+								options={ctl.options.map((o) => ({ value: o.value, label: o.label }))}
+								onChange={(v) => setAlignField(ctl.field, v)}
+								aria-label={ctl.label}
+							/>
 						</label>
 					))}
 					<label className={['full', dirtyKeys.has('basis') && 'dirty'].filter(Boolean).join(' ')}>
 						size (in parent)
-						<select
+						<Select
 							value={
 								isFrBasis(container.basis)
 									? 'grow'
@@ -531,12 +775,14 @@ export default function Inspector({
 									? 'fixed'
 									: 'fit'
 							}
-							onChange={(e) => setContainerSizing(e.currentTarget.value)}
-						>
-							<option value="fit">fit children</option>
-							<option value="grow">grow — stretch to fill</option>
-							<option value="fixed">fixed (px)</option>
-						</select>
+							options={[
+								{ value: 'fit', label: 'hug — fit children' },
+								{ value: 'grow', label: 'fill — grow to share' },
+								{ value: 'fixed', label: 'fixed (px)' }
+							]}
+							onChange={setContainerSizing}
+							aria-label="container size in parent"
+						/>
 					</label>
 					{typeof container.basis === 'number' && (
 						<label className="full">
@@ -616,31 +862,20 @@ export default function Inspector({
 				</div>
 			) : widget ? (
 				<div className="fields">
-					<span className="hd">
+					<span className="hd node-hd" title={`${widget.type} · ${widget.id}`}>
 						{widget.type} · {widget.id}
 					</span>
 					<label className={['full', dirtyKeys.has('sensor') && 'dirty'].filter(Boolean).join(' ')}>
 						sensor
-						<input
-							list="sensor-list"
+						<Select
 							value={widget.sensor ?? ''}
+							options={sensorOptions}
+							onChange={(v) => patchWidget({ sensor: v.trim() || undefined })}
 							placeholder="(none)"
-							onInput={(e) => patchWidget({ sensor: e.currentTarget.value.trim() || undefined })}
+							allowCustom
+							aria-label="sensor"
 						/>
 					</label>
-					<datalist id="sensor-list">
-						{sensors.map((s) => {
-							const m = sensorMeta[s];
-							// Show a friendly label (+ unit) when known; the value bound stays the raw id.
-							const label =
-								m?.label && m.label !== s
-									? m.unit
-										? `${m.label} (${m.unit})`
-										: m.label
-									: undefined;
-							return <option key={s} value={s} label={label} />;
-						})}
-					</datalist>
 					{placement === 'floating' && (
 						<div className="row">
 							{RECT_KEYS.map((key) => (
@@ -671,7 +906,7 @@ export default function Inspector({
 							</div>
 							<label className="full">
 								size along the row / column
-								<select
+								<Select
 									value={
 										isFrBasis(widgetBasis)
 											? 'grow'
@@ -679,21 +914,23 @@ export default function Inspector({
 											? 'content'
 											: 'fixed'
 									}
-									onChange={(e) => {
-										const v = e.currentTarget.value;
+									options={[
+										{ value: 'fixed', label: 'fixed — use the w/h above' },
+										{ value: 'content', label: 'hug — fit to content' },
+										{ value: 'grow', label: 'fill — grow to share' }
+									]}
+									onChange={(v) =>
 										op({
 											op: 'setBasis',
 											id: widget.id,
 											basis: v === 'grow' ? { fr: 1 } : v === 'content' ? 'content' : undefined
-										});
-									}}
-								>
-									<option value="fixed">fixed — use the w/h above</option>
-									<option value="content">fit to content — measure the rendered size</option>
-									<option value="grow">grow — stretch to fill</option>
-								</select>
+										})
+									}
+									aria-label="size along the row / column"
+								/>
 							</label>
 							{leafAlignControls(widget.id)}
+							{leafBoxControls(widget.id)}
 						</>
 					)}
 					{configFields.map((f) => {
@@ -701,6 +938,36 @@ export default function Inspector({
 						// field's input stays the label's labeled control — a nested button would otherwise
 						// become the label's control (a11y regression + clicking the label would reset it).
 						const def = fieldDefault(f);
+						// A macro field isn't a single labeled control — render its list editor outside a
+						// <label> (wrapping the multi-input editor in a label would be an a11y regression).
+						if (f.kind === 'macro') {
+							return (
+								<div
+									className={['cfg-field', 'cfg-macro', dirtyKeys.has('config.' + f.key) && 'dirty']
+										.filter(Boolean)
+										.join(' ')}
+									key={f.key}
+								>
+									<button
+										type="button"
+										className="reset-field"
+										title="Reset to default"
+										disabled={def === undefined}
+										onClick={() => setConfig(f.key, def)}
+									>
+										↺
+									</button>
+									<span className="hd" title={f.help}>
+										{f.label}
+									</span>
+									<MacroEditor
+										value={normalizeMacro(widget.config[f.key])}
+										onChange={(next) => setConfig(f.key, next)}
+									/>
+									{f.help ? <small className="field-help">{f.help}</small> : null}
+								</div>
+							);
+						}
 						return (
 							<div className="cfg-field" key={f.key}>
 								<button
@@ -737,16 +1004,28 @@ export default function Inspector({
 											onChange={(e) => setConfig(f.key, e.currentTarget.checked)}
 										/>
 									) : f.kind === 'select' ? (
-										<select
+										<Select
 											value={cfgStr(widget.config[f.key])}
-											onChange={(e) => setConfig(f.key, e.currentTarget.value)}
-										>
-											{f.options.map((o) => (
-												<option key={o} value={o}>
-													{o}
-												</option>
-											))}
-										</select>
+											options={
+												f.catalog === 'audioOutputs'
+													? [
+															{ value: '', label: 'System default' },
+															...audioOutputs.map((d) => ({ value: d.id, label: d.name }))
+													  ]
+													: f.options.map((o) => ({ value: o, label: o }))
+											}
+											onChange={(v) => setConfig(f.key, v)}
+											aria-label={f.label}
+										/>
+									) : f.kind === 'expr' ? (
+										<textarea
+											className="cfg-expr"
+											rows={2}
+											spellCheck={false}
+											value={cfgStr(widget.config[f.key])}
+											placeholder={f.result === 'text' ? 'text + {expression}' : 'expression'}
+											onInput={(e) => setConfig(f.key, e.currentTarget.value || undefined)}
+										/>
 									) : (
 										<input
 											type="text"
@@ -755,31 +1034,43 @@ export default function Inspector({
 											onInput={(e) => setConfig(f.key, e.currentTarget.value || undefined)}
 										/>
 									)}
+									{f.kind === 'expr' ? (
+										<ExprHint
+											src={cfgStr(widget.config[f.key])}
+											result={f.result}
+											known={sensors}
+										/>
+									) : null}
 									{f.help ? <small className="field-help">{f.help}</small> : null}
 								</label>
 							</div>
 						);
 					})}
-					<label className={['full', configDirty && 'dirty'].filter(Boolean).join(' ')}>
-						config (JSON)
-						<textarea
-							rows={4}
-							value={configText}
-							className={configError ? 'error' : undefined}
-							onChange={(e) => setConfigText(e.currentTarget.value)}
-							onBlur={commitConfig}
-						/>
-					</label>
-					<label className={['full', dirtyKeys.has('css') && 'dirty'].filter(Boolean).join(' ')}>
-						css
-						<textarea
-							rows={3}
-							defaultValue={widget.css ?? ''}
-							key={widget.id}
-							placeholder="color: red;  .value …"
-							onBlur={(e) => setWidgetCss(e.currentTarget.value)}
-						/>
-					</label>
+					{/* The raw-JSON + CSS escape hatches are expert-rare — collapsed by default (progressive
+					    disclosure) so the common sensor/config fields above aren't buried under them. */}
+					<details className="adv">
+						<summary>Advanced — config JSON / CSS</summary>
+						<label className={['full', configDirty && 'dirty'].filter(Boolean).join(' ')}>
+							config (JSON)
+							<textarea
+								rows={4}
+								value={configText}
+								className={configError ? 'error' : undefined}
+								onChange={(e) => setConfigText(e.currentTarget.value)}
+								onBlur={commitConfig}
+							/>
+						</label>
+						<label className={['full', dirtyKeys.has('css') && 'dirty'].filter(Boolean).join(' ')}>
+							css
+							<CssEditor
+								key={widget.id}
+								value={widget.css ?? ''}
+								onBlur={setWidgetCss}
+								placeholder="color: red;  .value …"
+								ariaLabel="widget css"
+							/>
+						</label>
+					</details>
 					<div className="actions">
 						{placement === 'floating' ? (
 							<button type="button" onClick={dockWidget}>
@@ -807,7 +1098,9 @@ export default function Inspector({
 				</div>
 			) : groupUnit ? (
 				<div className="fields">
-					<span className="hd">group · {groupUnit.id}</span>
+					<span className="hd node-hd" title={`group · ${groupUnit.id}`}>
+						group · {groupUnit.id}
+					</span>
 					<label className={['full', dirtyKeys.has('name') && 'dirty'].filter(Boolean).join(' ')}>
 						name
 						<input
@@ -819,6 +1112,7 @@ export default function Inspector({
 						<>
 							{leafSizingControls(groupUnit.id)}
 							{leafAlignControls(groupUnit.id)}
+							{leafBoxControls(groupUnit.id)}
 						</>
 					)}
 					{placement === 'floating' && (
@@ -899,11 +1193,12 @@ export default function Inspector({
 							</button>
 							<label className="full">
 								def css
-								<textarea
-									rows={3}
-									defaultValue={def.css ?? ''}
+								<CssEditor
 									key={def.id}
-									onBlur={(e) => setDefCss(e.currentTarget.value)}
+									value={def.css ?? ''}
+									onBlur={setDefCss}
+									placeholder="color: red;  .value …"
+									ariaLabel="def css"
 								/>
 							</label>
 						</>
@@ -912,16 +1207,21 @@ export default function Inspector({
 					)}
 					<label className={['full', dirtyKeys.has('css') && 'dirty'].filter(Boolean).join(' ')}>
 						css
-						<textarea
-							rows={3}
-							defaultValue={groupUnit.css ?? ''}
+						<CssEditor
 							key={groupUnit.id}
-							onBlur={(e) => setGroupCss(e.currentTarget.value)}
+							value={groupUnit.css ?? ''}
+							onBlur={setGroupCss}
+							placeholder="color: red;  .value …"
+							ariaLabel="group css"
 						/>
 					</label>
 					<div className="actions">
-						<button type="button" onClick={ungroupGroup}>
-							Ungroup
+						<button
+							type="button"
+							onClick={ungroupGroup}
+							title="Split this grouped widget back into its individual widgets"
+						>
+							⛓ Unlink
 						</button>
 						<button type="button" className="remove" onClick={removeGroup}>
 							Remove

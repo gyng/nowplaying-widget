@@ -1,10 +1,10 @@
 [package]
 name = "widgetsack"
 # Keep in lockstep with tauri.conf.json's version (the bundle/updater source of truth).
-version = "0.0.19"
+version = "0.0.20"
 description = "widgetsack desktop widget platform"
 authors = ["you"]
-license = ""
+license = "MIT OR Apache-2.0"
 repository = ""
 default-run = "widgetsack"
 edition = "2024"
@@ -31,6 +31,10 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "nat
 rumqttc = { version = "0.25", default-features = false, features = ["use-native-tls"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+# Real-input FFT for the audio spectrum widget (wraps rustfft; ~2x faster than a full complex FFT
+# for real audio). Pure Rust, SIMD-accelerated, cross-platform — the DSP seams in audio.rs are
+# unit-tested on any OS even though capture (wasapi) is Windows-only.
+realfft = "3"
 sysinfo = "0.33"
 tauri = { version = "2", features = ["devtools", "protocol-asset", "tray-icon"] }
 tauri-plugin-global-shortcut = "2"
@@ -49,10 +53,44 @@ tauri-plugin-autostart = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 win-gsmtc = { version = "0.1.0", features = ["serde"] }
+# WASAPI loopback capture for the audio spectrum widget. Safe-ish bindings over windows-rs that
+# encapsulate GetMixFormat / SampleType (float vs int) / the loopback init flags. Kept at the
+# audio.rs edge (anti-corruption layer, like win-gsmtc for media). Windows-only.
+wasapi = "0.23"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_System_Com",
+    # Win32 system sensors: GetSystemPowerStatus (battery.*) + CallNtPowerInformation (live CPU MHz)
+    # live in Win32_System_Power; GetPerformanceInfo (commit/cache/kernel/handle/thread) in
+    # ProcessStatus; GetTickCount64 + GetLastInputInfo (host.idle) in SystemInformation +
+    # UI_Input_KeyboardAndMouse.
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    # Live disk I/O: DeviceIoControl(IOCTL_DISK_PERFORMANCE) on a volume handle — CreateFileW +
+    # FILE_SHARE_* / OPEN_EXISTING in Storage_FileSystem (CreateFileW pulls in Security for its
+    # SECURITY_ATTRIBUTES param), DeviceIoControl in System_IO, IOCTL_DISK_PERFORMANCE +
+    # DISK_PERFORMANCE in System_Ioctl.
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    # Network link speed / adapter state: GetIfTable2 + MIB_IF_ROW2 in IpHelper; the
+    # IF_OPER_STATUS / NET_IF_MEDIA_CONNECT_STATE enums (and the cfg-gated row struct) in Ndis.
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    # Landing-zone foreign-window manager (windowmgr.rs): EnumWindows / GetWindowRect / SetWindowPos /
+    # ShowWindow / GetWindow*W / GetWindowThreadProcessId / the WS_EX_*/SWP_*/SW_* constants + the
+    # EVENT_SYSTEM_MOVESIZE* / WINEVENT_* / MSG / GetMessageW message-pump in WindowsAndMessaging;
+    # OpenProcess + QueryFullProcessImageNameW for exe resolution in Threading;
+    # DwmGetWindowAttribute(EXTENDED_FRAME_BOUNDS/CLOAKED) in Dwm; SetWinEventHook (live drag
+    # detection, MVP2) + OBJID_WINDOW in Accessibility.
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Accessibility",
+    "Win32_System_Threading",
+    "Win32_Graphics_Dwm",
     "Media",
     "Media_Control",
     "Foundation",

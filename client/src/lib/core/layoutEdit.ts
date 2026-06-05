@@ -122,6 +122,20 @@ export function moveNode(
 	return insertChild(removeNode(root, id), newParentId, node, index);
 }
 
+/** Replace the node `id` (and its whole subtree) with `node`, in place. Returns a new root; a no-op
+ * clone when `id` is absent. Replacing the root applies only when `node` is itself a container (a
+ * leaf can't be the root). Used by the Inspector's Data tab to apply an edited JSON/YAML node. */
+export function replaceNode(root: Container, id: string, node: LayoutNode): Container {
+	if (root.id === id) return isContainer(node) ? node : root;
+	const walk = (c: Container): Container => ({
+		...c,
+		children: c.children.map((child) =>
+			child.id === id ? node : isContainer(child) ? walk(child) : child
+		)
+	});
+	return walk(root);
+}
+
 /** Every leaf in the flow tree, in document order. (Leaf ids match the solver's keys at
  * the root prefix; group descendants are namespaced and handled by the solver itself.) */
 export function flowLeaves(root: Container): Leaf[] {
@@ -157,19 +171,32 @@ export type OutlineRow = {
 	parentId: string;
 	index: number; // position among its siblings
 	siblingCount: number;
+	// For each ANCESTOR lane between this row and the root (one entry per depth level, outermost
+	// first), whether that ancestor is the LAST of its siblings. The tree view draws a continuing
+	// vertical guide at a lane only when its ancestor is NOT last (i.e. more siblings follow below).
+	ancestorsLast: boolean[];
 };
 
 /** Flatten the tree (excluding the root itself) into indented rows for an outline view.
- * Each row knows its parent + index so the UI can enable/disable up/down/outdent. */
+ * Each row knows its parent + index (so the UI can enable/disable up/down/outdent) and the
+ * last-child flags of its ancestors (so the UI can draw tree connector lines). */
 export function outlineRows(root: Container): OutlineRow[] {
 	const rows: OutlineRow[] = [];
-	const walk = (c: Container, depth: number): void => {
+	const walk = (c: Container, depth: number, ancestorsLast: boolean[]): void => {
 		c.children.forEach((child, index) => {
-			rows.push({ node: child, depth, parentId: c.id, index, siblingCount: c.children.length });
-			if (isContainer(child)) walk(child, depth + 1);
+			const isLast = index === c.children.length - 1;
+			rows.push({
+				node: child,
+				depth,
+				parentId: c.id,
+				index,
+				siblingCount: c.children.length,
+				ancestorsLast
+			});
+			if (isContainer(child)) walk(child, depth + 1, [...ancestorsLast, isLast]);
 		});
 	};
-	walk(root, 0);
+	walk(root, 0, []);
 	return rows;
 }
 

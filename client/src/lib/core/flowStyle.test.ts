@@ -8,6 +8,13 @@ const prim = (id: string, w = 10, h = 10): WidgetInstance => ({
 	rect: { x: 0, y: 0, w, h },
 	config: {}
 });
+// A 'clock' is an INTRINSIC meter (widget.ts) — used to exercise content-fit basis.
+const textPrim = (id: string, w = 10, h = 10): WidgetInstance => ({
+	id,
+	type: 'clock',
+	rect: { x: 0, y: 0, w, h },
+	config: {}
+});
 
 describe('containerStyle', () => {
 	it('row → flex row, default align stretch', () => {
@@ -105,8 +112,14 @@ describe('itemStyle (sizing)', () => {
 			flexBasis: '20px'
 		});
 		expect(itemStyle({ ...leaf(prim('A', 40, 20)) }, 'row').flexBasis).toBe('40px');
-		// 'content' also falls back to the stored size (true measure-fit isn't available in pure CSS).
+		// 'content' on a FILL meter (gauge — no intrinsic content size) keeps its stored box so it can't
+		// collapse to 0; true content-fit is reserved for intrinsic meters (next test).
 		expect(itemStyle({ ...leaf(prim('A', 40, 20), 'content') }, 'row').flexBasis).toBe('40px');
+	});
+
+	it("basis 'content' on an INTRINSIC text meter (clock/text) → content-fit (auto basis, shrinkable)", () => {
+		const s = itemStyle({ ...leaf(textPrim('A', 40, 20), 'content') }, 'row');
+		expect(s).toMatchObject({ flexGrow: 0, flexShrink: 1, flexBasis: 'auto', minWidth: 0 });
 	});
 
 	it('a CONTAINER with auto basis shrink-wraps (flex-basis:auto)', () => {
@@ -116,7 +129,7 @@ describe('itemStyle (sizing)', () => {
 
 describe('itemStyle (per-leaf alignment)', () => {
 	it('row parent: valign → align-self (cross), halign → auto margins (main)', () => {
-		const node: Leaf = { ...leaf(prim('A')), halign: 'right', valign: 'middle' };
+		const node: Leaf = { ...leaf(textPrim('A')), halign: 'right', valign: 'middle' };
 		const s = itemStyle(node, 'row');
 		expect(s.alignSelf).toBe('center'); // valign middle on the vertical cross axis
 		expect(s.marginLeft).toBe('auto'); // halign right pushes it along the horizontal main axis
@@ -124,7 +137,7 @@ describe('itemStyle (per-leaf alignment)', () => {
 	});
 
 	it('col parent: halign → align-self (cross), valign → auto margins (main)', () => {
-		const node: Leaf = { ...leaf(prim('A')), halign: 'center', valign: 'bottom' };
+		const node: Leaf = { ...leaf(textPrim('A')), halign: 'center', valign: 'bottom' };
 		const s = itemStyle(node, 'col');
 		expect(s.alignSelf).toBe('center'); // halign center on the horizontal cross axis
 		expect(s.marginTop).toBe('auto'); // valign bottom pushes it down the vertical main axis
@@ -137,15 +150,65 @@ describe('itemStyle (per-leaf alignment)', () => {
 	});
 
 	it('grid parent: halign/valign → justify-self / align-self (independent 2D)', () => {
-		const node: Leaf = { ...leaf(prim('A')), halign: 'right', valign: 'top' };
+		const node: Leaf = { ...leaf(textPrim('A')), halign: 'right', valign: 'top' };
 		const s = itemStyle(node, 'grid');
 		expect(s.justifySelf).toBe('end');
 		expect(s.alignSelf).toBe('start');
 	});
 
 	it('fill alignment → stretch', () => {
-		const s = itemStyle({ ...leaf(prim('A')), halign: 'fill', valign: 'fill' }, 'grid');
+		const s = itemStyle({ ...leaf(textPrim('A')), halign: 'fill', valign: 'fill' }, 'grid');
 		expect(s.justifySelf).toBe('stretch');
 		expect(s.alignSelf).toBe('stretch');
+	});
+
+	it('a FILL meter (no intrinsic size) keeps cross-axis stretch (no align-self) + gets the placement var', () => {
+		// gauge is a fill meter: halign must NOT become align-self (that would collapse width:100% to 0);
+		// the dial/content aligns inside the stretched box via --np-halign instead.
+		const s = itemStyle({ ...leaf(prim('A')), halign: 'left' }, 'col');
+		expect('alignSelf' in s).toBe(false);
+		expect(s['--np-halign']).toBe('flex-start');
+	});
+
+	it('exposes the leaf halign/valign to the meter as --np-halign / --np-valign vars', () => {
+		const s = itemStyle({ ...leaf(prim('A')), halign: 'left', valign: 'top' }, 'row');
+		expect(s['--np-halign']).toBe('flex-start');
+		expect(s['--np-valign']).toBe('flex-start');
+	});
+});
+
+describe('itemStyle (per-side margin + padding)', () => {
+	it('uniform margin (number) → all four sides', () => {
+		const s = itemStyle({ ...leaf(prim('A')), margin: 6 }, 'col');
+		expect(s).toMatchObject({ marginTop: 6, marginRight: 6, marginBottom: 6, marginLeft: 6 });
+	});
+
+	it('per-side margin {t,r,b,l} → each side independently', () => {
+		const s = itemStyle({ ...leaf(prim('A')), margin: { t: 1, r: 2, b: 3, l: 4 } }, 'col');
+		expect(s).toMatchObject({ marginTop: 1, marginRight: 2, marginBottom: 3, marginLeft: 4 });
+	});
+
+	it('leaf pad → padding on the slot (insets the widget); containers are unaffected here', () => {
+		const s = itemStyle({ ...leaf(prim('A')), pad: { t: 1, r: 2, b: 3, l: 4 } }, 'col');
+		expect(s.padding).toBe('1px 2px 3px 4px');
+		// A container leaf-style still emits no padding from itemStyle (it pads via containerStyle).
+		expect('padding' in itemStyle(container('c', 'col', []), 'col')).toBe(false);
+	});
+
+	it('placement auto-margin still wins on its axis when an explicit margin is also set', () => {
+		// col + valign:bottom pushes to the bottom (marginTop:auto) — it must override the explicit top
+		// margin, while the untouched sides keep their explicit values.
+		const node: Leaf = { ...leaf(prim('A')), margin: 5, valign: 'bottom' };
+		const s = itemStyle(node, 'col');
+		expect(s.marginTop).toBe('auto'); // placement overrides the explicit 5
+		expect(s.marginBottom).toBe(5); // non-placement side keeps the explicit margin
+		expect(s.marginLeft).toBe(5);
+		expect(s.marginRight).toBe(5);
+	});
+
+	it('no margin / no pad → those keys are omitted', () => {
+		const s = itemStyle(leaf(prim('A')), 'col');
+		expect('marginTop' in s).toBe(false);
+		expect('padding' in s).toBe(false);
 	});
 });

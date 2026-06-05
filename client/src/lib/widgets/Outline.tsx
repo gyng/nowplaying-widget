@@ -20,6 +20,9 @@ type Props = {
 	// In the studio this panel docks as the full-height left rail (vs a floating box on an
 	// overlay). The rail size + bar height come from the canvas's shared custom properties.
 	docked?: boolean;
+	// When set (e.g. the widget def being designed), appended to the header so the user can tell the
+	// tree is scoped to that def, not the monitor layout.
+	scopeLabel?: string;
 	onOp?: (op: LayoutOp) => void;
 };
 
@@ -30,6 +33,7 @@ export default function Outline({
 	hoverId = null,
 	onHover,
 	docked = false,
+	scopeLabel,
 	onOp
 }: Props) {
 	const op = (o: LayoutOp) => onOp?.(o);
@@ -52,13 +56,26 @@ export default function Outline({
 		e.dataTransfer?.setData('text/x-node-id', id);
 		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
 	}
+	// A row currently signalled as an INVALID drop target (a leaf — only containers accept drops).
+	// Without this, dropping on a leaf row silently does nothing; now the row reads as rejected.
+	const [dropNoId, setDropNoId] = useState<string | null>(null);
 	function onRowDragOver(e: ReactDragEvent, node: LayoutNode) {
-		if (!isContainer(node)) return; // only containers accept drops
+		if (!isContainer(node)) {
+			// Not a container: claim the event so the browser shows the "no-drop" cursor and we can
+			// paint the row as a rejected target, instead of the drop vanishing with no feedback.
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+			setDropNoId(node.id);
+			setDragOverId(null);
+			return;
+		}
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		setDropNoId(null);
 		setDragOverId(node.id);
 	}
 	function onRowDrop(e: ReactDragEvent, node: LayoutNode) {
+		setDropNoId(null);
 		if (!isContainer(node)) return;
 		e.preventDefault();
 		setDragOverId(null);
@@ -70,7 +87,10 @@ export default function Outline({
 		const nid = e.dataTransfer?.getData('text/x-node-id');
 		if (nid && nid !== node.id) op({ op: 'reparent', id: nid, containerId: node.id });
 	}
-	const onRowDragLeave = () => setDragOverId(null);
+	const onRowDragLeave = () => {
+		setDragOverId(null);
+		setDropNoId(null);
+	};
 
 	const outlineCls = ['outline'];
 	if (docked) outlineCls.push('docked');
@@ -80,157 +100,171 @@ export default function Outline({
 	if (dragOverId === root.id) rootRowCls.push('dropok');
 	if (hoverId === root.id) rootRowCls.push('hover');
 
+	// An icon-only action button. `aria-label` mirrors the tooltip so screen-reader / keyboard users
+	// get the meaning the glyph alone can't carry; `mv` buttons reveal on row hover/selection/focus
+	// (the CSS), keeping the resting row uncluttered while giving each control a 24px hit area.
+	const actBtn = (
+		label: string,
+		glyph: string,
+		o: LayoutOp,
+		opts: { reveal?: boolean; danger?: boolean; disabled?: boolean } = {}
+	) => (
+		<button
+			type="button"
+			className={[opts.reveal && 'mv', opts.danger && 'rm'].filter(Boolean).join(' ') || undefined}
+			title={label}
+			aria-label={label}
+			disabled={opts.disabled}
+			onClick={() => op(o)}
+		>
+			{glyph}
+		</button>
+	);
+
 	return (
 		<div className={outlineCls.join(' ')}>
 			<div className="hd">
-				Outline
+				<span>Outline{scopeLabel ? ` · ${scopeLabel}` : ''}</span>
 				<span className="add">
 					<button type="button" onClick={() => op({ op: 'addContainer', kind: 'row' })}>
-						+Row
+						＋ Row
 					</button>
 					<button type="button" onClick={() => op({ op: 'addContainer', kind: 'col' })}>
-						+Col
+						＋ Column
 					</button>
 					<button type="button" onClick={() => op({ op: 'addContainer', kind: 'grid' })}>
-						+Grid
+						＋ Grid
 					</button>
 				</span>
 			</div>
 
-			<button
-				type="button"
-				className={rootRowCls.join(' ')}
-				onClick={() => op({ op: 'select', id: root.id })}
-				onDragOver={(e) => onRowDragOver(e, root)}
-				onDrop={(e) => onRowDrop(e, root)}
-				onDragLeave={onRowDragLeave}
-				{...hoverProps(root.id)}
-			>
-				▦ root ({root.kind})
-			</button>
+			<div className="tree" role="tree" aria-label="Layout outline">
+				<button
+					type="button"
+					className={rootRowCls.join(' ')}
+					role="treeitem"
+					aria-level={1}
+					aria-selected={selectedId === root.id}
+					onClick={() => op({ op: 'select', id: root.id })}
+					onDragOver={(e) => onRowDragOver(e, root)}
+					onDrop={(e) => onRowDrop(e, root)}
+					onDragLeave={onRowDragLeave}
+					{...hoverProps(root.id)}
+				>
+					▦ root ({root.kind})
+				</button>
 
-			{rows.map((r) => {
-				const rowCls = ['row'];
-				if (selectedId === r.node.id) rowCls.push('sel');
-				if (dragOverId === r.node.id) rowCls.push('dropok');
-				if (hoverId === r.node.id) rowCls.push('hover');
-				return (
-					<div
-						key={r.node.id}
-						className={rowCls.join(' ')}
-						style={{ paddingLeft: `${6 + r.depth * 12}px` }}
-						draggable
-						onDragStart={(e) => onRowDragStart(e, r.node.id)}
-						onDragOver={(e) => onRowDragOver(e, r.node)}
-						onDrop={(e) => onRowDrop(e, r.node)}
-						onDragLeave={onRowDragLeave}
-						{...hoverProps(r.node.id)}
-					>
-						<button
-							type="button"
-							className="label"
-							onClick={() => op({ op: 'select', id: r.node.id })}
+				{rows.map((r) => {
+					const rowCls = ['row'];
+					if (selectedId === r.node.id) rowCls.push('sel');
+					if (dragOverId === r.node.id) rowCls.push('dropok');
+					if (dropNoId === r.node.id) rowCls.push('dropno');
+					if (hoverId === r.node.id) rowCls.push('hover');
+					const isLast = r.index === r.siblingCount - 1;
+					return (
+						<div
+							key={r.node.id}
+							className={rowCls.join(' ')}
+							role="treeitem"
+							aria-level={r.depth + 2}
+							aria-posinset={r.index + 1}
+							aria-setsize={r.siblingCount}
+							aria-selected={selectedId === r.node.id}
+							draggable
+							onDragStart={(e) => onRowDragStart(e, r.node.id)}
+							onDragOver={(e) => onRowDragOver(e, r.node)}
+							onDrop={(e) => onRowDrop(e, r.node)}
+							onDragLeave={onRowDragLeave}
+							{...hoverProps(r.node.id)}
 						>
-							{rowLabel(r.node)}
-						</button>
-						<span className="btns">
+							<span className="guides" aria-hidden="true">
+								{/* one lane per ancestor (a vertical only while that ancestor still has
+								    siblings below), then this node's elbow — └ if it's the last child, else ├ */}
+								{r.ancestorsLast.map((last, i) => (
+									<span key={i} className={last ? 'lane' : 'lane v'} />
+								))}
+								<span className={isLast ? 'lane elbow' : 'lane elbow cont'} />
+							</span>
 							<button
 								type="button"
-								title="Move up"
-								disabled={r.index === 0}
-								onClick={() => op({ op: 'moveUp', id: r.node.id })}
+								className="label"
+								onClick={() => op({ op: 'select', id: r.node.id })}
 							>
-								↑
+								{rowLabel(r.node)}
 							</button>
-							<button
-								type="button"
-								title="Move down"
-								disabled={r.index === r.siblingCount - 1}
-								onClick={() => op({ op: 'moveDown', id: r.node.id })}
-							>
-								↓
-							</button>
-							<button
-								type="button"
-								title="Move out"
-								disabled={r.parentId === root.id}
-								onClick={() => op({ op: 'outdent', id: r.node.id })}
-							>
-								⟸
-							</button>
-							{r.index > 0 && (
-								<button
-									type="button"
-									title="Move in"
-									onClick={() => op({ op: 'indent', id: r.node.id })}
-								>
-									⟹
-								</button>
-							)}
-							{!isContainer(r.node) && (
-								<button
-									type="button"
-									title="Float"
-									onClick={() => op({ op: 'float', id: r.node.id })}
-								>
-									⤓
-								</button>
-							)}
-							<button
-								type="button"
-								title="Remove"
-								onClick={() => op({ op: 'remove', id: r.node.id })}
-							>
-								✕
-							</button>
-						</span>
-					</div>
-				);
-			})}
+							<span className="btns">
+								{actBtn(
+									'Move up',
+									'↑',
+									{ op: 'moveUp', id: r.node.id },
+									{
+										reveal: true,
+										disabled: r.index === 0
+									}
+								)}
+								{actBtn(
+									'Move down',
+									'↓',
+									{ op: 'moveDown', id: r.node.id },
+									{
+										reveal: true,
+										disabled: r.index === r.siblingCount - 1
+									}
+								)}
+								{actBtn(
+									'Move out',
+									'⟸',
+									{ op: 'outdent', id: r.node.id },
+									{
+										reveal: true,
+										disabled: r.parentId === root.id
+									}
+								)}
+								{r.index > 0 &&
+									actBtn('Move in', '⟹', { op: 'indent', id: r.node.id }, { reveal: true })}
+								{!isContainer(r.node) &&
+									actBtn('Float', '⤓', { op: 'float', id: r.node.id }, { reveal: true })}
+								{actBtn('Remove', '✕', { op: 'remove', id: r.node.id }, { danger: true })}
+							</span>
+						</div>
+					);
+				})}
 
-			{floating.length > 0 && (
-				<>
-					<div className="hd2">Floating</div>
-					{floating.map((lf) => {
-						const lfCls = ['row'];
-						if (selectedId === lf.id) lfCls.push('sel');
-						if (hoverId === lf.id) lfCls.push('hover');
-						return (
-							<div
-								key={lf.id}
-								className={lfCls.join(' ')}
-								draggable
-								onDragStart={(e) => onRowDragStart(e, lf.id)}
-								{...hoverProps(lf.id)}
-							>
-								<button
-									type="button"
-									className="label"
-									onClick={() => op({ op: 'select', id: lf.id })}
+				{floating.length > 0 && (
+					<div role="group" aria-label="Floating widgets">
+						<div className="hd2">Floating</div>
+						{floating.map((lf) => {
+							const lfCls = ['row'];
+							if (selectedId === lf.id) lfCls.push('sel');
+							if (hoverId === lf.id) lfCls.push('hover');
+							return (
+								<div
+									key={lf.id}
+									className={lfCls.join(' ')}
+									role="treeitem"
+									aria-level={1}
+									aria-selected={selectedId === lf.id}
+									draggable
+									onDragStart={(e) => onRowDragStart(e, lf.id)}
+									{...hoverProps(lf.id)}
 								>
-									{rowLabel(lf)}
-								</button>
-								<span className="btns">
 									<button
 										type="button"
-										title="Dock into root"
-										onClick={() => op({ op: 'dock', id: lf.id })}
+										className="label"
+										onClick={() => op({ op: 'select', id: lf.id })}
 									>
-										⤒
+										{rowLabel(lf)}
 									</button>
-									<button
-										type="button"
-										title="Remove"
-										onClick={() => op({ op: 'remove', id: lf.id })}
-									>
-										✕
-									</button>
-								</span>
-							</div>
-						);
-					})}
-				</>
-			)}
+									<span className="btns">
+										{actBtn('Dock into root', '⤒', { op: 'dock', id: lf.id }, { reveal: true })}
+										{actBtn('Remove', '✕', { op: 'remove', id: lf.id }, { danger: true })}
+									</span>
+								</div>
+							);
+						})}
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

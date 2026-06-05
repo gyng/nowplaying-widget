@@ -17,6 +17,7 @@ use crate::command::get_initial_sessions;
 use crate::event::emit_to_bridge;
 use crate::state::updater;
 
+pub mod audio;
 pub mod clickthrough;
 pub mod command;
 pub mod event;
@@ -26,7 +27,9 @@ pub mod log;
 pub mod media;
 pub mod mqtt;
 pub mod sensors;
+pub mod stocks;
 pub mod state;
+pub mod windowmgr;
 
 pub struct AppState {
     pub sessions: Mutex<HashMap<usize, SessionRecord>>,
@@ -94,24 +97,36 @@ async fn main() -> Result<(), ()> {
         .manage(clickthrough::InteractiveRects::default())
         .manage(ha::HaState::default())
         .manage(mqtt::MqttState::default())
+        .manage(stocks::StocksState::default())
         .manage(sensors::ActiveSensors::default())
+        .manage(audio::SpectrumState::default())
         .invoke_handler(tauri::generate_handler![
             get_initial_sessions,
             command::load_layout,
             command::save_layout,
             command::load_controls,
             command::save_controls,
+            windowmgr::list_windows,
+            windowmgr::snap_window,
+            windowmgr::pointer_probe,
             command::list_themes,
             command::load_theme,
             command::save_theme,
             command::list_sacks,
             command::read_sack,
             command::write_sack,
+            command::list_layouts,
+            command::read_layout,
+            command::save_layout_as,
+            command::delete_layout,
             command::open_devtools,
             command::system_fonts,
             clickthrough::set_interactive_rects,
             clickthrough::current_work_area,
             sensors::set_active_sensors,
+            audio::start_spectrum,
+            audio::stop_spectrum,
+            audio::list_audio_outputs,
             media::media_control,
             media::media_capabilities,
             log::get_logs,
@@ -127,7 +142,11 @@ async fn main() -> Result<(), ()> {
             mqtt::mqtt_config_status,
             mqtt::mqtt_connect,
             mqtt::mqtt_disconnect,
-            mqtt::mqtt_catalog
+            mqtt::mqtt_catalog,
+            stocks::save_stocks_config,
+            stocks::stocks_config_status,
+            stocks::stocks_connect,
+            stocks::stocks_disconnect
         ])
         .setup(|app| {
             // Wire structured logging to the app so records also stream to the webview (`log` event).
@@ -178,14 +197,22 @@ async fn main() -> Result<(), ()> {
 
             clickthrough::run_clickthrough_watcher(app.handle().clone());
 
+            // Live drag-to-zone (MVP2): a SetWinEventHook message-pump thread emitting
+            // win_drag_start / win_drag_end; the overlay highlights + snaps. Own thread (the
+            // clickthrough watcher has no message pump). No-op off Windows.
+            windowmgr::run_drag_watcher(app.handle().clone());
+
             // Tray menu: the only reliable way to toggle edit mode while the overlay
             // is click-through (a passive window receives no in-app keys).
             let edit_item = MenuItemBuilder::with_id("edit", "Edit layout").build(app)?;
             let designer_item = MenuItemBuilder::with_id("designer", "Open designer").build(app)?;
+            // Snap every open window that matches a zone widget's rule into that zone (overlays handle it).
+            let arrange_item = MenuItemBuilder::with_id("arrange", "Arrange windows").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let tray_menu = MenuBuilder::new(app)
                 .item(&edit_item)
                 .item(&designer_item)
+                .item(&arrange_item)
                 .item(&quit_item)
                 .build()?;
             let _tray = TrayIconBuilder::new()
@@ -199,6 +226,10 @@ async fn main() -> Result<(), ()> {
                     "designer" => {
                         // The primary overlay listens and opens the studio window (5s).
                         let _ = app.emit("open_studio", ());
+                    }
+                    "arrange" => {
+                        // Each overlay snaps the windows matching ITS monitor's zone rules.
+                        let _ = app.emit("arrange_zones", ());
                     }
                     "quit" => app.exit(0),
                     _ => {}

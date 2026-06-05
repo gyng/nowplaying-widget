@@ -10,6 +10,7 @@ describe('studio nav SECTIONS', () => {
 			'plugins',
 			'themes',
 			'sacks',
+			'saved-layouts',
 			'controls',
 			'settings'
 		]);
@@ -28,5 +29,16 @@ describe('studio nav SECTIONS', () => {
 			expect(s.icon).toBeTruthy();
 			expect(s.short).toBeTruthy();
 		}
+	});
+
+	it('uses a distinct glyph per section (no overloaded icons)', () => {
+		const icons = SECTIONS.map((s) => s.icon);
+		expect(new Set(icons).size).toBe(icons.length);
+	});
+
+	it('keeps the nav glyphs off the in-canvas "copy" (⧉) and "container/grid" (▦) signifiers', () => {
+		const icons = SECTIONS.map((s) => s.icon);
+		expect(icons).not.toContain('⧉');
+		expect(icons).not.toContain('▦');
 	});
 });

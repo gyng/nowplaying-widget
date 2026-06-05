@@ -1,17 +1,24 @@
 {
 	"name": "client",
 	"version": "0.0.1",
+	"license": "MIT OR Apache-2.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"check": "tsc --noEmit",
 		"test:unit": "vitest",
+		"test:e2e": "playwright test",
 		"lint": "prettier --check . && eslint . --max-warnings 0",
 		"lint:fix": "prettier --write . && eslint . --max-warnings 0 --fix",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"gen:docs": "vite-node scripts/gen-widget-docs.ts",
+		"check:docs": "vite-node scripts/gen-widget-docs.ts --check",
+		"gen:shots": "node scripts/screenshots.mjs",
+		"gen:gallery": "npm run gen:shots && npm run gen:docs"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.60.0",
 		"@testing-library/dom": "^10.4.0",
 		"@testing-library/jest-dom": "^6.6.3",
 		"@testing-library/react": "^16.1.0",
@@ -34,7 +41,19 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@codemirror/autocomplete": "^6.20.3",
+		"@codemirror/commands": "^6.10.3",
+		"@codemirror/lang-css": "^6.3.1",
+		"@codemirror/language": "^6.12.3",
+		"@codemirror/lint": "^6.9.6",
+		"@codemirror/state": "^6.6.0",
+		"@codemirror/view": "^6.43.0",
+		"@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
+		"@lezer/common": "^1.5.2",
+		"@lezer/highlight": "^1.2.3",
 		"@tauri-apps/api": "^2.11.0",
+		"downshift": "^9.3.6",
+		"quickjs-emscripten-core": "^0.32.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	}

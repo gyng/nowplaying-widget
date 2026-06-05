@@ -20,8 +20,10 @@ import {
 	type Container,
 	type Justify,
 	type LayoutNode,
-	type Length
+	type Length,
+	type Pad
 } from './layoutTree';
+import { getMeta } from './widget';
 
 // A plain inline-style map (camelCase keys, React-applies verbatim). Kept framework-agnostic.
 export type Style = Record<string, string | number>;
@@ -67,6 +69,21 @@ const GRID_SELF: Record<AlignH | AlignV, string> = {
 	bottom: 'end',
 	center: 'center',
 	middle: 'center',
+	fill: 'stretch'
+};
+// A leaf's halign/valign exposed to its METER as CSS vars (--np-halign / --np-valign) — a flex
+// place keyword the meter applies to its OWN content when that content is smaller than the box
+// (e.g. the analog-clock dial), so it aligns per the leaf instead of always centering.
+const HALIGN_PLACE: Record<AlignH, string> = {
+	left: 'flex-start',
+	center: 'center',
+	right: 'flex-end',
+	fill: 'stretch'
+};
+const VALIGN_PLACE: Record<AlignV, string> = {
+	top: 'flex-start',
+	middle: 'center',
+	bottom: 'flex-end',
 	fill: 'stretch'
 };
 
@@ -129,6 +146,22 @@ export function itemStyle(node: LayoutNode, parentKind: Container['kind']): Styl
 		s.flexGrow = 0;
 		s.flexShrink = 0;
 		s.flexBasis = `${Math.max(0, basis)}px`;
+	} else if (
+		basis === 'content' &&
+		isLeaf(node) &&
+		!isGroup(node.unit) &&
+		getMeta(node.unit.type)?.intrinsic
+	) {
+		// 'content' on an INTRINSIC (text) meter: shrink-wrap to the RENDERED content (the grammar's
+		// definition of 'content'), so adjacent text leaves — e.g. a date "4" and month "JUNE" — each
+		// fit their own text and sit tight instead of being pinned to a stale stored width. flex-basis
+		// auto → max-content; shrink:1 + min:0 lets a cramped row shrink past content instead of
+		// overflowing. FILL meters (no intrinsic size) deliberately skip this and keep their box below.
+		s.flexGrow = 0;
+		s.flexShrink = 1;
+		s.flexBasis = 'auto';
+		s.minWidth = 0;
+		s.minHeight = 0;
 	} else {
 		// 'auto' / 'content' / unset: a LEAF takes its STORED main extent (primitive rect / group
 		// size) as the flex-basis, so a fill-meter (width/height:100%, no intrinsic size) keeps the
@@ -141,14 +174,36 @@ export function itemStyle(node: LayoutNode, parentKind: Container['kind']): Styl
 		s.flexBasis = size ? `${parentKind === 'row' ? size.w : size.h}px` : 'auto';
 	}
 
+	// Per-side OUTER margin (space around this node in its parent's flow). Set BEFORE the placement
+	// block below so the halign/valign auto-margins still win on their own axis (center/right/bottom).
+	const margin = (node as { margin?: Pad }).margin;
+	if (margin !== undefined) {
+		const m = resolvePad(margin);
+		s.marginTop = m.t;
+		s.marginRight = m.r;
+		s.marginBottom = m.b;
+		s.marginLeft = m.l;
+	}
+	// Per-side INNER padding insets the widget inside its slot (leaves only — containers pad via
+	// containerStyle). The slot is border-box (FlowNode), so padding shrinks the content area.
+	if (isLeaf(node) && node.pad !== undefined) {
+		const p = resolvePad(node.pad);
+		s.padding = `${p.t}px ${p.r}px ${p.b}px ${p.l}px`;
+	}
+
 	const ha = (node as { halign?: AlignH }).halign;
 	const va = (node as { valign?: AlignV }).valign;
+	// A FILL meter (no intrinsic size: gauge/sparkline/analogclock/…) must keep its CROSS axis stretched
+	// — sizing it to content via align-self (flex-start/center/end from halign/valign) collapses it to 0
+	// (width/height:100% with no definite cross extent). Its visual placement happens INSIDE the meter
+	// via the --np-halign/--np-valign vars below. Intrinsic (text) leaves + containers still self-align.
+	const fillLeaf = isLeaf(node) && !isGroup(node.unit) && !getMeta(node.unit.type)?.intrinsic;
 	if (parentKind === 'grid') {
-		if (ha) s.justifySelf = GRID_SELF[ha];
-		if (va) s.alignSelf = GRID_SELF[va];
+		if (ha && !fillLeaf) s.justifySelf = GRID_SELF[ha];
+		if (va && !fillLeaf) s.alignSelf = GRID_SELF[va];
 	} else if (parentKind === 'row') {
 		// row: cross axis is vertical → valign = align-self; main axis horizontal → auto margins.
-		if (va) s.alignSelf = FLEX_SELF[va];
+		if (va && !fillLeaf) s.alignSelf = FLEX_SELF[va];
 		if (ha === 'center') {
 			s.marginLeft = 'auto';
 			s.marginRight = 'auto';
@@ -157,13 +212,20 @@ export function itemStyle(node: LayoutNode, parentKind: Container['kind']): Styl
 		}
 	} else {
 		// col: cross axis is horizontal → halign = align-self; main axis vertical → auto margins.
-		if (ha) s.alignSelf = FLEX_SELF[ha];
+		if (ha && !fillLeaf) s.alignSelf = FLEX_SELF[ha];
 		if (va === 'middle') {
 			s.marginTop = 'auto';
 			s.marginBottom = 'auto';
 		} else if (va === 'bottom') {
 			s.marginTop = 'auto';
 		}
+	}
+	// Expose the placement to the meter (primitive leaves only, so it doesn't leak into a group's
+	// descendants): a meter whose content is smaller than its box aligns it per the leaf's halign/
+	// valign via these vars instead of hard-centering. Default-less → the meter's own fallback wins.
+	if (isLeaf(node) && !isGroup(node.unit)) {
+		if (ha) s['--np-halign'] = HALIGN_PLACE[ha];
+		if (va) s['--np-valign'] = VALIGN_PLACE[va];
 	}
 	return s;
 }

@@ -88,7 +88,7 @@ describe('active-sensor tracking (demand-gating)', () => {
 		hub.onActiveChange(() => changes++);
 
 		expect(hub.activeSensorIds()).toEqual([]);
-		hub.sensor('gpu.util').subscribe(() => {});
+		hub.sensor('gpu.util').subscribe(() => undefined);
 		expect(hub.activeSensorIds()).toEqual(['gpu.util']);
 		expect(changes).toBe(1);
 	});
@@ -98,9 +98,9 @@ describe('active-sensor tracking (demand-gating)', () => {
 		let changes = 0;
 		hub.onActiveChange(() => changes++);
 
-		hub.sensor('gpu.vram').subscribe(() => {});
+		hub.sensor('gpu.vram').subscribe(() => undefined);
 		expect(changes).toBe(1);
-		hub.sensor('gpu.vram').subscribe(() => {});
+		hub.sensor('gpu.vram').subscribe(() => undefined);
 		expect(changes).toBe(1);
 		expect(hub.activeSensorIds()).toEqual(['gpu.vram']);
 	});
@@ -110,8 +110,8 @@ describe('active-sensor tracking (demand-gating)', () => {
 		let changes = 0;
 		hub.onActiveChange(() => changes++);
 
-		const a = hub.sensor('gpu.temp').subscribe(() => {});
-		const b = hub.sensor('gpu.temp').subscribe(() => {});
+		const a = hub.sensor('gpu.temp').subscribe(() => undefined);
+		const b = hub.sensor('gpu.temp').subscribe(() => undefined);
 		expect(changes).toBe(1);
 
 		a(); // one of two listeners gone — still active, no transition
@@ -128,10 +128,10 @@ describe('active-sensor tracking (demand-gating)', () => {
 		let changes = 0;
 		const off = hub.onActiveChange(() => changes++);
 
-		hub.sensor('cpu.total').subscribe(() => {});
+		hub.sensor('cpu.total').subscribe(() => undefined);
 		expect(changes).toBe(1);
 		off();
-		hub.sensor('mem.used').subscribe(() => {});
+		hub.sensor('mem.used').subscribe(() => undefined);
 		expect(changes).toBe(1);
 	});
 });

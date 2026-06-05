@@ -124,6 +124,7 @@ function parseContainer(raw: unknown): Container | null {
 	if (typeof o.cols === 'number') c.cols = o.cols;
 	if (typeof o.gap === 'number') c.gap = o.gap;
 	if (isPad(o.pad)) c.pad = o.pad as Pad;
+	if (isPad(o.margin)) c.margin = o.margin as Pad;
 	if (isAlign(o.align)) c.align = o.align as Align;
 	if (isJustify(o.justify)) c.justify = o.justify as Justify;
 	if (isRect(o.bounds)) c.bounds = o.bounds as Container['bounds'];
@@ -146,6 +147,12 @@ function parseLeaf(raw: unknown): Leaf | null {
 	const id = typeof o.id === 'string' ? o.id : (unit as { id: string }).id;
 	const lf: Leaf = { id, unit: unit as WidgetInstance | Group };
 	if (isLength(o.basis)) lf.basis = o.basis as Length;
+	// Per-side box + placement persist with the leaf (the whitelist must list every kept field, or it
+	// silently drops on reload). `isPad` covers both number and {t,r,b,l} for margin/pad.
+	if (isPad(o.margin)) lf.margin = o.margin as Pad;
+	if (isPad(o.pad)) lf.pad = o.pad as Pad;
+	if (isHAlign(o.halign)) lf.halign = o.halign as Leaf['halign'];
+	if (isVAlign(o.valign)) lf.valign = o.valign as Leaf['valign'];
 	return lf;
 }
 
@@ -191,6 +198,14 @@ function isPad(p: unknown): boolean {
 
 function isAlign(a: unknown): boolean {
 	return a === 'start' || a === 'center' || a === 'end' || a === 'stretch';
+}
+
+function isHAlign(a: unknown): boolean {
+	return a === 'left' || a === 'right' || a === 'center' || a === 'fill';
+}
+
+function isVAlign(a: unknown): boolean {
+	return a === 'top' || a === 'middle' || a === 'bottom' || a === 'fill';
 }
 
 function isJustify(j: unknown): boolean {

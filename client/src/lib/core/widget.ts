@@ -24,7 +24,30 @@ export type ConfigField =
 	| ({ key: string; label: string; kind: 'text' } & FieldMeta)
 	| ({ key: string; label: string; kind: 'color' } & FieldMeta)
 	| ({ key: string; label: string; kind: 'toggle' } & FieldMeta)
-	| ({ key: string; label: string; kind: 'select'; options: string[] } & FieldMeta);
+	// `catalog` names a runtime-populated option set (e.g. 'audioOutputs') the inspector fills from a
+	// backend list; when set, `options` is the static fallback (usually empty).
+	| ({
+			key: string;
+			label: string;
+			kind: 'select';
+			options: string[];
+			catalog?: string;
+	  } & FieldMeta)
+	// A formula field (Phase: expressions). `result` is what the evaluated value coerces to — 'number'
+	// for a numeric prop, 'text' for a string template. The evaluated value overrides the meter prop
+	// named `target` (defaults to `key`), winning over the bound sensor + static config. See
+	// lib/formula/* (sandboxed QuickJS) and lib/core/template.ts.
+	| ({
+			key: string;
+			label: string;
+			kind: 'expr';
+			result: 'number' | 'text';
+			target?: string;
+	  } & FieldMeta)
+	// A macro field: an ordered list of {domain, service, data?} action calls (core/macro.ts), edited
+	// as rows in the inspector and run in sequence when the widget is pressed. The value is a
+	// MacroAction[]; the side-effecting dispatch lives in Canvas.onWidgetControl (domain 'macro').
+	| ({ key: string; label: string; kind: 'macro' } & FieldMeta);
 
 export type SensorKind = 'scalar' | 'series' | 'text' | 'json' | 'none';
 
@@ -32,12 +55,18 @@ export type WidgetMeta = {
 	type: string;
 	binds?: SensorKind; // what sensor kind it reads ('none' = self-sourcing)
 	label?: string; // palette name
+	description?: string; // one-line "what it is / what it's for" (palette tooltip + generated docs)
 	defaultSensor?: string;
 	defaultSize?: { w: number; h: number };
 	defaultConfig?: Record<string, unknown>;
 	defaultCss?: string; // seeded into a new instance's editable `css` (the default LOOK lives here,
 	// not in the component, so it's fully restylable). The component ships structure only.
 	configFields?: ConfigField[];
+	// CSS-flow sizing hint. An 'intrinsic' meter has a natural CONTENT size (text — clock/text), so a
+	// `basis:'content'` leaf shrink-wraps to its rendered content (e.g. a date "4" + month "JUNE" each
+	// fit their text and sit adjacent). FILL meters (gauge/sparkline/analogclock: width:100% with no
+	// intrinsic size) omit this so 'content' keeps their authored box instead of collapsing to 0.
+	intrinsic?: boolean;
 	interactive?: boolean; // catches clicks in passive mode (per-widget click-through)
 };
 
@@ -78,13 +107,20 @@ export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 	height: 100%;
 	object-fit: contain;
 	object-position: left;
-	/* Crossfade: a snappy opacity fade only (no scaling). */
+	/* Two independent fades: a snappy opacity crossfade (data-loaded) + a slower desaturate-to-grey
+	   that marks the previous track's cover as stale the instant the song changes (data-leaving). */
 	opacity: 0;
-	transition: opacity 0.12s ease-out;
-	will-change: opacity;
+	filter: grayscale(0);
+	transition: opacity 0.12s ease-out, filter 0.45s ease-out;
+	will-change: opacity, filter;
 }
 .np-thumb[data-loaded='true'] {
 	opacity: 1;
+}
+/* Song-change cue: the outgoing cover greys out (like the paused dim) — separate from, and slower
+   than, the opacity crossfade — while the new track's cover fades in over it in full colour. */
+.np-thumb[data-leaving='true'] {
+	filter: grayscale(1);
 }
 .np-title,
 .np-artist {
@@ -95,6 +131,14 @@ export const NOWPLAYING_DEFAULT_CSS = `.np-nowplaying {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+/* Breathing room above the title (separating it from the album art) and below the artist
+   (separating it from the widget's bottom edge). Themeable via the --np-*-gap vars. */
+.np-title {
+	margin-top: var(--np-title-gap, 8px);
+}
+.np-artist {
+	margin-bottom: var(--np-artist-gap, 8px);
 }
 .np-progress,
 .np-times,
@@ -126,12 +170,19 @@ const text = (key: string, label: string, extra: FieldMeta = {}): ConfigField =>
 	({ key, label, kind: 'text', ...extra } as ConfigField);
 const color = (key: string, label: string, extra: FieldMeta = {}): ConfigField =>
 	({ key, label, kind: 'color', ...extra } as ConfigField);
+const expr = (
+	key: string,
+	label: string,
+	result: 'number' | 'text',
+	extra: { target?: string } & FieldMeta = {}
+): ConfigField => ({ key, label, kind: 'expr', result, ...extra } as ConfigField);
 
 // The built-in meters as data (reproduces the old createWidget switch exactly, so the
 // default look/behaviour is unchanged). Components are attached in registry.ts.
 export const BUILTIN_METAS: WidgetMeta[] = [
 	{
 		type: 'gauge',
+		description: 'Circular arc gauge for one scalar sensor (default 0–100%).',
 		binds: 'scalar',
 		label: 'Gauge',
 		defaultSensor: 'cpu.total',
@@ -143,11 +194,17 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			num('min', 'min', { help: 'value mapped to an empty gauge' }),
 			num('max', 'max', { help: 'value mapped to a full gauge' }),
 			color('color', 'color'),
-			color('track', 'track', { help: 'color of the unfilled arc' })
+			color('track', 'track', { help: 'color of the unfilled arc' }),
+			expr('value', 'value (formula)', 'number', {
+				help: 'overrides the sensor, e.g. round(mem.used, 0) or cpu.total / 2'
+			}),
+			expr('minExpr', 'min (formula)', 'number', { target: 'min' }),
+			expr('maxExpr', 'max (formula)', 'number', { target: 'max' })
 		]
 	},
 	{
 		type: 'bar',
+		description: 'Linear progress bar for one scalar sensor; horizontal or vertical.',
 		binds: 'scalar',
 		label: 'Bar',
 		defaultSensor: 'mem.used',
@@ -165,11 +222,17 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				help: 'fill direction'
 			},
 			color('color', 'color'),
-			color('track', 'track', { help: 'color of the unfilled track' })
+			color('track', 'track', { help: 'color of the unfilled track' }),
+			expr('value', 'value (formula)', 'number', {
+				help: 'overrides the sensor, e.g. clamp(cpu.total, 0, 100)'
+			}),
+			expr('minExpr', 'min (formula)', 'number', { target: 'min' }),
+			expr('maxExpr', 'max (formula)', 'number', { target: 'max' })
 		]
 	},
 	{
 		type: 'sparkline',
+		description: 'Compact line / area / histogram of a sensor history (a time series).',
 		binds: 'series',
 		label: 'Sparkline',
 		defaultSensor: 'cpu.total',
@@ -184,28 +247,43 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				kind: 'toggle',
 				help: 'draw bars instead of a line'
 			},
-			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' })
+			num('barGap', 'bar gap', {
+				min: 0,
+				max: 0.9,
+				step: 0.05,
+				help: 'gap between histogram bars, 0–0.9 of a slot (0 = touching)'
+			}),
+			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' }),
+			num('lineWidth', 'line width', { min: 0.5, step: 0.5, help: 'stroke thickness (line mode)' })
 		]
 	},
 	{
 		type: 'text',
+		description:
+			'A single value as formatted text (percent / rate / bytes / duration / integer) with an optional label.',
 		binds: 'scalar',
 		label: 'Text',
+		intrinsic: true, // text meter → basis:'content' shrink-wraps to the rendered value
 		defaultSensor: 'net.down',
 		defaultSize: { w: 100, h: 18 },
 		defaultConfig: { format: 'rate', label: '↓' },
 		configFields: [
 			text('label', 'label'),
 			text('format', 'format', {
-				help: "'rate' = bytes/s (e.g. 1.2 MB/s); otherwise the raw value"
+				help: 'percent | rate (bytes/s) | bytes (e.g. 16.0 GiB) | duration (uptime) | integer; else raw'
 			}),
-			color('color', 'color')
+			color('color', 'color'),
+			expr('value', 'value (formula)', 'text', {
+				help: 'template: text + {expressions}, e.g. CPU {round(cpu.total)}% · {bytes(mem.used.bytes)}'
+			})
 		]
 	},
 	{
 		type: 'clock',
+		description: 'Date / time clock using a date-fns format pattern (self-sourcing).',
 		binds: 'none',
 		label: 'Clock',
+		intrinsic: true, // text meter → basis:'content' shrink-wraps to the rendered string
 		defaultSize: { w: 160, h: 40 },
 		defaultConfig: { format: 'HH:mm:ss' },
 		configFields: [
@@ -224,6 +302,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 	{
 		// Self-sourcing analog clock (Rainmeter-style face + hands). binds:none; ticks internally.
 		type: 'analogclock',
+		description: 'Analog clock face with hour / minute / second hands (self-sourcing).',
 		binds: 'none',
 		label: 'Analog Clock',
 		defaultSize: { w: 120, h: 120 },
@@ -251,22 +330,37 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		]
 	},
 	{
+		// An action button: pressing it runs its `actions` macro (a sequence of {domain,service,data}
+		// calls — HA services or media transport) in order. interactive:true so it catches clicks in
+		// passive overlay mode (per-widget click-through). With no actions it's an inert label (also
+		// the click-through canary). See core/macro.ts + Canvas.onWidgetControl (domain 'macro').
 		type: 'button',
+		description:
+			'Pressable button that runs a macro of {domain, service, data} calls (HA services or media transport).',
 		binds: 'none',
 		label: 'Button',
 		defaultSize: { w: 90, h: 44 },
-		defaultConfig: { label: 'tap' },
+		defaultConfig: { label: 'tap', actions: [] },
 		interactive: true,
-		configFields: [text('label', 'label')]
+		configFields: [
+			text('label', 'label'),
+			{
+				key: 'actions',
+				label: 'actions (macro)',
+				kind: 'macro',
+				help: 'run these calls in order on press — domain/service like Home Assistant (put entity_id in data), or domain "media" for now-playing transport (playpause/next/previous)'
+			}
+		]
 	},
 	{
 		// Self-sourcing CPU widget: reads cpu.total + cpu.core.* from the hub (binds:none). Toggles
 		// between a combined gauge and a per-core sparkline grid (the Rainmeter System skin).
 		type: 'cpu',
+		description: 'Self-sourcing CPU widget: a per-core sparkline grid or one combined gauge.',
 		binds: 'none',
 		label: 'CPU',
 		defaultSize: { w: 160, h: 90 },
-		defaultConfig: { mode: 'cores', cols: 8 },
+		defaultConfig: { mode: 'cores' },
 		configFields: [
 			{
 				key: 'mode',
@@ -275,7 +369,10 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				options: ['cores', 'combined'],
 				help: 'per-core sparkline grid vs one combined gauge'
 			},
-			num('cols', 'cols (per-core grid)', { min: 1, help: 'columns in the per-core grid' }),
+			num('cols', 'cols (per-core grid)', {
+				min: 1,
+				help: 'columns in the per-core grid (blank = one row of every core)'
+			}),
 			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' }),
 			{
 				key: 'histogram',
@@ -283,9 +380,162 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				kind: 'toggle',
 				help: 'draw bars instead of lines'
 			},
+			num('lineWidth', 'core line width', {
+				min: 0.5,
+				step: 0.5,
+				help: 'per-core stroke thickness'
+			}),
 			text('label', 'label (combined)'),
 			color('color', 'color')
 		]
+	},
+	{
+		// Self-sourcing audio spectrum (binds:'none'): WASAPI loopback → real FFT in Rust, streamed
+		// over a Channel and drawn on a <canvas>. The display bar count is independent of the capture
+		// band count (the meter groups bands down), so changing it never reconfigures capture.
+		type: 'spectrum',
+		description:
+			'Self-sourcing audio spectrum (WASAPI loopback FFT): frequency bars or a scrolling spectrogram.',
+		binds: 'none',
+		label: 'Spectrum',
+		defaultSize: { w: 220, h: 90 },
+		defaultConfig: { mode: 'bars', bars: 48, gap: 0.15, device: '', scale: 'log', pips: false },
+		configFields: [
+			{
+				key: 'device',
+				label: 'output device',
+				kind: 'select',
+				options: [],
+				catalog: 'audioOutputs',
+				help: 'which audio output to visualise (blank = system default)'
+			},
+			{
+				key: 'mode',
+				label: 'mode',
+				kind: 'select',
+				options: ['bars', 'spectrogram'],
+				help: 'frequency bars vs a scrolling spectrogram heatmap'
+			},
+			{
+				key: 'scale',
+				label: 'frequency scale',
+				kind: 'select',
+				options: ['log', 'linear'],
+				help: 'log spreads the low frequencies (musical, default); linear is even Hz/bar'
+			},
+			{
+				key: 'pips',
+				label: 'frequency pips',
+				kind: 'toggle',
+				help: 'gridline markers at 100 Hz / 1 kHz / 10 kHz'
+			},
+			num('bars', 'bars', {
+				min: 8,
+				max: 128,
+				step: 1,
+				help: 'number of frequency bars (bars mode)'
+			}),
+			num('gap', 'bar gap', { min: 0, max: 0.9, step: 0.05, help: 'spacing between bars (0..1)' }),
+			color('color', 'color', { help: 'bars mode; defaults to the theme accent' })
+		]
+	},
+	{
+		// Embedded web page (binds:'none'; no sensor). interactive:true makes the TYPE eligible for
+		// passive click-through; the per-instance `interact` config then decides whether it actually
+		// catches clicks or passes them through to the desktop (see meters/Iframe.tsx). Suited to
+		// self-hosted dashboards (Home Assistant, Grafana) — many public sites refuse framing.
+		type: 'iframe',
+		description:
+			'Embedded web page (self-hosted dashboards); optional click-through interactivity.',
+		binds: 'none',
+		label: 'Web Frame',
+		defaultSize: { w: 320, h: 240 },
+		interactive: true,
+		defaultConfig: {
+			url: '',
+			refresh: 0,
+			scroll: false,
+			interact: false,
+			sandbox: true,
+			referrerPolicy: 'no-referrer',
+			title: '',
+			timeoutMs: 6000
+		},
+		configFields: [
+			text('url', 'url', {
+				help: 'bare domains get https://; http:// (LAN) is allowed; javascript:/data: are rejected'
+			}),
+			num('refresh', 'refresh (s)', {
+				min: 0,
+				max: 3600,
+				step: 5,
+				help: 'auto-reload interval in seconds (0 = never); reloads cost CPU/network'
+			}),
+			{
+				key: 'scroll',
+				label: 'scroll',
+				kind: 'toggle',
+				help: 'allow scrolling inside the frame'
+			},
+			{
+				key: 'interact',
+				label: 'interactive',
+				kind: 'toggle',
+				help: 'off: clicks pass through to the desktop; on: the frame catches clicks (passive overlay only — dragging always works in edit mode)'
+			},
+			{
+				key: 'sandbox',
+				label: 'sandbox',
+				kind: 'toggle',
+				help: 'recommended: isolates the page (scripts only, no parent/popups/top-nav). Turn off only for a trusted page needing same-origin features (e.g. a Home Assistant login)'
+			},
+			{
+				key: 'referrerPolicy',
+				label: 'referrer',
+				kind: 'select',
+				options: ['no-referrer', 'origin', 'same-origin'],
+				help: 'what Referer the embedded page sees (no-referrer leaks nothing)'
+			},
+			text('title', 'title', { help: 'accessible label for the frame (screen readers / tooltip)' }),
+			num('timeoutMs', 'blocked timeout (ms)', {
+				min: 1000,
+				max: 30000,
+				step: 500,
+				help: "how long to wait for a load before showing a 'blocked or unreachable' hint"
+			})
+		]
+	},
+	{
+		// A landing zone: a screen region foreign app windows snap into. Drawn/sized on the canvas
+		// like any widget, but it RENDERS NOTHING on the live overlay (an outline + tag only while
+		// editing) — the overlay's DragSnapLayer reads zone widgets to highlight + snap. The optional
+		// match rule (matchExe/Class/Title) drives on-demand auto-arrange (core/arrange.ts).
+		type: 'zone',
+		description:
+			'A landing zone: drag a window over it (hold Shift) to snap it here; optional match rule auto-arranges windows. Invisible on the live overlay; shown only while editing.',
+		binds: 'none',
+		label: 'Zone',
+		defaultSize: { w: 600, h: 400 },
+		defaultConfig: { matchExe: '', matchClass: '', matchTitle: '' },
+		configFields: [
+			text('matchExe', 'match: exe', {
+				help: 'auto-arrange: snap a window of this exe here, e.g. Spotify.exe (blank = drag-only)'
+			}),
+			text('matchClass', 'match: class', {
+				help: 'optional window-class glob refiner, e.g. Chrome_WidgetWin_1'
+			}),
+			text('matchTitle', 'match: title', { help: 'optional title glob refiner, e.g. *Gmail*' })
+		]
+	},
+	{
+		// Spacer: an invisible, space-occupying widget — pure whitespace in a flow/grid that pushes its
+		// neighbours apart. binds:none, no sensor, no config; shown only as a faint outline while editing.
+		type: 'spacer',
+		description:
+			'An invisible spacer: empty whitespace that occupies layout space to push other widgets apart. Shown only as a faint outline while editing.',
+		binds: 'none',
+		label: 'Spacer',
+		defaultSize: { w: 60, h: 40 }
 	}
 ];
 
@@ -306,6 +556,17 @@ export function registerMeta(meta: WidgetMeta): void {
 
 export function getMeta(type: string): WidgetMeta | undefined {
 	return metas.get(type);
+}
+
+// A formula field, resolved from a meta for the wiring layer (WidgetHost/useFormulaFields). `target`
+// is the meter prop the evaluated value overrides (defaults to the field key).
+export type ExprField = { key: string; result: 'number' | 'text'; target: string };
+
+/** The `kind:'expr'` config fields of a meta, normalized (target defaulted). [] for non-formula types. */
+export function exprFieldsOf(meta: WidgetMeta | undefined): ExprField[] {
+	return (meta?.configFields ?? [])
+		.filter((f): f is Extract<ConfigField, { kind: 'expr' }> => f.kind === 'expr')
+		.map((f) => ({ key: f.key, result: f.result, target: f.target ?? f.key }));
 }
 
 /** All registered metas, in registration order (for the palette). */

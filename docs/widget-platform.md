@@ -377,6 +377,42 @@ Identifier `io.github.gyng` kept so the app data dir / saved settings aren't orp
 - [x] sysinfo: `mem.used`, `swap.used` (%), `net.up`/`net.down` (B/s) — Phase 1a, with pure `percent`/`rate_per_sec` tests; CPU + RAM gauges wired on the canvas.
 - [x] sysinfo: `cpu.core.N` per-core scalars (Phase 2a) — one ring-buffered sensor per core.
 - [x] GPU: NVML `gpu.util` / `gpu.vram` / `gpu.temp` with graceful degrade (NVML init fails → skipped, no crash) — Phase 1b. PDH fallback for non-NVIDIA still pending.
+- [x] **Totals + Rainmeter parity** (zero-dep): absolute-byte sensors alongside the percents —
+      `mem.{total,used.bytes,available,free}`, `swap.{total,used.bytes,free}`,
+      `gpu.vram.{total,used,free}`; plus `net.total` + cumulative `net.{down,up}.total`,
+      dynamic per-drive `disk.<letter>.{total,free,used,used.pct}` (≈ FreeDiskSpace), `host.uptime`
+      (+ a `duration` formatter) / `host.procs`, `cpu.{freq,brand,cores.logical,cores.physical}`,
+      and `gpu.{mem.util,clock.core,clock.mem,power,power.limit,fan,name}`. The percent ids are
+      kept for back-compat; the GPU demand-gate became a `gpu.*` prefix, and the now-expensive
+      refreshes (processes, cpu frequency, disks) are gated behind their own active-id checks.
+- [x] **Battery** (Windows, when present): `battery.{percent,state,time}` via `GetSystemPowerStatus`
+      (no new crate; `Win32_System_Power` feature). Desktops with no battery emit nothing.
+- [x] **More Win32 sensors** (windows crate, no new crate; gated): one `GetPerformanceInfo` →
+      `mem.commit.{used,limit,peak}` / `mem.cached` / `mem.kernel.{paged,nonpaged}` (bytes) +
+      `host.handles` / `host.threads`; one `CallNtPowerInformation(ProcessorInformation)` → live
+      `cpu.freq.current` / `cpu.freq.max` + per-core `cpu.core.N.freq` (MHz — sysinfo's `cpu.freq`
+      is only the BASE clock on Windows, so this is the boost clock it can't give); `host.idle`
+      (seconds since last input, GetLastInputInfo). New features: `Win32_System_ProcessStatus`,
+      `Win32_System_SystemInformation`, `Win32_UI_Input_KeyboardAndMouse`.
+- [x] **More Win32 (round 2):** live **disk I/O** `disk.<letter>.{read,write}` (bytes/s) +
+      `disk.<letter>.busy.pct` (active time) via `DeviceIoControl(IOCTL_DISK_PERFORMANCE)` on a
+      zero-access volume handle, with a per-volume prev-sample cache (features `Win32_Security` +
+      `Win32_Storage_FileSystem` + `Win32_System_IO` + `Win32_System_Ioctl`); richer **battery**
+      `battery.rate` (W, signed) + `battery.capacity.{full,remaining}` (Wh) via
+      `CallNtPowerInformation(SystemBatteryState)`; **network link** `net.linkspeed.{rx,tx}` (bytes/s
+      — the missing %-utilisation denominator) + `net.adapter` / `net.state` (text) from one
+      `GetIfTable2` walk picking the primary connected adapter (features
+      `Win32_NetworkManagement_IpHelper` + `_Ndis`). All gated (`is_disk_io_id` / `is_netlink_id`;
+      battery presence-gated).
+- [ ] **Still deferred:** `audio.peak` for a visualizer (`IAudioMeterInformation`; wants its own
+      ~30–60 Hz timer + COM thread — and the parallel audio-spectrum widget already owns the
+      WASAPI/COM-audio edge, so coordinate there). Thermal stays out — only the ACPI passive zone is
+      reachable from Win32 (usually a static trip point); real die temps need a kernel driver
+      (LHM-class). Also available-but-skipped: `net.tcp.{established,retrans}`, disk IOPS, net error counters.
+- [ ] **CPU/board temps + fan RPM** — deferred: `sysinfo`'s `Components` is empty on Windows and
+      NVML only exposes the GPU die temp (already `gpu.temp`). Real CPU/VRM temps + fan RPM need a
+      LibreHardwareMonitor bridge (often admin + a running service) — out of proportion to value for
+      now. Likewise GPU `pcie`/`encoder`/`decoder` util are available via NVML but left out as niche.
 - [ ] Media (GSMTC) re-expressed as a push sensor emitting `Json` under the same contract.
 - [x] Sensor catalog for the editor: live ids from the telemetry hub (`sensorIds`) + a curated
       list → inspector `<datalist>` (tested `sensorCatalog`). Replaces a Rust `list_sensors`.

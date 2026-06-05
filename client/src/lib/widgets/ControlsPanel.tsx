@@ -1,5 +1,6 @@
-// Settings → Controls: lists every registered control (grouped), shows its effective binding, lets
-// the user rebind keyboard chords (capture the next chord), flags conflicts, and resets one or all
+// Controls section (a top-level nav peer, in the foot group beside Settings): lists every registered
+// control (grouped), shows its effective binding, lets the user rebind keyboard chords (capture the
+// next chord), flags conflicts, and resets one or all
 // remaps. All the logic (formatTrigger, detectConflicts, mergeOverrides) lives in core/controls.ts —
 // this is just the presentational shell + the capture interaction. Pointer/wheel gestures and the
 // multi-directional nudge are shown read-only; remap those by editing controls.json (it live-reloads).
@@ -113,7 +114,17 @@ export default function ControlsPanel({ overrides, onRebind, onReset, onResetAll
 										<span
 											className={`cp-keys${conflictIds.has(c.id) ? ' cp-conflict' : ''}`}
 											title={conflictIds.has(c.id) ? 'Conflicts with another control' : undefined}
+											aria-label={
+												conflictIds.has(c.id)
+													? `${triggerText(triggers)} — conflicts with another control`
+													: undefined
+											}
 										>
+											{conflictIds.has(c.id) && (
+												<span className="cp-conflict-mark" aria-hidden="true">
+													⚠{' '}
+												</span>
+											)}
 											{capturing === c.id ? 'Press keys… (Esc cancels)' : triggerText(triggers)}
 										</span>
 										<span className="cp-actions">

@@ -1,0 +1,75 @@
+/* Structure + default look for the iframe widget. Themeable via --np-* tokens; fully overridable per
+   instance via the widget's `css` field. A successfully-loaded page renders edge-to-edge with no
+   chrome (the embedded page provides its own look); only the empty / loading / blocked states draw a
+   faint backdrop so they stay legible over the transparent overlay. */
+.np-iframe {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	border-radius: var(--np-radius, 6px);
+	color: var(--np-fg, #fff);
+	font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif);
+}
+
+.np-iframe-frame {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border: 0;
+	display: block;
+	background: transparent;
+}
+
+/* Empty-URL placeholder and the blocked/unreachable hint share one centered, faintly-backed panel. */
+.np-iframe-msg {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 8px 12px;
+	text-align: center;
+	font-size: 12px;
+	line-height: 1.35;
+	opacity: 0.8;
+	background: var(--np-bg, rgba(10, 10, 12, 0.55));
+	border: 1px solid var(--np-track, rgba(255, 255, 255, 0.12));
+	border-radius: inherit;
+}
+
+/* Loading spinner: shown until the frame's first load fires (component renders it only while loading). */
+.np-iframe-spinner {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 22px;
+	height: 22px;
+	margin: -11px 0 0 -11px;
+	border-radius: 50%;
+	border: 2px solid var(--np-track, rgba(255, 255, 255, 0.2));
+	border-top-color: var(--np-accent, rgb(119, 196, 211));
+	animation: np-iframe-spin 0.8s linear infinite;
+	pointer-events: none;
+}
+
+@keyframes np-iframe-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.np-iframe-spinner {
+		animation: none;
+	}
+}
+
+/* 0×0 click-through sentinel (decorative mode) — never visible, never takes space or focus. */
+.np-iframe-sentinel {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+}

@@ -260,6 +260,76 @@ pub fn write_sack(app: tauri::AppHandle, name: String, contents: String) -> Resu
     Ok(path.to_string_lossy().into_owned())
 }
 
+// ---- saved layouts: named layout profiles (`layouts/<name>.layout.json` in the app config dir) ----
+// A saved layout is one monitor's arrangement (root tree + floating widgets) the user can name, list,
+// load back, and delete from the studio. Dumb I/O to a fixed folder (same shape as sacks/themes); the
+// frontend owns the JSON format + the load/replace logic (core/savedLayout.ts).
+
+fn layouts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("layouts"))
+}
+
+/// The saved-layout names (file stems of `layouts/*.layout.json`), sorted.
+#[tauri::command]
+pub fn list_layouts(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = layouts_dir(&app)?;
+    let mut names = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(file) = path.file_name().and_then(|s| s.to_str())
+                && let Some(stem) = file.strip_suffix(".layout.json")
+            {
+                names.push(stem.to_string());
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// The JSON of saved layout `name`, or `None` if it doesn't exist. The frontend parses/validates it.
+#[tauri::command]
+pub fn read_layout(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
+    if !valid_name(&name) {
+        return Err("invalid layout name".to_string());
+    }
+    let path = layouts_dir(&app)?.join(format!("{name}.layout.json"));
+    match fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+/// Write saved layout `name` (creates `layouts/`). Returns the absolute path written.
+#[tauri::command]
+pub fn save_layout_as(app: tauri::AppHandle, name: String, contents: String) -> Result<String, String> {
+    if !valid_name(&name) {
+        return Err("invalid layout name".to_string());
+    }
+    let dir = layouts_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{name}.layout.json"));
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Delete saved layout `name`. Ok even if it's already gone (idempotent).
+#[tauri::command]
+pub fn delete_layout(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    if !valid_name(&name) {
+        return Err("invalid layout name".to_string());
+    }
+    let path = layouts_dir(&app)?.join(format!("{name}.layout.json"));
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 /// Seed a couple of example themes on first run so the picker has something to show
 /// (the default look needs no theme). No-op once `themes/` exists.
 pub fn seed_themes(app: &tauri::AppHandle) {

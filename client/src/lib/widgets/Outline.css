@@ -59,6 +59,50 @@
 	justify-content: space-between;
 	gap: 4px;
 	border-radius: 2px;
+	padding: 1px 2px;
+}
+
+/* Tree connector lines (├ └ │) joining each node to its parent and siblings, so nesting — e.g. a
+   grid and all its cells — reads at a glance. One fixed-width lane per ancestor depth, drawn at the
+   row's own height so the verticals meet flush between adjacent rows. */
+.outline .guides {
+	display: flex;
+	align-self: stretch;
+	flex-shrink: 0;
+}
+.outline .lane {
+	position: relative;
+	flex: 0 0 13px;
+	align-self: stretch;
+}
+/* Shared vertical stroke for both a continuing ancestor lane (.v) and a node's own elbow. */
+.outline .lane.v::before,
+.outline .lane.elbow::before {
+	content: '';
+	position: absolute;
+	left: 6px;
+	top: 0;
+	border-left: 1px solid var(--ol-line, rgba(119, 196, 211, 0.4));
+}
+/* An ancestor that still has siblings below → a full-height vertical guide. */
+.outline .lane.v::before {
+	bottom: 0;
+}
+/* This node's elbow: vertical from the top to the row's middle (└ — a last child); full height when
+   more siblings follow (├). The horizontal tick then joins it rightward to the label. */
+.outline .lane.elbow::before {
+	height: 50%;
+}
+.outline .lane.elbow.cont::before {
+	height: 100%;
+}
+.outline .lane.elbow::after {
+	content: '';
+	position: absolute;
+	left: 6px;
+	top: 50%;
+	width: 7px;
+	border-top: 1px solid var(--ol-line, rgba(119, 196, 211, 0.4));
 }
 
 .outline .row.root {
@@ -75,7 +119,10 @@
 
 .outline .row.sel {
 	background: rgba(119, 196, 211, 0.18);
-	outline: 1px solid rgba(119, 196, 211, 0.6);
+	/* A solid 2px (vs the dashed/faint drop states) full-opacity outline so selection reads by SHAPE,
+	   not only the mint tint — survives low vision / low-quality panels (WCAG 1.4.1). */
+	outline: 2px solid rgb(119, 196, 211);
+	outline-offset: -1px;
 }
 
 /* Cross-highlight: this row's widget/container is hovered on the stage (or this row is hovered). */
@@ -83,10 +130,19 @@
 	background: rgba(119, 196, 211, 0.1);
 }
 
-/* Drop target highlight while dragging a row/palette widget over a container. */
+/* Drop target highlight while dragging a row/palette widget over a container — a full-opacity DASHED
+   outline (distinct in shape from the solid selection outline above). */
 .outline .row.dropok {
 	background: rgba(119, 196, 211, 0.32);
-	outline: 1px dashed rgb(119, 196, 211);
+	outline: 2px dashed rgb(119, 196, 211);
+	outline-offset: -1px;
+}
+
+/* Dragging over a LEAF row (not a valid drop target): read as rejected instead of doing nothing. */
+.outline .row.dropno {
+	background: rgba(220, 120, 120, 0.12);
+	outline: 1px dashed rgba(230, 150, 150, 0.7);
+	cursor: no-drop;
 }
 
 .outline .label {
@@ -107,14 +163,45 @@
 
 .outline .btns {
 	display: flex;
-	gap: 1px;
+	align-items: center;
+	gap: 3px;
 	flex-shrink: 0;
 }
 
+/* WCAG 2.5.8: a 24×24 hit area (the glyph itself stays small via font-size). */
 .outline .btns button {
-	width: 16px;
+	min-width: 24px;
+	height: 24px;
 	padding: 0;
-	line-height: 16px;
+	line-height: 22px;
+}
+
+/* Reveal the structure-move ops (↑ ↓ ⟸ ⟹ ⤓ / ⤒) only when the row is hovered, selected, or
+   keyboard-focused — so the resting row isn't a six-target minefield, and the destructive ✕ no
+   longer sits 1px from a move control. They stay in the DOM (focus-within keeps the keyboard path:
+   tabbing onto the row's label reveals them, then Tab reaches them). */
+.outline .btns button.mv {
+	display: none;
+}
+
+.outline .row:hover .btns button.mv,
+.outline .row.sel .btns button.mv,
+.outline .row:focus-within .btns button.mv {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* The destructive Remove: muted at rest (separated from its neighbours by the .btns gap + this
+   margin), reddening only on hover, so a mis-aimed click is far less likely to delete a node. */
+.outline .btns button.rm {
+	margin-left: 5px;
+	color: #888;
+}
+
+.outline .btns button.rm:hover:not(:disabled) {
+	color: rgb(230, 160, 160);
+	border-color: rgb(220, 120, 120);
 }
 
 .outline button {
@@ -133,4 +220,10 @@
 .outline button:disabled {
 	opacity: 0.3;
 	cursor: default;
+}
+
+/* Keyboard focus must be visible against the dark rail (the UA default ring is faint here). */
+.outline button:focus-visible {
+	outline: 2px solid rgb(150, 214, 228);
+	outline-offset: -1px;
 }

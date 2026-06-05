@@ -1,4 +1,8 @@
 /target
 /node_modules
+# Vitest cache (run from repo root)
+/.vite
 settings.json
 .claude/
+# Playwright MCP scratch (screenshots / console logs from interactive browser sessions)
+.playwright-mcp/

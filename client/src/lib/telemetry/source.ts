@@ -30,24 +30,26 @@ export async function startTelemetrySource(hub: TelemetryHub): Promise<tauriEven
 		hub.ingestBatch(ev.payload);
 	});
 
-	// The studio wants everything (so the sensor picker can discover gpu.* etc): report
-	// the wildcard once and skip dynamic tracking.
-	if (isStudioWindow()) {
-		reportActive([ALL_SENSORS]);
-		return unlisten;
-	}
+	// The studio wants EVERYTHING (so the sensor picker can discover gpu.* etc) — it reports the `*`
+	// wildcard. But `*` can't enumerate an unbounded symbol space, so demand-derived sources (stocks)
+	// also need the concrete `stocks.<SYM>.*` ids a previewed widget subscribes to in order to know
+	// WHICH symbols to fetch; hence the studio reports the wildcard PLUS its live active set, not just
+	// once. The overlay reports only the sensors actually bound to its widgets. Both are debounced (a
+	// layout re-render can churn the active set).
+	const studio = isStudioWindow();
+	const idsToReport = (): string[] =>
+		studio ? [ALL_SENSORS, ...hub.activeSensorIds()] : hub.activeSensorIds();
 
-	// Overlay: report only the sensors actually bound to widgets, debounced.
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	const scheduleReport = (): void => {
 		if (timer !== null) clearTimeout(timer);
 		timer = setTimeout(() => {
 			timer = null;
-			reportActive(hub.activeSensorIds());
+			reportActive(idsToReport());
 		}, REPORT_DEBOUNCE_MS);
 	};
 	const offActive = hub.onActiveChange(scheduleReport);
-	reportActive(hub.activeSensorIds()); // initial report (typically empty)
+	reportActive(idsToReport()); // initial report (studio: the wildcard; overlay: typically empty)
 
 	return () => {
 		if (timer !== null) clearTimeout(timer);

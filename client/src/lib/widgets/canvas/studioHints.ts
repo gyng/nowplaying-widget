@@ -15,21 +15,31 @@ import {
 export type StudioHint = { key: string; label: string };
 
 export function studioHints(
-	s: { hasSelection: boolean; spaceDown: boolean; panning: boolean },
+	s: {
+		hasSelection: boolean;
+		spaceDown: boolean;
+		panning: boolean;
+		dirty?: boolean;
+		canUndo?: boolean;
+		selectionCount?: number;
+	},
 	overrides: ControlOverrides = {}
 ): StudioHint[] {
 	// The powerbar lives in the studio, which is always an editor — so studio/editMode are constant
-	// here; only selection/space/panning vary. Menu/dirty/preview don't affect the advertised set.
+	// here; only selection/space/panning/dirty/canUndo/count vary. dirty gates the Save hint, canUndo
+	// the Undo hint, and selectionCount feeds the count-aware remove/nudge labels.
 	const ctx: ControlContext = {
 		scope: 'studio',
 		studio: true,
 		editMode: true,
 		menuOpen: false,
-		dirty: false,
+		dirty: !!s.dirty,
 		hasSelection: s.hasSelection,
 		spaceDown: s.spaceDown,
 		panning: s.panning,
-		previewing: false
+		previewing: false,
+		canUndo: !!s.canUndo,
+		selectionCount: s.selectionCount ?? 0
 	};
 	return deriveHints(mergeOverrides(listControls(), overrides), ctx);
 }

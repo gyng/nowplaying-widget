@@ -13,7 +13,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 /// A widget's hit rect in physical screen pixels (computed and sent by the frontend).
 /// Also reused for the work-area query (backend → frontend), hence Serialize.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ScreenRect {
     pub x: f64,
     pub y: f64,

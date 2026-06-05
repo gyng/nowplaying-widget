@@ -36,9 +36,16 @@
 	cursor: pointer;
 }
 
-.canvas .nav-rail .nav-item:hover {
+.canvas .nav-rail .nav-item:not(.disabled):hover {
 	color: #eee;
 	background: rgba(119, 196, 211, 0.1);
+}
+
+/* Modal during widget design: dimmed + non-interactive cursor, but still title-tooltipped (it uses
+   aria-disabled, not the disabled attribute, so the explanation surfaces on hover). */
+.canvas .nav-rail .nav-item.disabled {
+	opacity: 0.4;
+	cursor: default;
 }
 
 .canvas .nav-rail .nav-item.active {
@@ -53,8 +60,8 @@
 }
 
 .canvas .nav-rail .nav-short {
-	font-size: 8px;
-	letter-spacing: 0.3px;
+	font-size: 10px;
+	letter-spacing: 0.2px;
 	text-transform: uppercase;
 }
 
@@ -136,6 +143,24 @@
 	border-color: rgb(119, 196, 211);
 }
 
+/* Secondary action: copy the generated widget reference (agent handoff). */
+.canvas .designer-list .dl-ref {
+	width: 100%;
+	margin-bottom: 8px;
+	padding: 4px;
+	background: #1a1a1e;
+	border: 1px solid #444;
+	color: #ccc;
+	font-family: monospace;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.canvas .designer-list .dl-ref:hover {
+	border-color: rgb(119, 196, 211);
+	color: rgb(150, 214, 228);
+}
+
 .canvas .designer-list .rp-hd {
 	color: rgb(119, 196, 211);
 	text-transform: uppercase;
@@ -203,7 +228,7 @@
 }
 
 .canvas .designer-list .rp-stub {
-	color: #777;
+	color: var(--dim-fg);
 	padding: 4px 2px;
 }
 
@@ -219,7 +244,7 @@
 	justify-content: center;
 	padding: 16px;
 	background: #0b0b0e;
-	color: #777;
+	color: var(--dim-fg);
 	font-family: monospace;
 	font-size: 12px;
 	z-index: 5;
@@ -280,14 +305,59 @@
 	margin-bottom: 4px;
 }
 
+/* Theme token override fields (mirrors the Inspector's "Theme tokens" group). */
+.canvas .rail-panel .tk-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-bottom: 6px;
+	color: #bbb;
+}
+
+.canvas .rail-panel .tk-field input {
+	width: 100%;
+	box-sizing: border-box;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #333;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 2px 4px;
+}
+
+.canvas .rail-panel .tk-field input:focus {
+	outline: none;
+	border-color: rgb(119, 196, 211);
+}
+
 .canvas .rail-panel .rp-list {
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
 }
 
+/* A list row with a primary action (load, fills the row) + a trailing delete (✕). */
+.canvas .rail-panel .rp-list-row {
+	display: flex;
+	gap: 4px;
+}
+
+.canvas .rail-panel .rp-list-row > button:first-child {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: left;
+}
+
+.canvas .rail-panel .rp-list-row > button.rp-danger {
+	flex: 0 0 auto;
+}
+
 .canvas .rail-panel .rp-row {
 	display: flex;
+	align-items: baseline;
 	justify-content: space-between;
 	gap: 6px;
 	padding: 1px 2px;
@@ -295,12 +365,150 @@
 	white-space: nowrap;
 }
 
+/* The id takes the slack and truncates with an ellipsis; the value can shrink too. Both need
+   min-width:0 so a long id (disk.c.used.pct) or text value (cpu.brand, an HA friendly name) is
+   clipped within the row instead of overflowing the grid column. Full text is in the title tooltip. */
+.canvas .rail-panel .rp-id {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .canvas .rail-panel .rp-row .dim {
-	color: #777;
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--dim-fg);
+}
+
+/* "from <plugin>" provenance badge: a small pill between the id and value, so plugin sensors (HA /
+   MQTT / Stocks / Now Playing) are visually distinct from the built-in system feed. */
+.canvas .rail-panel .rp-badge {
+	flex: 0 0 auto;
+	align-self: center;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding: 0 6px;
+	border: 1px solid rgba(119, 196, 211, 0.45);
+	border-radius: 999px;
+	font-size: 9px;
+	line-height: 1.5;
+	color: rgb(150, 214, 228);
+	background: rgba(119, 196, 211, 0.1);
+}
+
+/* Theme picker: a selectable list (replaces a <select>), each a full-width row; the active theme is
+   highlighted + badged. Overrides the chunky generic .rail-panel button look for a list-item feel. */
+.canvas .rail-panel .theme-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-bottom: 6px;
+}
+
+.canvas .rail-panel button.theme-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	width: 100%;
+	margin: 0;
+	padding: 5px 8px;
+	text-align: left;
+	white-space: nowrap;
+	background: #141417;
+	border: 1px solid #2a2a30;
+	border-radius: 3px;
+	color: #ddd;
+}
+
+.canvas .rail-panel button.theme-row:hover {
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .rail-panel button.theme-row.active {
+	border-color: rgb(119, 196, 211);
+	background: rgba(119, 196, 211, 0.12);
+	color: #fff;
+}
+
+/* Sensor source groups (the Sensors section): a collapsible header (caret + source name + count)
+   above that source's responsive sensor grid. The header overrides the chunky generic button look. */
+.canvas .rail-panel .rp-group {
+	margin-bottom: 6px;
+}
+
+.canvas .rail-panel button.rp-group-hd {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	margin: 0 0 2px;
+	padding: 4px 6px;
+	text-align: left;
+	background: transparent;
+	border: none;
+	border-bottom: 1px solid #2a2a30;
+	border-radius: 0;
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	font-size: 10px;
+}
+
+.canvas .rail-panel button.rp-group-hd:hover {
+	color: rgb(150, 214, 228);
+}
+
+.canvas .rail-panel .rp-group-caret {
+	flex: 0 0 auto;
+	width: 1em;
+}
+
+.canvas .rail-panel .rp-group-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Sensor filter box + live count, above the responsive sensor grid. */
+.canvas .rail-panel .rp-filter {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.canvas .rail-panel .rp-filter input {
+	flex: 1 1 auto;
+	min-width: 0;
+	box-sizing: border-box;
+	background: #1a1a1e;
+	color: #eee;
+	border: 1px solid #444;
+	border-radius: 3px;
+	padding: 4px 8px;
+	font-family: monospace;
+	font-size: 11px;
+}
+
+.canvas .rail-panel .rp-filter input:focus {
+	outline: none;
+	border-color: rgb(119, 196, 211);
+}
+
+.canvas .rail-panel .rp-count {
+	flex: 0 0 auto;
+	color: var(--dim-fg);
+	font-size: 10px;
 }
 
 .canvas .rail-panel .rp-stub {
-	color: #777;
+	color: var(--dim-fg);
 	padding: 8px 2px;
 }
 
@@ -349,6 +557,11 @@
 	box-sizing: border-box;
 	overflow-y: auto;
 	padding: 12px 16px;
+}
+
+/* One source's id row + its live sensor list (ids + values), set off from the next source. */
+.canvas .plugins-panel .pl-source {
+	margin-bottom: 8px;
 }
 
 .canvas .plugins-panel .pl-title {

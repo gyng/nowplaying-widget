@@ -40,6 +40,7 @@ export type Container = {
 	rows?: number; // grid only: minimum rows (more are added as children overflow)
 	gap?: number; // px between children (and between grid cells)
 	pad?: Pad; // content-box inset
+	margin?: Pad; // outer space around this container within its parent's flow
 	align?: Align; // cross axis (row → vertical, col → horizontal)
 	justify?: Justify; // main axis (ignored when an `fr` child consumes the leftover)
 	bounds?: Rect; // explicit box; default = the contentRect passed to the solver
@@ -50,6 +51,11 @@ export type Container = {
 	cellW?: number;
 	cellH?: number;
 	aspect?: number;
+	// Grid only: per-TRACK weights for the FLEXIBLE columns/rows (those without a fixed cellW/cellH).
+	// Index = track index; missing/≤0 entries default to 1. Undefined ⇒ uniform (the original even
+	// split). Set by dragging a grid track splitter; cleared by "Distribute evenly". Frontend-owned.
+	colFr?: number[];
+	rowFr?: number[];
 	children: LayoutNode[];
 };
 
@@ -76,6 +82,8 @@ export type Leaf = {
 	basis?: Length; // default 'auto'
 	halign?: AlignH; // horizontal placement within its solved box (default 'fill')
 	valign?: AlignV; // vertical placement within its solved box (default 'fill')
+	margin?: Pad; // outer space around the slot within its parent's flow (per-side)
+	pad?: Pad; // inner inset between the slot edge and the widget (per-side)
 };
 
 export type LayoutNode = Container | Leaf;

@@ -67,3 +67,34 @@ describe('splitNode band orientation', () => {
 		expect(kinds(root)).toEqual(['col', 'col', 'col', 'col']);
 	});
 });
+
+describe('splitNode on an empty grid cell (cellIndex)', () => {
+	const gridChild = (p: ReturnType<typeof splitNode>) =>
+		(p.monitor as MonitorLayout).root.children[0] as Container;
+
+	it('materialises a band cell AT that index — the grid itself is NOT wrapped/re-leveled', () => {
+		const root = container('root', 'col', [container('g', 'grid', [], { cols: 2, rows: 2 })]);
+		const g = gridChild(splitNode(stub(root), 'g', 'rows', 0));
+		expect(g.kind).toBe('grid'); // unchanged — the regression was the grid getting wrapped a level
+		expect(g.children).toHaveLength(1);
+		const band = g.children[0] as Container;
+		expect(band.kind).toBe('col'); // "into rows" → a col…
+		expect(kinds(band)).toEqual(['row', 'row']); // …holding two row bands
+	});
+
+	it('pads earlier empty cells so the band lands at the clicked index', () => {
+		const root = container('root', 'col', [container('g', 'grid', [], { cols: 2, rows: 2 })]);
+		const g = gridChild(splitNode(stub(root), 'g', 'cols', 2));
+		expect(g.children).toHaveLength(3); // 2 padding cells + the band at index 2
+		expect((g.children[2] as Container).kind).toBe('row'); // "into cols" → a row of cols
+	});
+
+	it('"into grid" on an empty cell nests a 2×2 grid at that cell', () => {
+		const root = container('root', 'col', [container('g', 'grid', [], { cols: 2, rows: 2 })]);
+		const g = gridChild(splitNode(stub(root), 'g', 'grid', 0));
+		expect(g.kind).toBe('grid');
+		const band = g.children[0] as Container;
+		expect(band.kind).toBe('grid');
+		expect(band.children).toHaveLength(4);
+	});
+});

@@ -10,8 +10,9 @@ abstract.
 ## 1. What this project is
 
 `widgetsack` (crate name `widgetsack`) is a themable, **Rainmeter-style desktop widget
-overlay for Windows**. It puts system meters (CPU total + per-core, GPU/VRAM, memory,
-network), clocks, the currently-playing media track, and Home Assistant controls on a
+overlay for Windows**. It puts system meters (CPU total + per-core/freq, GPU/VRAM/clocks/power,
+memory + swap totals, disks, network, uptime, battery), clocks, the currently-playing media
+track, and Home Assistant controls on a
 transparent, click-through overlay across every monitor — and lets you arrange them with a
 built-in visual editor (the **studio**).
 
@@ -175,6 +176,7 @@ the working-directory-aware tools.
 | Auto-fix lint + format | `npm run lint:fix` |
 | Format only | `npm run format` |
 | Unit/component tests (Vitest) | `npm run test:unit` |
+| E2E layout/interaction tests (Playwright, real browser) | `npm run test:e2e` |
 | Production build → `client/build` | `npm run build` |
 
 ### Backend (repo root)
@@ -196,6 +198,11 @@ the working-directory-aware tools.
 ### Before you call a change "done"
 Run the same gates CI runs ([.github/workflows/test.yml](.github/workflows/test.yml)):
 - Client: `npm run check && npm run lint && npm run test:unit && npm run build`
+- Docs freshness (if you touched a widget meta): `npm run check:docs` — fails when
+  [docs/widgets.md](docs/widgets.md) drifts from the widget registry; run `npm run gen:docs` to refresh.
+- Client E2E (if you touched the studio UI/layout): `npm run test:e2e` — Playwright drives the
+  studio in a real browser via the dev Tauri mock ([devMock.ts](client/src/lib/devMock.ts)); it
+  catches layout/interaction regressions happy-dom can't. First run: `npx playwright install chromium`.
 - Backend (Windows, after building the client): `cargo test && cargo clippy`
 
 ---

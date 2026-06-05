@@ -11,3 +11,10 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 build/*
 !build/.gitkeep
+
+# Playwright (e2e) artifacts + the interactive MCP scratch dir
+/test-results
+/playwright-report
+/blob-report
+/.playwright-mcp
+/playwright/.cache

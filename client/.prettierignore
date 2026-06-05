@@ -13,3 +13,10 @@ package-lock.json
 yarn.lock
 
 build
+
+# Playwright (e2e) generated artifacts
+/test-results
+/playwright-report
+/blob-report
+/.playwright-mcp
+/playwright/.cache

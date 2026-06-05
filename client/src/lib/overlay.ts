@@ -12,6 +12,7 @@ import {
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import type { Rect } from './core/layout';
+import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
 import { parseLayoutAny } from './core/migration';
 
@@ -146,6 +147,55 @@ export async function saveControls(contents: string): Promise<void> {
 	}
 }
 
+// ---- landing zones: zone WIDGETS (widgets.json) + foreign-window manipulation (windowmgr.rs) ----
+
+/** Read the saved layout (`widgets.json`) raw JSON, or null if none/failed. The overlay's
+ * DragSnapLayer parses it (core/migration.ts) to find `zone` widgets. Same file the layout uses. */
+export async function loadLayoutRaw(): Promise<string | null> {
+	try {
+		return await invoke<string | null>('load_layout');
+	} catch (err) {
+		console.warn('load_layout failed', err);
+		return null;
+	}
+}
+
+/** Enumerate the arrangeable foreign top-level windows (for on-demand auto-arrange). Studio-only on
+ * the backend; returns [] off-Windows or on failure so the caller never throws. */
+export async function listWindows(): Promise<WindowDescriptor[]> {
+	try {
+		return await invoke<WindowDescriptor[]>('list_windows');
+	} catch (err) {
+		console.warn('list_windows failed', err);
+		return [];
+	}
+}
+
+/** Snap the foreign window `hwnd` so its visible frame fills `rect` (PHYSICAL px). Returns whether
+ * it succeeded — a false result (elevated target the backend can't touch, or off-Windows) is
+ * surfaced for an in-UI notice rather than thrown. Studio-only on the backend. */
+export async function snapWindow(hwnd: number, rect: Rect): Promise<boolean> {
+	try {
+		await invoke('snap_window', { hwnd, rect });
+		return true;
+	} catch (err) {
+		console.warn('snap_window failed', err);
+		return false;
+	}
+}
+
+/** Cursor position (PHYSICAL px) + whether Shift is held — polled by the overlay during a foreign
+ * window drag to highlight the hovered zone (windowmgr.rs `pointer_probe`). Falls back to a
+ * not-armed origin off-Windows / on failure so the poll loop never throws. */
+export async function pointerProbe(): Promise<{ x: number; y: number; shift: boolean }> {
+	try {
+		return await invoke<{ x: number; y: number; shift: boolean }>('pointer_probe');
+	} catch (err) {
+		console.warn('pointer_probe failed', err);
+		return { x: 0, y: 0, shift: false };
+	}
+}
+
 /** Theme names available in the config dir's `themes/` folder (Phase 7c). */
 export async function listThemes(): Promise<string[]> {
 	try {
@@ -208,6 +258,47 @@ export async function writeSack(name: string, contents: string): Promise<string 
 	}
 }
 
+/** The names of saved layout profiles (file stems of `layouts/*.layout.json`). */
+export async function listLayouts(): Promise<string[]> {
+	try {
+		return await invoke<string[]>('list_layouts');
+	} catch (err) {
+		console.warn('list_layouts failed', err);
+		return [];
+	}
+}
+
+/** The raw JSON of saved layout `name`, or null if it doesn't exist / fails to read. */
+export async function readLayout(name: string): Promise<string | null> {
+	try {
+		return await invoke<string | null>('read_layout', { name });
+	} catch (err) {
+		console.warn('read_layout failed', err);
+		return null;
+	}
+}
+
+/** Save the current monitor's layout as profile `name`; returns the path written (or null). */
+export async function saveLayoutAs(name: string, contents: string): Promise<string | null> {
+	try {
+		return await invoke<string>('save_layout_as', { name, contents });
+	} catch (err) {
+		console.warn('save_layout_as failed', err);
+		return null;
+	}
+}
+
+/** Delete saved layout `name` (idempotent). Returns true on success. */
+export async function deleteLayout(name: string): Promise<boolean> {
+	try {
+		await invoke('delete_layout', { name });
+		return true;
+	} catch (err) {
+		console.warn('delete_layout failed', err);
+		return false;
+	}
+}
+
 /** Open this window's webview devtools/inspector (CSS development). Backed by a Rust command
  * since the JS API doesn't expose it; relies on the `devtools` Cargo feature. */
 export async function openDevtools(): Promise<void> {
@@ -216,6 +307,31 @@ export async function openDevtools(): Promise<void> {
 	} catch (err) {
 		console.warn('open_devtools failed', err);
 	}
+}
+
+// --- launch at login (tauri-plugin-autostart) ---
+// The plugin is registered in main.rs; its commands are granted in capabilities/overlay.json. We
+// invoke them directly (no JS package) so there's no extra dependency. All resolve gracefully off-
+// Windows / when the plugin is unavailable, so the Settings toggle never throws.
+
+/** Whether the app is registered to launch at login. */
+export async function isAutostartEnabled(): Promise<boolean> {
+	try {
+		return await invoke<boolean>('plugin:autostart|is_enabled');
+	} catch (err) {
+		console.warn('autostart is_enabled failed', err);
+		return false;
+	}
+}
+
+/** Enable/disable launch at login; returns the resulting (re-read) state. */
+export async function setAutostart(enabled: boolean): Promise<boolean> {
+	try {
+		await invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable');
+	} catch (err) {
+		console.warn('autostart toggle failed', err);
+	}
+	return isAutostartEnabled();
 }
 
 type SystemFont = { name: string; fontName: string; path: string };
@@ -257,6 +373,47 @@ export function isStudioWindow(): boolean {
 		return getCurrentWindow().label === 'studio';
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Guard the studio window's close: intercept the OS close request and ask the caller's `decide`
+ * what to do (typically prompt to save / discard / keep editing the unsaved changes — the studio
+ * live-previews edits to disk, so closing without a decision would silently keep them). `decide`
+ * resolves to `true` to proceed with the close or `false` to keep the window open; it should have
+ * already saved/discarded as chosen. No-op off the studio window / outside Tauri. Returns an unlisten fn.
+ */
+export async function onStudioCloseRequested(
+	decide: () => Promise<boolean> | boolean
+): Promise<() => void> {
+	if (!isStudioWindow()) return () => undefined;
+	try {
+		const win = getCurrentWindow();
+		let closing = false;
+		const unlisten = await win.onCloseRequested(async (event) => {
+			if (closing) return; // second pass after our own close(): let it through
+			event.preventDefault();
+			let proceed = true;
+			try {
+				proceed = (await decide()) !== false;
+			} catch (err) {
+				// Never trap the user in a window we couldn't decide about — let the close proceed.
+				console.warn('studio close decision failed', err);
+			}
+			if (!proceed) return; // keep the window open (preventDefault already applied)
+			// Set the flag first so that even if close() rejects (e.g. a missing capability), a second
+			// click on the OS close button falls straight through (the decision already ran either way).
+			closing = true;
+			try {
+				await win.close();
+			} catch (err) {
+				console.warn('studio close failed', err);
+			}
+		});
+		return unlisten;
+	} catch (err) {
+		console.warn('onStudioCloseRequested registration failed', err);
+		return () => undefined;
 	}
 }
 
@@ -328,7 +485,11 @@ export async function openStudio(): Promise<void> {
 		title: 'WidgetSack Studio',
 		width: 980,
 		height: 680,
-		resizable: true
+		resizable: true,
+		// Disable Tauri's OS-level drag-drop handler so the webview's own HTML5 drag-and-drop fires —
+		// the studio needs it for the Inspector palette → canvas drop and Outline row reparenting.
+		// (The app uses no OS file-drop, so nothing is lost by turning it off.)
+		dragDropEnabled: false
 	});
 	w.once('tauri://error', (err) => console.warn('studio window error', err));
 }
@@ -372,7 +533,10 @@ export async function reconcileOverlays(): Promise<void> {
 			alwaysOnTop: true,
 			skipTaskbar: true,
 			focus: false,
-			visible: false
+			visible: false,
+			// Let HTML5 drag-and-drop work in edit mode (palette → canvas, Outline reparent); the app
+			// uses no OS file-drop, so Tauri's native handler is safe to disable here too.
+			dragDropEnabled: false
 		});
 		// Constructor sizes are logical; place precisely in physical px, then show.
 		w.once('tauri://created', async () => {

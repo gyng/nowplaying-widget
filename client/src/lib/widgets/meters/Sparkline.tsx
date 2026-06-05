@@ -12,8 +12,12 @@ type Props = {
 	fill?: boolean;
 	// Histogram mode: draw value bars rising from the baseline instead of a line.
 	histogram?: boolean;
+	// Gap between histogram bars as a fraction of each slot (0 = bars touching, the default).
+	barGap?: number;
 	// Rolling history window in SECONDS; the chart is right-anchored to this window.
 	seconds?: number;
+	// Line thickness in px (non-scaling, so constant regardless of widget size).
+	lineWidth?: number;
 };
 
 const W = 100;
@@ -26,11 +30,13 @@ export default function Sparkline({
 	color,
 	fill = true,
 	histogram = false,
-	seconds = 60
+	barGap = 0,
+	seconds = 60,
+	lineWidth = 1.5
 }: Props) {
 	const windowSlots = Math.max(1, Math.round(seconds));
 	const points = histogram ? [] : sparklinePoints(history, W, H, min, max, windowSlots);
-	const bars = histogram ? sparklineBars(history, W, H, min, max, 0.2, windowSlots) : [];
+	const bars = histogram ? sparklineBars(history, W, H, min, max, barGap, windowSlots) : [];
 	const line = points.map(([x, y]) => `${x},${y}`).join(' ');
 	const area = points.length ? `0,${H} ${line} ${W},${H}` : '';
 	const colorCss = color ?? 'var(--np-accent, rgb(119, 196, 211))';
@@ -72,7 +78,9 @@ export default function Sparkline({
 							points={line}
 							fill="none"
 							style={{ stroke: colorCss }}
-							strokeWidth="1.5"
+							strokeWidth={lineWidth}
+							strokeLinejoin="round"
+							strokeLinecap="round"
 							vectorEffect="non-scaling-stroke"
 						/>
 					)}

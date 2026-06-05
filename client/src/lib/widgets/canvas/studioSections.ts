@@ -1,6 +1,7 @@
 // The studio's left-rail nav: an ordered, top-down list of sections (a permanent thin nav strip
 // selects one; the panel area beside it shows that section's panel). Pure data so the order, the
-// <gap> before Settings (the lone `foot` group), and the stub flags are unit-tested without React.
+// <gap> before the foot group (Controls + Settings), the stub flags, and glyph uniqueness are
+// unit-tested without React.
 export type SectionId =
 	| 'layouts'
 	| 'widget-designer'
@@ -8,6 +9,7 @@ export type SectionId =
 	| 'plugins'
 	| 'themes'
 	| 'sacks'
+	| 'saved-layouts'
 	| 'controls'
 	| 'settings';
 
@@ -16,17 +18,22 @@ export type Section = {
 	label: string; // full name (tooltip)
 	short: string; // compact label shown under the icon in the narrow strip
 	icon: string;
-	group: 'main' | 'foot'; // `foot` sits after a spacer at the bottom (the <gap> before Settings)
+	group: 'main' | 'foot'; // `foot` sits after a spacer at the bottom (the <gap> before Controls + Settings)
 	stub?: boolean; // not yet a real panel
 };
 
 export const SECTIONS: Section[] = [
 	{ id: 'layouts', label: 'Layouts', short: 'Layout', icon: '▤', group: 'main' },
-	{ id: 'widget-designer', label: 'Widget designer', short: 'Design', icon: '◳', group: 'main' },
+	{ id: 'widget-designer', label: 'Widget designer', short: 'Defs', icon: '◳', group: 'main' },
 	{ id: 'sensors', label: 'Sensors', short: 'Sensors', icon: '∿', group: 'main' },
-	{ id: 'plugins', label: 'Plugins', short: 'Plugins', icon: '⧉', group: 'main' },
+	// Plugins ❖ (not ⧉ — ⧉ is "copy" elsewhere) and Sacks ❏ (not ▦ — ▦ is a container/grid/monitor)
+	// so each nav glyph is a distinct signifier (the glyph-uniqueness test locks this in).
+	{ id: 'plugins', label: 'Plugins', short: 'Plugins', icon: '❖', group: 'main' },
 	{ id: 'themes', label: 'Themes', short: 'Themes', icon: '◐', group: 'main' },
-	{ id: 'sacks', label: 'Sacks', short: 'Sacks', icon: '▦', group: 'main' },
+	{ id: 'sacks', label: 'Sacks', short: 'Sacks', icon: '❏', group: 'main' },
+	// Saved layout profiles (save the current monitor's arrangement, load it back). ⊞ is distinct
+	// from the other nav glyphs and from the in-canvas ▦ (container/grid) signifier.
+	{ id: 'saved-layouts', label: 'Saved layouts', short: 'Saved', icon: '⊞', group: 'main' },
 	{ id: 'controls', label: 'Controls', short: 'Controls', icon: '⌨', group: 'foot' },
 	{ id: 'settings', label: 'Settings', short: 'Settings', icon: '⚙', group: 'foot' }
 ];

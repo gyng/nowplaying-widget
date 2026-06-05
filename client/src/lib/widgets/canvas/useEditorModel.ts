@@ -28,6 +28,7 @@ import {
 	type Length,
 	type Library,
 	type MonitorLayout,
+	type Pad,
 	type WidgetDef
 } from '../../core/layoutTree';
 import {
@@ -37,6 +38,7 @@ import {
 	insertChild,
 	moveNode,
 	removeNode,
+	replaceNode,
 	ungroupNode,
 	updateContainer,
 	updateNode
@@ -164,6 +166,24 @@ function reparentNode(s: EditorState, id: string, containerId: string): Patch {
 	};
 }
 
+// Replace node `id` wholesale with `node` (the Inspector Data tab). Floating leaves swap in the
+// floating array; flow nodes swap in the tree. The Inspector coerces the node's id to `id`.
+function replaceNodeOp(s: EditorState, id: string, node: LayoutNode): Patch {
+	if (s.monitor.floating.some((l) => l.id === id)) {
+		return {
+			monitor: {
+				...s.monitor,
+				floating: s.monitor.floating.map((l) => (l.id === id ? (node as Leaf) : l))
+			},
+			selectedId: id
+		};
+	}
+	return {
+		monitor: { ...s.monitor, root: replaceNode(s.monitor.root, id, node) },
+		selectedId: id
+	};
+}
+
 function addWidget(s: EditorState, type: string): Patch {
 	const selectedContainer = currentContainer(s);
 	const id = `${type}-${rand()}`;
@@ -202,13 +222,31 @@ function newContainerOfKind(kind: Container['kind'], id: string): Container {
 
 // Insert a new child container of `kind` into `containerId` (or the selected container / root). Used
 // by the Outline's +Row/+Col/+Grid (selected) and the container context menu's Add (right-clicked).
-function addContainer(s: EditorState, kind: Container['kind'], containerId?: string): Patch {
+function addContainer(
+	s: EditorState,
+	kind: Container['kind'],
+	containerId?: string,
+	index?: number
+): Patch {
 	const target = containerId ?? currentContainer(s)?.id ?? s.monitor.root.id;
 	// Only a real container can hold children; bail if the id isn't one (e.g. a stale menu target).
 	const targetNode = findNode(s.monitor.root, target);
 	if (!targetNode || !isContainer(targetNode)) return {};
 	const id = `${kind}-${rand()}`;
-	let root = insertChild(s.monitor.root, target, newContainerOfKind(kind, id));
+	let root = s.monitor.root;
+	// Cell-targeted (grid): pad the earlier empty cells with spacer containers so the new band lands in
+	// the CLICKED cell rather than the first free one. (`index` only ever exceeds the child count for an
+	// empty trailing cell — see collectGridPlaceholders.)
+	if (index !== undefined && index > targetNode.children.length) {
+		for (let i = targetNode.children.length; i < index; i++) {
+			root = insertChild(
+				root,
+				target,
+				container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
+			);
+		}
+	}
+	root = insertChild(root, target, newContainerOfKind(kind, id), index);
 	root = updateContainer(root, target, { align: 'stretch' });
 	return { monitor: { ...s.monitor, root }, selectedId: id };
 }
@@ -227,13 +265,57 @@ function addBeside(s: EditorState, id: string, kind: Container['kind']): Patch {
 	return { monitor: { ...s.monitor, root }, selectedId: newId };
 }
 
-function splitNode(s: EditorState, id: string, dir: 'rows' | 'cols' | 'grid'): Patch {
+// Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
+// has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
+const splitCell = (kind: Container['kind']): Container =>
+	container(`cell-${rand()}`, kind, [], { align: 'stretch', basis: { fr: 1 } });
+
+// The new band CONTAINER a split produces (no existing content to keep): for 'rows' a col of two
+// rows, for 'cols' a row of two cols, for 'grid' a fresh 2×2 grid.
+function splitBandContainer(dir: 'rows' | 'cols' | 'grid'): Container {
+	if (dir === 'grid') return newContainerOfKind('grid', `grid-${rand()}`);
+	const parentKind: Container['kind'] = dir === 'rows' ? 'col' : 'row';
+	const bandKind: Container['kind'] = dir === 'rows' ? 'row' : 'col';
+	return container(`cell-${rand()}`, parentKind, [splitCell(bandKind), splitCell(bandKind)], {
+		align: 'stretch',
+		basis: { fr: 1 }
+	});
+}
+
+// Split an EMPTY grid placeholder (cell `index` of `grid`): materialise the band container AT that
+// cell — padding any earlier empty cells like addContainer — instead of splitting the whole grid
+// (which would wrongly wrap the grid a level deeper). Used when the split op carries a cellIndex.
+function splitGridCell(
+	s: EditorState,
+	grid: Container,
+	index: number,
+	dir: 'rows' | 'cols' | 'grid'
+): Patch {
+	const band = splitBandContainer(dir);
+	let root = s.monitor.root;
+	if (index > grid.children.length) {
+		for (let i = grid.children.length; i < index; i++) {
+			root = insertChild(root, grid.id, splitCell('col'));
+		}
+	}
+	root = insertChild(root, grid.id, band, index);
+	root = updateContainer(root, grid.id, { align: 'stretch' });
+	return { monitor: { ...s.monitor, root }, selectedId: band.id };
+}
+
+function splitNode(
+	s: EditorState,
+	id: string,
+	dir: 'rows' | 'cols' | 'grid',
+	cellIndex?: number
+): Patch {
 	const node = findNode(s.monitor.root, id);
 	if (!node || !isContainer(node)) return {};
-	// Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
-	// has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
-	const cell = (kind: Container['kind']) =>
-		container(`cell-${rand()}`, kind, [], { align: 'stretch', basis: { fr: 1 } });
+	// An empty grid cell (placeholder) carries a cellIndex: split THAT cell, not the whole grid.
+	if (cellIndex !== undefined && node.kind === 'grid') {
+		return splitGridCell(s, node, cellIndex, dir);
+	}
+	const cell = splitCell;
 	// `keep` wraps the EXISTING content, so it preserves the node's own kind (re-kinding it would
 	// re-flow what's already there). The new empty cells take the BAND orientation (see below).
 	const keep = node.children.length
@@ -400,22 +482,30 @@ function ungroupSelected(s: EditorState, id: string): Patch {
 function insertWidget(s: EditorState, defId: string): Patch {
 	const def = s.library?.defs.find((d) => d.id === defId);
 	if (!def) return {};
-	const selectedContainer = currentContainer(s);
 	const grpId = `grp-${rand()}`;
-	if (selectedContainer) {
-		const g = group(grpId, def.size, clone(def.child), { def: defId, name: def.name });
-		return {
-			monitor: { ...s.monitor, root: insertChild(s.monitor.root, selectedContainer.id, leaf(g)) },
-			selectedId: grpId
-		};
-	}
-	const g = group(grpId, def.size, clone(def.child), {
-		def: defId,
-		name: def.name,
-		config: { x: 24, y: 24 }
-	});
+	const g = group(grpId, def.size, clone(def.child), { def: defId, name: def.name });
+	// Dock the placed group into the selected container, else the monitor's flow ROOT — widgets join
+	// the rows/columns layout instead of the floating layer (right-click → Float to escape the flow).
+	const target = currentContainer(s)?.id ?? s.monitor.root.id;
 	return {
-		monitor: { ...s.monitor, floating: [...s.monitor.floating, leaf(g)] },
+		monitor: { ...s.monitor, root: insertChild(s.monitor.root, target, leaf(g)) },
+		selectedId: grpId
+	};
+}
+
+// Instantiate a built-in template directly onto the canvas as a SELF-CONTAINED group: the template's
+// flow tree (fresh ids) lives inline on the group with no library `def`, so repeat inserts stay
+// independent and the library isn't cluttered (resolveGroup renders the inline child when there's no
+// def; the user can "Make widget" later to promote it). Docks into the selected container, else the
+// flow root — mirrors insertWidget minus the library lookup.
+function insertTemplate(s: EditorState, templateId: string): Patch {
+	const t = getTemplate(templateId);
+	if (!t) return {};
+	const grpId = `grp-${rand()}`;
+	const g = group(grpId, t.size, freshIds(t.tree()), { name: t.name });
+	const target = currentContainer(s)?.id ?? s.monitor.root.id;
+	return {
+		monitor: { ...s.monitor, root: insertChild(s.monitor.root, target, leaf(g)) },
 		selectedId: grpId
 	};
 }
@@ -608,7 +698,24 @@ function resetWidget(s: EditorState, id: string): Patch {
 }
 
 function patchContainerOp(s: EditorState, id: string, patch: Partial<Container>): Patch {
-	return { monitor: { ...s.monitor, root: updateContainer(s.monitor.root, id, patch) } };
+	let root = updateContainer(s.monitor.root, id, patch);
+	// Resizing a GRID (its cols/rows) must DROP the cells that no longer fit — otherwise reducing the
+	// grid does nothing, because solve.ts's gridRows() just grows the row count back to hold the
+	// orphaned children. Trim from the end (grids fill row-major) down to the new cols×rows.
+	if (patch.cols !== undefined || patch.rows !== undefined) {
+		const node = findNode(root, id);
+		if (node && isContainer(node) && node.kind === 'grid') {
+			const cap = Math.max(1, node.cols ?? 1) * Math.max(1, node.rows ?? 1);
+			if (node.children.length > cap) {
+				root = updateNode(
+					root,
+					id,
+					(n) => ({ ...n, children: (n as Container).children.slice(0, cap) } as LayoutNode)
+				);
+			}
+		}
+	}
+	return { monitor: { ...s.monitor, root } };
 }
 
 // Set (or clear, when undefined) a flow node's main-axis basis: 'auto'/px = fixed, {fr} = grow.
@@ -623,6 +730,63 @@ function setNodeBasis(s: EditorState, id: string, basis: Length | undefined): Pa
 	return { monitor: { ...s.monitor, root } };
 }
 
+// Set per-node main-axis basis in ONE pass (one commit). Used by the splitter drag (two children's
+// fr at once) and Distribute-evenly. Unknown ids are skipped by updateNode.
+function setNodeBases(s: EditorState, entries: { id: string; basis: Length }[]): Patch {
+	let root = s.monitor.root;
+	for (const { id, basis } of entries) {
+		root = updateNode(root, id, (n) => ({ ...n, basis } as LayoutNode));
+	}
+	return { monitor: { ...s.monitor, root } };
+}
+
+// Reset a container to an EVEN distribution. For a row/col: every child basis → {fr:1}. For a GRID:
+// clear the per-track colFr/rowFr weights so the flexible columns/rows go back to a uniform split
+// (the easy "reset" for dragged grid tracks — also reachable by double-clicking a grid splitter).
+function distributeEvenly(s: EditorState, containerId: string): Patch {
+	const node = findNode(s.monitor.root, containerId);
+	if (!node || !isContainer(node) || node.children.length === 0) return {};
+	if (node.kind === 'grid') {
+		const root = updateContainer(s.monitor.root, containerId, {
+			colFr: undefined,
+			rowFr: undefined
+		});
+		return { monitor: { ...s.monitor, root } };
+	}
+	return setNodeBases(
+		s,
+		node.children.map((c) => ({ id: c.id, basis: { fr: 1 } as Length }))
+	);
+}
+
+// Set fr weights on specific FLEXIBLE tracks of a grid (the grid-splitter drag/commit + keyboard +
+// double-click reset). Reads/creates the colFr/rowFr array (defaulting absent tracks to weight 1),
+// writes the given indices, and stores it back. A no-op when `gridId` isn't a grid.
+function setGridTracks(
+	s: EditorState,
+	gridId: string,
+	which: 'col' | 'row',
+	entries: { index: number; fr: number }[]
+): Patch {
+	const node = findNode(s.monitor.root, gridId);
+	if (!node || !isContainer(node) || node.kind !== 'grid') return {};
+	const key = which === 'col' ? 'colFr' : 'rowFr';
+	const cur = node[key];
+	const maxIdx = entries.reduce((m, e) => Math.max(m, e.index), -1);
+	const hint = which === 'col' ? Math.max(1, node.cols ?? 1) : Math.max(1, node.rows ?? 1);
+	const count = Math.max(hint, cur?.length ?? 0, maxIdx + 1);
+	const next = Array.from({ length: count }, (_, i) => {
+		const w = cur?.[i];
+		return typeof w === 'number' && w > 0 ? w : 1;
+	});
+	for (const e of entries) {
+		if (e.index >= 0 && e.index < count) next[e.index] = Number(e.fr.toFixed(3));
+	}
+	return {
+		monitor: { ...s.monitor, root: updateContainer(s.monitor.root, gridId, { [key]: next }) }
+	};
+}
+
 // Set a leaf's placement (halign/valign) within the box the layout gives it. 'fill' (the default)
 // clears the field so the leaf spans the box; the others pin it to a screen edge/center. A no-op
 // on non-leaf nodes (containers align their children via align/justify instead).
@@ -634,6 +798,25 @@ function setLeafAlign(s: EditorState, id: string, halign: AlignH, valign: AlignV
 		else next.halign = halign;
 		if (valign === 'fill') delete next.valign;
 		else next.valign = valign;
+		return next;
+	});
+	return { monitor: { ...s.monitor, root } };
+}
+
+// Set a flow leaf's per-side margin (outer space) or padding (inner inset); `value` undefined clears
+// the field. Mirrors setLeafAlign — flow only, since floating leaves are absolutely positioned and
+// don't participate in the flow where margin/pad apply.
+function setLeafBox(
+	s: EditorState,
+	id: string,
+	field: 'margin' | 'pad',
+	value: Pad | undefined
+): Patch {
+	const root = updateNode(s.monitor.root, id, (n) => {
+		if (!isLeaf(n)) return n;
+		const next = { ...n } as Leaf & { margin?: Pad; pad?: Pad };
+		if (value === undefined) delete next[field];
+		else next[field] = value;
 		return next;
 	});
 	return { monitor: { ...s.monitor, root } };
@@ -708,23 +891,25 @@ function scopedMonitorFromDef(def: WidgetDef): MonitorLayout {
 	return { root: clampTreeSpacing(rawRoot, def.size) as Container, floating: [] };
 }
 
-// Build a fresh WidgetDef from a template id (content bounding box → def size). Shared by
-// newFromTemplate (clone into the library) and previewTemplate (read-only preview, not stored).
+// Deep-clone a template's flow tree with fresh, unique node/unit ids (template-local ids are stable,
+// so two defs from the same template must not share ids). Leaf id mirrors its unit id (leaf() invariant).
+function freshIds(node: LayoutNode): LayoutNode {
+	if (isContainer(node)) {
+		return { ...node, id: `${node.kind}-${rand()}`, children: node.children.map(freshIds) };
+	}
+	const unit = isGroup(node.unit)
+		? { ...node.unit, id: `group-${rand()}` }
+		: { ...node.unit, id: `${node.unit.type}-${rand()}` };
+	return { ...node, id: unit.id, unit };
+}
+
+// Build a fresh WidgetDef from a template id: the template's flow TREE becomes the def child (ids
+// remapped), at the template's declared size. Shared by newFromTemplate (clone into the library) and
+// previewTemplate (read-only preview, not stored).
 function templateDef(templateId: string): WidgetDef | null {
 	const t = getTemplate(templateId);
 	if (!t) return null;
-	const ws = t.widgets();
-	const kids = ws.map((u) => leaf({ ...u, id: `${u.type}-${rand()}` }));
-	// Size to the template's content bounding box (its widgets flow in a col, so this is approximate).
-	const w = Math.max(40, ...ws.map((u) => Math.round(u.rect.x + u.rect.w)));
-	const h = Math.max(24, ...ws.map((u) => Math.round(u.rect.y + u.rect.h)));
-	const defId = `def-${rand()}`;
-	return {
-		id: defId,
-		name: t.name,
-		size: { w, h },
-		child: container(`${defId}__root`, 'col', kids, { align: 'stretch' })
-	};
+	return { id: `def-${rand()}`, name: t.name, size: t.size, child: freshIds(t.tree()) };
 }
 
 function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
@@ -977,7 +1162,9 @@ export const editHelpers = {
 	floatingLeafFrom,
 	removeById,
 	makeWidget,
-	getTemplate
+	getTemplate,
+	setNodeBases, // splitter drag: set both children's fr in one mutateNoSave/commitOp run
+	setGridTracks // grid-track splitter drag: set the two tracks' colFr/rowFr weights
 };
 
 const initial = (studio: boolean, seedMonitor: MonitorLayout): EditorState => ({
@@ -1037,13 +1224,16 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					commitOp((s) => addWidgetAt(s, op.widgetType, op.x, op.y));
 					return;
 				case 'addContainer':
-					commitOp((s) => addContainer(s, op.kind, op.containerId));
+					commitOp((s) => addContainer(s, op.kind, op.containerId, op.index));
+					return;
+				case 'distributeEvenly':
+					commitOp((s) => distributeEvenly(s, op.containerId));
 					return;
 				case 'addBeside':
 					commitOp((s) => addBeside(s, op.id, op.kind));
 					return;
 				case 'split':
-					commitOp((s) => splitNode(s, op.id, op.dir));
+					commitOp((s) => splitNode(s, op.id, op.dir, op.cellIndex));
 					return;
 				case 'collapse':
 					commitOp((s) => ({
@@ -1081,6 +1271,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 				case 'insertWidget':
 					commitOp((s) => insertWidget(s, op.defId));
 					return;
+				case 'insertTemplate':
+					commitOp((s) => insertTemplate(s, op.templateId));
+					return;
 				case 'renameDef':
 					commitOp((s) => renameDef(s, op.defId, op.name));
 					return;
@@ -1117,6 +1310,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 				case 'setLeafAlign':
 					commitOp((s) => setLeafAlign(s, op.id, op.halign, op.valign));
 					return;
+				case 'setLeafBox':
+					commitOp((s) => setLeafBox(s, op.id, op.field, op.value));
+					return;
 				case 'resetWidget':
 					commitOp((s) => resetWidget(s, op.id));
 					return;
@@ -1128,6 +1324,9 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 					return;
 				case 'reparent':
 					commitOp((s) => reparentNode(s, op.id, op.containerId));
+					return;
+				case 'replaceNode':
+					commitOp((s) => replaceNodeOp(s, op.id, op.node));
 					return;
 			}
 		},
@@ -1168,6 +1367,9 @@ export {
 	addContainer,
 	addBeside,
 	splitNode,
+	patchContainerOp,
+	distributeEvenly,
+	setGridTracks,
 	floatNode,
 	defInUse,
 	bulkPatchConfig,

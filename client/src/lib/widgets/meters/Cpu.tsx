@@ -15,17 +15,27 @@ type Props = {
 	color?: string;
 	seconds?: number;
 	histogram?: boolean;
+	lineWidth?: number;
 };
 
-const coreIndex = (id: string): number => Number(id.slice('cpu.core.'.length)) || 0;
+// Per-core USAGE ids only: `cpu.core.<n>`. The trailing `\d+$` deliberately EXCLUDES the per-core
+// FREQUENCY ids (`cpu.core.<n>.freq`, in MHz) — the studio's "*" subscription broadcasts those to the
+// overlay too, and on the 0–100% scale their thousands-of-MHz values plot off-screen as blank
+// sparklines that pad the grid with empties.
+const CORE_USAGE_ID = /^cpu\.core\.(\d+)$/;
+const coreIndex = (id: string): number => {
+	const m = CORE_USAGE_ID.exec(id);
+	return m ? Number(m[1]) : 0;
+};
 
 export default function Cpu({
 	mode = 'cores',
-	cols = 8,
+	cols,
 	label = 'CPU',
 	color,
 	seconds = 60,
-	histogram = false
+	histogram = false,
+	lineWidth
 }: Props) {
 	const hub = useContext(TelemetryHubContext);
 	const [total, setTotal] = useState<number | null>(null);
@@ -40,7 +50,7 @@ export default function Cpu({
 			setTotal(t && t.kind === 'scalar' ? t.value : null);
 			const ids = hub
 				.sensorIds()
-				.filter((id) => id.startsWith('cpu.core.'))
+				.filter((id) => CORE_USAGE_ID.test(id))
 				.sort((a, b) => coreIndex(a) - coreIndex(b));
 			setCores(ids.map((id) => hub.sensor(id).getSnapshot().history));
 		};
@@ -53,7 +63,11 @@ export default function Cpu({
 		return <Gauge value={total} label={label} unit="%" min={0} max={100} color={color} />;
 	}
 
-	const gridStyle = { gridTemplateColumns: `repeat(${Math.max(1, Math.round(cols))}, 1fr)` };
+	// Per-core grid: default to ONE COLUMN PER CORE — a single full-width row spanning every core
+	// ("max cores"). An explicit `cols` overrides this to wrap the cores into a fixed-width grid.
+	const colCount =
+		cols != null && cols > 0 ? Math.max(1, Math.round(cols)) : Math.max(1, cores.length);
+	const gridStyle = { gridTemplateColumns: `repeat(${colCount}, 1fr)` };
 	return (
 		<div className="cores np-cpu-cores" style={gridStyle}>
 			{cores.map((history, i) => (
@@ -62,9 +76,10 @@ export default function Cpu({
 					history={history}
 					min={0}
 					max={100}
-					color={color}
+					color={color ?? 'rgb(255, 255, 255)'}
 					seconds={seconds}
 					histogram={histogram}
+					lineWidth={lineWidth}
 					fill={false}
 				/>
 			))}

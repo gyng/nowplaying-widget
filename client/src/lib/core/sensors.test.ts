@@ -13,4 +13,26 @@ describe('sensorCatalog', () => {
 		expect(out.filter((s) => s === 'cpu.total')).toHaveLength(1); // de-duped
 		expect(out).toEqual([...out].sort()); // sorted
 	});
+
+	it('offers the absolute-byte totals alongside the percent ids', () => {
+		// The explicit ask: max RAM / VRAM / swap absolutes are discoverable in the picker, while
+		// the original percent ids stay (backward compat with templates + ported skins).
+		for (const id of [
+			'mem.total',
+			'mem.used.bytes',
+			'swap.total',
+			'gpu.vram.total',
+			'gpu.vram.used'
+		]) {
+			expect(KNOWN_SENSORS).toContain(id);
+		}
+		for (const id of ['mem.used', 'swap.used', 'gpu.vram']) {
+			expect(KNOWN_SENSORS).toContain(id);
+		}
+	});
+
+	it('omits dynamic per-drive ids (they arrive via the live merge)', () => {
+		expect(KNOWN_SENSORS.some((id) => id.startsWith('disk.'))).toBe(false);
+		expect(sensorCatalog(['disk.c.free'])).toContain('disk.c.free');
+	});
 });

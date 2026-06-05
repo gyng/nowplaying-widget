@@ -61,6 +61,10 @@ export type ControlContext = {
 	panning: boolean;
 	previewing: boolean;
 	pointerTarget?: PointerTarget;
+	// Optional context, supplied by the studio for hint gating/labels (absent elsewhere → treated as
+	// false/0): whether Undo has anything to undo, and how many nodes are selected.
+	canUndo?: boolean;
+	selectionCount?: number;
 };
 
 export type Control = {
@@ -80,6 +84,7 @@ export type Control = {
 	hintOrder?: number; // sort key + inclusion flag for the bar
 	hintWhen?: (ctx: ControlContext) => boolean; // extra visibility gate (defaults to `when`)
 	hint?: (ctx: ControlContext, triggers: Trigger[]) => string; // custom key text (default: format triggers[0])
+	hintLabel?: (ctx: ControlContext) => string; // ctx-aware action text for the bar (default: `label`)
 };
 
 // Persisted user remap (controls.json holds ONLY these — defaults live in code, so adding/renaming a
@@ -342,7 +347,7 @@ export function deriveHints(
 	advertised.sort((a, b) => (a.hintOrder as number) - (b.hintOrder as number));
 	return advertised.map((c) => ({
 		key: c.hint ? c.hint(ctx, c.triggers) : formatTrigger(c.triggers[0]),
-		label: c.label
+		label: c.hintLabel ? c.hintLabel(ctx) : c.label
 	}));
 }
 

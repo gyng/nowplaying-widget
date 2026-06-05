@@ -13,9 +13,10 @@ import {
 import type { TelemetryHub } from '../core/telemetry';
 import type { Rect, WidgetInstance } from '../core/layout';
 import { moveRect, resizeRect, type ResizeHandle } from '../core/geometry';
-import { getMeta } from '../core/widget';
+import { exprFieldsOf, getMeta } from '../core/widget';
 import { registry } from './registry';
 import { useSensor } from './useSensor';
+import { useFormulaFields } from '../formula/useFormula';
 import { dragMoveIntent } from './canvas/dragIntent';
 import WidgetErrorBoundary from './WidgetErrorBoundary';
 import './WidgetHost.css';
@@ -25,6 +26,10 @@ type Props = {
 	instance: WidgetInstance;
 	editMode?: boolean;
 	selected?: boolean;
+	// This widget is part of a MULTI-selection (>1 selected). Gives it a focal, on-stage cue (a dashed
+	// vs solid outline) so the user can see "more than one is selected" without reading the Inspector —
+	// the count-blind Del/nudge slip lives here, where the gaze is.
+	multi?: boolean;
 	// Cross-highlight from the Outline tree (studio): glow this widget while its tree row is hovered.
 	highlighted?: boolean;
 	grid?: number;
@@ -82,6 +87,7 @@ export default function WidgetHost({
 	instance,
 	editMode = false,
 	selected = false,
+	multi = false,
 	highlighted = false,
 	grid = 8,
 	scale = 1,
@@ -144,6 +150,23 @@ export default function WidgetHost({
 		sensorState.value && sensorState.value.kind === 'scalar' ? sensorState.value.value : null;
 	const rawValue = sensorState.value ? sensorState.value.value : null;
 	const history = sensorState.history;
+	// Formula support: evaluate any `kind:'expr'` config fields (e.g. a Gauge `value` of `mem.used / 2`,
+	// or a Text template `CPU {round(cpu.total)}%`) in the sandbox and override the matching meter prop.
+	// Empty for widgets with no formula fields → the WASM engine never loads (useFormulaFields gates it).
+	const exprFields = useMemo(() => exprFieldsOf(getMeta(instance.type)), [instance.type]);
+	const { overrides: formulaOverrides } = useFormulaFields(hub, exprFields, instance.config);
+	// The config passed to the meter, with the expr fields' OWN keys removed: a formula's config key
+	// holds the raw source string (e.g. config.value = "cpu.total / 2"), and for a numeric field that
+	// key IS the target prop — so without this the meter would receive the source string as its value
+	// during every not-yet-resolved window (engine still loading, sensor unemitted, or eval error),
+	// rendering NaN / the literal formula. Stripped → the bound sensor value (or –) shows until the
+	// evaluated override lands. (formulaOverrides, spread last, then wins.)
+	const meterConfig = useMemo(() => {
+		if (exprFields.length === 0) return instance.config;
+		const cfg = { ...instance.config };
+		for (const f of exprFields) delete cfg[f.key];
+		return cfg;
+	}, [instance.config, exprFields]);
 	// Error-boundary reset key: the widget's user-editable definition (type + config). Changing it
 	// in the studio clears a caught crash and re-renders; the live sensor value is intentionally
 	// excluded (see WidgetErrorBoundary). type prefixes the JSON object so the pair can't collide.
@@ -292,6 +315,7 @@ export default function WidgetHost({
 	if (flow) cls.push('flow');
 	if (editMode) cls.push('editable');
 	if (selected) cls.push('selected');
+	if (multi) cls.push('multi-member');
 	if (highlighted) cls.push('hl');
 	if (action !== null) cls.push('active');
 	if (!editMode && interactive) cls.push('catch');
@@ -328,11 +352,27 @@ export default function WidgetHost({
 			{Comp ? (
 				<WidgetErrorBoundary resetKey={resetKey} label={instance.type}>
 					{!instance.sensor || binds === 'none' ? (
-						<Comp {...instance.config} onControl={handleControl} />
+						<Comp
+							{...meterConfig}
+							{...formulaOverrides}
+							editMode={editMode}
+							onControl={handleControl}
+						/>
 					) : binds === 'json' || binds === 'text' ? (
-						<Comp value={rawValue} {...instance.config} onControl={handleControl} />
+						<Comp
+							value={rawValue}
+							{...meterConfig}
+							{...formulaOverrides}
+							onControl={handleControl}
+						/>
 					) : (
-						<Comp value={scalar} history={history} {...instance.config} onControl={handleControl} />
+						<Comp
+							value={scalar}
+							history={history}
+							{...meterConfig}
+							{...formulaOverrides}
+							onControl={handleControl}
+						/>
 					)}
 				</WidgetErrorBoundary>
 			) : (

@@ -4,6 +4,8 @@
 .np-clock {
 	display: flex;
 	align-items: baseline;
+	/* Horizontal placement of the text follows the leaf's halign (default: left). */
+	justify-content: var(--np-halign, flex-start);
 	gap: 6px;
 	width: 100%;
 	height: 100%;

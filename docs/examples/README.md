@@ -1,7 +1,7 @@
 # Example layouts
 
 > **Easier path:** the studio has a **Template ▾ → Insert…** picker that drops these same presets
-> (Rainmeter sidebar, System monitor, Network, Clock (JP), Now playing) straight onto the canvas as
+> (System monitor, Network, Clock (JP), Now playing) straight onto the canvas as
 > a draft — preview, then **Save**. The JSON below is the equivalent for manual install / reference.
 
 ## `rainmeter-port.widgets.json`

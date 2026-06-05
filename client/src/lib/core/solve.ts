@@ -16,6 +16,7 @@ import {
 	type Container,
 	type Group,
 	type LayoutNode,
+	type Length,
 	type Library,
 	type MonitorLayout,
 	type WidgetDef,
@@ -140,9 +141,17 @@ function cellFixedH(node: LayoutNode): number | null {
 // Column widths / row heights of a grid across the content axis. A track is FIXED to the max
 // cellW/cellH among its cells; the remaining (flexible) tracks split the leftover equally. With no
 // fixed cell the tracks are uniform — the original behaviour. Negative leftovers clamp to 0.
-function gridTracks(c: Container, available: number, count: number, horizontal: boolean): number[] {
+// A track's fr weight (for the flexible-track split), defaulting to 1 for missing/≤0 entries.
+const trackWeight = (weights: number[] | undefined, t: number): number => {
+	const w = weights?.[t];
+	return typeof w === 'number' && w > 0 ? w : 1;
+};
+
+// Per-track fixed extent (px) or null when the track is flexible. A track is fixed iff some cell in
+// it carries a cellW/cellH; the track takes the MAX such value among its cells. Shared by the track
+// sizer and the splitter collector (which only offers boundaries between two FLEXIBLE tracks).
+function gridFixedTracks(c: Container, count: number, horizontal: boolean): (number | null)[] {
 	const cols = Math.max(1, c.cols ?? 1);
-	const gap = clampGap(c.gap ?? 0, available, count);
 	const fixed: (number | null)[] = new Array(count).fill(null);
 	c.children.forEach((child, i) => {
 		const t = horizontal ? i % cols : Math.floor(i / cols);
@@ -150,11 +159,19 @@ function gridTracks(c: Container, available: number, count: number, horizontal: 
 		const v = horizontal ? cellFixedW(child) : cellFixedH(child);
 		if (v != null) fixed[t] = Math.max(fixed[t] ?? 0, v);
 	});
+	return fixed;
+}
+
+function gridTracks(c: Container, available: number, count: number, horizontal: boolean): number[] {
+	const gap = clampGap(c.gap ?? 0, available, count);
+	const fixed = gridFixedTracks(c, count, horizontal);
 	const fixedSum = fixed.reduce((s: number, v) => s + (v ?? 0), 0);
-	const flexCount = fixed.filter((v) => v == null).length;
+	const weights = horizontal ? c.colFr : c.rowFr;
+	// Flexible tracks split the leftover in proportion to their fr weight (uniform by default).
+	let flexWeight = 0;
+	for (let t = 0; t < count; t++) if (fixed[t] == null) flexWeight += trackWeight(weights, t);
 	const leftover = Math.max(0, available - gap * (count - 1) - fixedSum);
-	const flex = flexCount > 0 ? leftover / flexCount : 0;
-	return fixed.map((v) => v ?? flex);
+	return fixed.map((v, t) => (v != null ? v : flexWeight > 0 ? (leftover * trackWeight(weights, t)) / flexWeight : 0));
 }
 
 function gridColWidths(c: Container, contentW: number): number[] {
@@ -207,21 +224,178 @@ export function gridCellRects(c: Container, box: Rect): Rect[] {
  * designer can outline where the next widgets land — including showing the columns of a grid
  * that's still empty. Pure; needs each grid container's measured box in `solved`.
  */
-export function collectGridPlaceholders(monitor: MonitorLayout, solved: Solved): Rect[] {
-	const out: Rect[] = [];
+export type GridPlaceholder = { gridId: string; index: number; rect: Rect };
+
+export function collectGridPlaceholders(monitor: MonitorLayout, solved: Solved): GridPlaceholder[] {
+	const out: GridPlaceholder[] = [];
 	const walk = (node: LayoutNode): void => {
 		if (!isContainer(node)) return;
 		if (node.kind === 'grid') {
 			const box = solved.get(node.id);
 			if (box) {
 				const cells = gridCellRects(node, box);
-				for (let i = node.children.length; i < cells.length; i++) out.push(cells[i]);
+				for (let i = node.children.length; i < cells.length; i++)
+					out.push({ gridId: node.id, index: i, rect: cells[i] });
 			}
 		}
 		for (const child of node.children) walk(child);
 	};
 	walk(monitor.root);
 	return out;
+}
+
+// --- splitters (interactive resize of row/col proportions) ----------------
+
+const frOf = (n: LayoutNode): number | null => {
+	const b = (n as { basis?: Length }).basis;
+	return typeof b === 'object' && b !== null && 'fr' in b ? b.fr : null;
+};
+
+// A draggable boundary between two adjacent `fr` children of a row/col container. Only fr↔fr pairs
+// resize (they share the proportional pool); fixed/content children are skipped. `mainA`/`mainB` are
+// the children's CURRENT sizes along the container's main axis; `frA`/`frB` their current weights.
+export type Splitter = {
+	containerId: string;
+	axis: 'row' | 'col';
+	aId: string;
+	bId: string;
+	frA: number;
+	frB: number;
+	mainA: number;
+	mainB: number;
+	rect: Rect; // the draggable bar, in layout coords
+	// When present, this boundary resizes two GRID TRACKS (columns or rows) via the grid's colFr/rowFr
+	// weights, not two child basis weights. `a`/`b` are the track indices either side of the boundary.
+	track?: { which: 'col' | 'row'; a: number; b: number };
+};
+
+const SPLIT_BAR = 8; // bar thickness / hit area (px)
+
+// Draggable boundaries between adjacent FLEXIBLE grid tracks (columns → vertical bars, rows →
+// horizontal bars), spanning the grid's full content extent. Resizing redistributes the two tracks'
+// colFr/rowFr weights (kept-sum, like the row/col splitter) so the other tracks stay put. Boundaries
+// touching a FIXED track (a cell with cellW/cellH) are skipped — those tracks aren't proportional.
+function gridSplitters(node: Container, box: Rect): Splitter[] {
+	const out: Splitter[] = [];
+	const content = insetPad(box, node.pad);
+	const cols = Math.max(1, node.cols ?? 1);
+	const rows = gridRows(node);
+	const gap = node.gap ?? 0;
+	const colW = gridColWidths(node, content.w);
+	const rowH = gridRowHeights(node, content.h);
+	const colX = trackOffsets(colW, clampGap(gap, content.w, cols), content.x);
+	const rowY = trackOffsets(rowH, clampGap(gap, content.h, rows), content.y);
+	const colFixed = gridFixedTracks(node, cols, true);
+	const rowFixed = gridFixedTracks(node, rows, false);
+	for (let t = 0; t < cols - 1; t++) {
+		if (colFixed[t] != null || colFixed[t + 1] != null) continue;
+		const xMid = (colX[t] + colW[t] + colX[t + 1]) / 2;
+		out.push({
+			containerId: node.id,
+			axis: 'row', // vertical bar (resizes horizontally)
+			aId: `${node.id}#col${t}`,
+			bId: `${node.id}#col${t + 1}`,
+			frA: trackWeight(node.colFr, t),
+			frB: trackWeight(node.colFr, t + 1),
+			mainA: colW[t],
+			mainB: colW[t + 1],
+			rect: { x: xMid - SPLIT_BAR / 2, y: content.y, w: SPLIT_BAR, h: content.h },
+			track: { which: 'col', a: t, b: t + 1 }
+		});
+	}
+	for (let t = 0; t < rows - 1; t++) {
+		if (rowFixed[t] != null || rowFixed[t + 1] != null) continue;
+		const yMid = (rowY[t] + rowH[t] + rowY[t + 1]) / 2;
+		out.push({
+			containerId: node.id,
+			axis: 'col', // horizontal bar (resizes vertically)
+			aId: `${node.id}#row${t}`,
+			bId: `${node.id}#row${t + 1}`,
+			frA: trackWeight(node.rowFr, t),
+			frB: trackWeight(node.rowFr, t + 1),
+			mainA: rowH[t],
+			mainB: rowH[t + 1],
+			rect: { x: content.x, y: yMid - SPLIT_BAR / 2, w: content.w, h: SPLIT_BAR },
+			track: { which: 'row', a: t, b: t + 1 }
+		});
+	}
+	return out;
+}
+
+export function collectSplitters(monitor: MonitorLayout, solved: Solved): Splitter[] {
+	const out: Splitter[] = [];
+	const walk = (node: LayoutNode): void => {
+		if (!isContainer(node)) return;
+		if (node.kind === 'grid') {
+			const box = solved.get(node.id);
+			if (box) out.push(...gridSplitters(node, box));
+		}
+		if ((node.kind === 'row' || node.kind === 'col') && node.children.length >= 2) {
+			const horiz = node.kind === 'row';
+			for (let i = 0; i < node.children.length - 1; i++) {
+				const a = node.children[i];
+				const b = node.children[i + 1];
+				const frA = frOf(a);
+				const frB = frOf(b);
+				if (frA === null || frB === null) continue; // only fr↔fr pairs share the proportional pool
+				const ra = solved.get(a.id);
+				const rb = solved.get(b.id);
+				if (!ra || !rb) continue;
+				const rect = horiz
+					? { x: (ra.x + ra.w + rb.x) / 2 - SPLIT_BAR / 2, y: ra.y, w: SPLIT_BAR, h: ra.h }
+					: { x: ra.x, y: (ra.y + ra.h + rb.y) / 2 - SPLIT_BAR / 2, w: ra.w, h: SPLIT_BAR };
+				out.push({
+					containerId: node.id,
+					axis: node.kind,
+					aId: a.id,
+					bId: b.id,
+					frA,
+					frB,
+					mainA: horiz ? ra.w : ra.h,
+					mainB: horiz ? rb.w : rb.h,
+					rect
+				});
+			}
+		}
+		for (const child of node.children) walk(child);
+	};
+	walk(monitor.root);
+	return out;
+}
+
+// Fractions of the combined A+B span the boundary snaps to (and their mirrors).
+const SPLIT_SNAPS = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4];
+
+/**
+ * New fr weights for a dragged splitter. Keeps the pair's COMBINED fr constant (so other siblings are
+ * untouched) and only re-divides the ratio. `deltaMain` is the pointer travel along the main axis (in
+ * layout px). The boundary snaps to a SPLIT_SNAPS fraction within `snapPx`, and each side keeps at
+ * least `minPx`. Pure.
+ */
+export function resizeSplit(
+	sizeA: number,
+	sizeB: number,
+	frA: number,
+	frB: number,
+	deltaMain: number,
+	opts: { snapPx?: number; minPx?: number } = {}
+): { frA: number; frB: number } {
+	const snapPx = opts.snapPx ?? 14;
+	const minPx = opts.minPx ?? 16;
+	const total = sizeA + sizeB;
+	const combinedFr = frA + frB;
+	if (total <= 0 || combinedFr <= 0) return { frA, frB };
+	let newA = Math.min(total - minPx, Math.max(minPx, sizeA + deltaMain));
+	for (const s of SPLIT_SNAPS) {
+		if (Math.abs(newA - s * total) <= snapPx) {
+			newA = s * total;
+			break;
+		}
+	}
+	const fraction = newA / total;
+	const a = Math.max(0.01, Number((fraction * combinedFr).toFixed(3)));
+	const b = Math.max(0.01, Number(((1 - fraction) * combinedFr).toFixed(3)));
+	return { frA: a, frB: b };
 }
 
 type Size = { w: number; h: number };

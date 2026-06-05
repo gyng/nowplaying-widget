@@ -50,7 +50,11 @@ const CONTROLS: Control[] = [
 		label: 'Save draft',
 		triggers: [{ type: 'key', key: 's', ctrl: true }],
 		when: (c) => c.studio && c.dirty,
-		allowInInput: true
+		allowInInput: true,
+		// Leftmost in the bar, and only while there are unsaved changes (its own `when`), so the user
+		// learns Ctrl+S from the primary discoverability surface instead of only the toolbar tooltip.
+		// (The bar lowercases the label via CSS.)
+		hintOrder: 0
 	},
 	{
 		id: 'studio.undo',
@@ -58,7 +62,10 @@ const CONTROLS: Control[] = [
 		group: 'edit',
 		label: 'Undo',
 		triggers: [{ type: 'key', key: 'z', ctrl: true }],
-		when: canEdit
+		when: canEdit,
+		// Advertised only when there's history to undo (canEdit alone is always true in the studio).
+		hintOrder: 9,
+		hintWhen: (c) => c.studio && !!c.canUndo
 	},
 	{
 		id: 'studio.redo',
@@ -79,6 +86,37 @@ const CONTROLS: Control[] = [
 		triggers: [{ type: 'key', code: 'Space' }],
 		when: (c) => c.studio && c.editMode
 	},
+	// ---- navigation (keyboard-reachable section switching; not advertised in the bar to avoid
+	// crowding the gesture row — discoverable via the Controls panel). The hook derives the section
+	// index from the digit (like studio.nudge); Next/Prev cycle via the handler map.
+	{
+		id: 'studio.section',
+		scope: 'studio',
+		group: 'navigation',
+		label: 'Go to section 1–8',
+		triggers: Array.from({ length: 8 }, (_, i) => ({
+			type: 'key',
+			key: String(i + 1),
+			ctrl: true
+		})) as Trigger[],
+		when: (c) => c.studio
+	},
+	{
+		id: 'studio.sectionNext',
+		scope: 'studio',
+		group: 'navigation',
+		label: 'Next section',
+		triggers: [{ type: 'key', key: 'tab', ctrl: true }],
+		when: (c) => c.studio
+	},
+	{
+		id: 'studio.sectionPrev',
+		scope: 'studio',
+		group: 'navigation',
+		label: 'Previous section',
+		triggers: [{ type: 'key', key: 'tab', ctrl: true, shift: true }],
+		when: (c) => c.studio
+	},
 	// ---- selection (advertised when a selection exists) ----
 	{
 		id: 'studio.delete',
@@ -91,7 +129,9 @@ const CONTROLS: Control[] = [
 		],
 		when: (c) => canEdit(c) && c.hasSelection,
 		hintOrder: 8,
-		hint: () => 'Del'
+		hint: () => 'Del',
+		// Surface the count so a count-blind Del (remove N when you meant 1) reads in the bar too.
+		hintLabel: (c) => ((c.selectionCount ?? 0) > 1 ? `remove (${c.selectionCount})` : 'remove')
 	},
 	{
 		id: 'studio.nudge',
@@ -102,7 +142,8 @@ const CONTROLS: Control[] = [
 		when: (c) => canEdit(c) && c.hasSelection,
 		repeatable: true,
 		hintOrder: 7,
-		hint: () => 'Arrows'
+		hint: () => 'Arrows',
+		hintLabel: (c) => ((c.selectionCount ?? 0) > 1 ? `nudge (${c.selectionCount})` : 'nudge')
 	},
 	// ---- pointer (the curated gesture bar) ----
 	{

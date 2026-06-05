@@ -33,4 +33,29 @@ describe('studioHints', () => {
 			'Release'
 		]);
 	});
+
+	it('advertises Save (Ctrl+S) only when there are unsaved changes', () => {
+		expect(keys({ hasSelection: false, spaceDown: false, panning: false })).not.toContain('Ctrl+S');
+		expect(keys({ hasSelection: false, spaceDown: false, panning: false, dirty: true })).toContain(
+			'Ctrl+S'
+		);
+	});
+
+	it('advertises Undo (Ctrl+Z) only when there is history to undo', () => {
+		expect(keys({ hasSelection: false, spaceDown: false, panning: false })).not.toContain('Ctrl+Z');
+		expect(
+			keys({ hasSelection: false, spaceDown: false, panning: false, canUndo: true })
+		).toContain('Ctrl+Z');
+	});
+
+	it('shows the selection count in the remove / nudge labels', () => {
+		const labels = studioHints({
+			hasSelection: true,
+			spaceDown: false,
+			panning: false,
+			selectionCount: 3
+		}).map((h) => h.label);
+		expect(labels).toContain('remove (3)');
+		expect(labels).toContain('nudge (3)');
+	});
 });

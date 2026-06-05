@@ -43,6 +43,11 @@
 	opacity: 1;
 }
 
+/* A persistent (not hover-only) conflict marker, so the warning doesn't rely on the title tooltip. */
+.controls-panel .cp-conflict-mark {
+	color: rgba(255, 140, 90, 0.95);
+}
+
 .controls-panel .cp-actions {
 	flex: 0 0 auto;
 	display: flex;

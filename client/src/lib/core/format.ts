@@ -24,7 +24,39 @@ export function formatPercent(value: number, decimals = 0): string {
 	return `${value.toFixed(decimals)}%`;
 }
 
-/** Format a scalar sensor value by a named format. */
+/** A whole-seconds duration as a compact, Rainmeter-Uptime-like string (two most-significant
+ * units): '3d 4h', '4h 12m', '12m 8s', '8s'. Negative/non-finite → '0s'. */
+export function formatDuration(totalSeconds: number): string {
+	if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0s';
+	const s = Math.floor(totalSeconds);
+	const days = Math.floor(s / 86400);
+	const hours = Math.floor((s % 86400) / 3600);
+	const mins = Math.floor((s % 3600) / 60);
+	const secs = s % 60;
+	if (days > 0) return `${days}d ${hours}h`;
+	if (hours > 0) return `${hours}h ${mins}m`;
+	if (mins > 0) return `${mins}m ${secs}s`;
+	return `${secs}s`;
+}
+
+// The named scalar formats `formatScalar` understands (the `format` config field on text-like
+// widgets). Source of truth for the generated templating docs (core/templatingDocs.ts) and a
+// drift guard: format.test.ts asserts every name here is actually handled (not the raw fallback).
+// Any other `format` value renders the raw number.
+export type ScalarFormat = { name: string; summary: string; example: string };
+export const SCALAR_FORMATS: ScalarFormat[] = [
+	{ name: 'integer', summary: 'Rounded to a whole number.', example: '37' },
+	{ name: 'percent', summary: 'A whole-number percentage with a `%` suffix.', example: '37%' },
+	{ name: 'rate', summary: 'Bytes/second, binary-scaled, with a `/s` suffix.', example: '1.0 KiB/s' },
+	{ name: 'bytes', summary: 'Binary-scaled bytes (B / KiB / MiB / GiB / TiB).', example: '16.0 GiB' },
+	{
+		name: 'duration',
+		summary: 'A whole-seconds duration, two most-significant units.',
+		example: '3d 4h'
+	}
+];
+
+/** Format a scalar sensor value by a named format (see SCALAR_FORMATS); any other name → raw. */
 export function formatScalar(value: number | null, format: string): string {
 	if (value === null) return '–';
 	switch (format) {
@@ -34,11 +66,83 @@ export function formatScalar(value: number | null, format: string): string {
 			return formatRate(value);
 		case 'bytes':
 			return formatBytes(value);
+		case 'duration':
+			return formatDuration(value);
 		case 'integer':
 			return Math.round(value).toString();
 		default:
 			return value.toString();
 	}
+}
+
+// A sensible default format (a `formatScalar` name) inferred from a sensor id's naming
+// convention — so the studio Sensors list renders byte/rate/duration sensors nicely instead of as
+// raw numbers, and callers have one place to ask "how should this id be shown". Pure + unit-tested;
+// the conventions mirror the ids emitted by widgetsack/src/sensors.rs. Text-kind sensors
+// (cpu.brand, gpu.name, battery.state) never reach this — they render as their string.
+const RATE_SENSOR_IDS = new Set([
+	'net.down',
+	'net.up',
+	'net.total',
+	'net.linkspeed.rx',
+	'net.linkspeed.tx',
+	'gpu.pcie.rx',
+	'gpu.pcie.tx'
+]);
+const DURATION_SENSOR_IDS = new Set(['host.uptime', 'battery.time', 'host.idle']);
+const PERCENT_SENSOR_IDS = new Set([
+	'cpu.total',
+	'mem.used',
+	'swap.used',
+	'gpu.util',
+	'gpu.vram',
+	'gpu.mem.util',
+	'gpu.fan',
+	'battery.percent'
+]);
+const INTEGER_SENSOR_IDS = new Set([
+	'host.procs',
+	'host.handles',
+	'host.threads',
+	'cpu.cores.logical',
+	'cpu.cores.physical',
+	'cpu.freq',
+	'cpu.freq.current',
+	'cpu.freq.max',
+	'gpu.clock.core',
+	'gpu.clock.mem',
+	'gpu.power',
+	'gpu.power.limit',
+	'battery.rate',
+	'battery.capacity.full',
+	'battery.capacity.remaining'
+]);
+// Byte-valued ids whose suffix isn't caught by the generic byte regex (commit/cache/kernel pools).
+const BYTE_SENSOR_IDS = new Set([
+	'mem.commit.used',
+	'mem.commit.limit',
+	'mem.commit.peak',
+	'mem.cached',
+	'mem.kernel.paged',
+	'mem.kernel.nonpaged'
+]);
+
+/** Best-guess `formatScalar` format name for a sensor id (e.g. 'mem.total' → 'bytes',
+ * 'net.down' → 'rate', 'host.uptime' → 'duration', 'cpu.total' → 'percent', 'cpu.core.3.freq' →
+ * 'integer'). Precedence matters: the `.freq` check sits before the per-core percent rule so a
+ * per-core FREQUENCY isn't mistaken for per-core USAGE. */
+export function guessSensorFormat(id: string): string {
+	if (RATE_SENSOR_IDS.has(id)) return 'rate';
+	if (/^disk\..+\.(read|write)$/.test(id)) return 'rate'; // disk.<letter>.read / .write (bytes/s)
+	if (DURATION_SENSOR_IDS.has(id)) return 'duration';
+	if (id.endsWith('.pct')) return 'percent';
+	if (id.endsWith('.freq')) return 'integer'; // cpu.freq, cpu.core.N.freq (MHz)
+	if (INTEGER_SENSOR_IDS.has(id)) return 'integer';
+	if (PERCENT_SENSOR_IDS.has(id) || id.startsWith('cpu.core.')) return 'percent';
+	if (BYTE_SENSOR_IDS.has(id)) return 'bytes';
+	// byte-valued absolutes: *.total, *.free, *.available, *.used, *.used.bytes (disk/mem/swap/vram).
+	if (/\.(total|free|available|used)$/.test(id) || id.endsWith('.used.bytes')) return 'bytes';
+	return 'integer';
 }
 
 const MONTHS = [

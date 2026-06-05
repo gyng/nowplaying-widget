@@ -5,7 +5,11 @@
 // holds ONLY overrides (`{ version, overrides }`) — defaults live in code — so it degrades safely.
 import { useCallback, useRef, useState } from 'react';
 import { loadControls, saveControls } from '../../overlay';
-import { parseControlOverrides, type ControlOverride, type ControlOverrides } from '../../core/controls';
+import {
+	parseControlOverrides,
+	type ControlOverride,
+	type ControlOverrides
+} from '../../core/controls';
 
 const VERSION = 1;
 

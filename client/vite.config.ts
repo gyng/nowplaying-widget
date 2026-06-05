@@ -17,6 +17,25 @@ export default defineConfig({
 		outDir: 'build',
 		emptyOutDir: true
 	},
+	// CodeMirror (the studio's CSS editor) throws "Unrecognized extension value … multiple instances
+	// of @codemirror/state" if more than one copy of that package loads — its extensions use
+	// `instanceof` against the single state package. node_modules already dedupes to one version, but
+	// Vite's dev pre-bundler can still split it across optimized chunks, so pin a single instance both
+	// ways: dedupe the resolved module, and pre-bundle the whole CodeMirror set together.
+	resolve: {
+		dedupe: ['@codemirror/state', '@codemirror/view']
+	},
+	optimizeDeps: {
+		include: [
+			'@codemirror/state',
+			'@codemirror/view',
+			'@codemirror/language',
+			'@codemirror/commands',
+			'@codemirror/autocomplete',
+			'@codemirror/lint',
+			'@codemirror/lang-css'
+		]
+	},
 	test: {
 		environment: 'happy-dom',
 		globals: true,

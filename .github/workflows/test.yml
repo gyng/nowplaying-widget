@@ -70,3 +70,10 @@ jobs:
       - run: npm run build
       - run: npm run test:unit
       - run: npm run lint
+      # Fail if docs/widgets.md drifted from the widget registry (run `npm run gen:docs` to refresh).
+      - run: npm run check:docs
+      # E2E (Playwright): drives the studio in a real browser via the dev Tauri mock. The config's
+      # webServer auto-starts `vite` (dev → devMock is active; it's stripped from prod builds), so no
+      # separate server step is needed. Browsers must be installed first.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

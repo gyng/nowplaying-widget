@@ -1,34 +1,64 @@
 # widgetsack
 
-A themable, Rainmeter-style desktop widget overlay for Windows. Put system meters
-(CPU, per-core, GPU/VRAM, memory, network), clocks, and the currently-playing track on a
-transparent, click-through overlay across all your monitors — and arrange them with a
-built-in visual editor.
+<p align="center">
+  <img src="docs/img/demo.png" alt="widgetsack demo layout: clock, CPU/GPU gauges, memory/VRAM bars, up/down network graphs, and a now-playing widget" width="640">
+</p>
 
-> Evolved from `nowplaying-widget`; the now-playing widget is still built in.
+[**👉 .msi download for the latest release**](https://github.com/gyng/nowplaying-widget/releases/latest)
 
-[.msi download for the latest release](https://github.com/gyng/nowplaying-widget/releases/latest)
+A themable desktop widget overlay for Windows.
 
-|                                                             |                                                             |
-| ----------------------------------------------------------- | ----------------------------------------------------------- |
-| ![screenshot-a](widgetsack/docs/screenshot-a.jpg)           | ![screenshot-b](widgetsack/docs/screenshot-b.jpg)           |
+Put system meters (CPU, per-core, GPU/VRAM, memory, network), clocks, and the currently-playing track on a transparent, click-through overlay across all your monitors and arrange them with a
+built-in visual editor. Widgets follow a sensor + meter model but the layout is a live CSS-flow editor, styling is plain CSS + design
+tokens, and it ships with Home Assistant, MQTT, and stock-quote integrations.
+
+## Widget gallery
+
+See: [**widget reference**](docs/widgets.md) · [**templating & formulas**](docs/templating.md)
+
+The screenshots regenerate from the registry: `npm run gen:gallery` (in `client/`); both reference
+docs regenerate from the code with `npm run gen:docs`.
+
+## Layout studio
+
+<p align="center">
+  <img src="docs/img/studio.png" alt="widgetsack studio: the layout editor showing the demo layout on the stage, the section nav, the canvas toolbar, and the widget inspector" width="900">
+</p>
 
 ## Features
 
-- **Meters:** radial gauges, bars, sparklines, text readouts, clocks, and a now-playing
-  widget — driven by a sensor + meter model (à la Rainmeter measures/meters).
-- **Sensors:** CPU total + per-core, memory, swap, network up/down (bytes/sec), and
-  NVIDIA GPU util / VRAM / temp (via NVML; degrades gracefully without an NVIDIA GPU).
-- **Now playing:** Windows media (GSMTC) — anything in the Windows audio flyout
-  (Spotify / foobar2000 / Chrome / Firefox)
-  ([GSMTC support table](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md)).
-- **Overlay:** transparent, always-on-top, click-through window filling each monitor.
-  Multi-monitor (one overlay per monitor; widgets are bound to a monitor).
-- **Visual editor:** toggle edit mode (tray menu or `Ctrl+Alt+E`) to drag, resize,
-  snap-to-grid, add/remove widgets, and edit their config — saved to `widgets.json` with
-  live reload.
-- **Theming:** per-widget user CSS; system fonts.
+- **Widgets:** gauges, bars, sparklines, text, digital + analog clocks, a per-core CPU grid, an
+  audio spectrum, a now-playing card, a stock ticker, an application fence or zone, a web iframe, action buttons, and Home
+  Assistant tiles — sensor- or [formula-driven](docs/templating.md) and fully restylable ([reference](docs/widgets.md)).
+- **Sensors:** CPU (total/per-core/freq), memory + swap, network, disks, uptime, battery, and
+  NVIDIA GPU (NVML) — demand-gated, so only what's on screen is sampled.
+- **Now playing:** Windows media via GSMTC — Spotify, foobar2000, browsers, and more
+  ([support table](https://github.com/ModernFlyouts-Community/ModernFlyouts/blob/main/docs/GSMTC-Support-And-Popular-Apps.md)).
+- **Integrations:** Home Assistant (live states + light/climate controls), MQTT, and stock quotes.
+- **Overlay:** transparent, click-through, always-on-top, one per monitor — per-widget
+  click-through still lets buttons/controls catch clicks. Single-instance, optional autostart.
+- **Studio:** visual editor — drag/resize/snap a CSS-flow layout, browse sensors, build reusable
+  widgets, edit themes, import/export "sacks". `Ctrl+Alt+E`; live-reloaded `widgets.json`.
+- **Templates:** one-click starter groups (clock, system, network, now-playing) recreated from
+  classic Rainmeter skins.
+- **Macros:** bind a button to a sequence of actions (HA service calls, media transport).
+- **Theming:** per-widget CSS (highlighting/linting editor), design-token themes, system fonts.
+- **Window zones:** define snap regions and drag any app's window into them.
+- **Perfect for secondary and side monitors**: Corsair Xeneon Edge, Lamptron, Turzx, etc.
 - Built with Tauri + React.
+
+## Coming from Rainmeter?
+
+widgetsack is a web-first take on what a widget suite does — system meters, clocks, now-playing, and a transparent always-on-top overlay — with a few differences:
+
+- **Sensor + meter, not `.ini`:** the same measure→meter idea (a sensor feeds a meter), but you
+  wire it in a visual **studio** instead of hand-editing config files. Layout is CSS flexbox and
+  styling is plain per-widget CSS + design tokens.
+- **Built-in skins as templates:** the bundled templates recreate classic skin layouts and drop in
+  with one click; build your own reusable widgets in the widget designer.
+- **Built-in sources:** beyond local system sensors, pull in Home Assistant, MQTT, and live stock
+  quotes.
+- **Layout containers**: Grids, rows, columns and floating widgets that use HTML and CSS for styling
 
 ## Usage
 
@@ -59,60 +89,32 @@ show (reachable in edit mode; "All media" lists the current sources).
 
 ### Autostart
 
-Add `widgetsack.exe` to Startup apps in Task Manager.
+Toggle autostart in settings, or add `widgetsack.exe` to Startup apps in Task Manager.
 
-## Feature ideas
+## TODO
 
 - Desktop-pinned widget layer (behind windows, à la wallpaper engines)
-- Editor alignment guides / snap-to-other-widgets
-- Widget bundles (JS/HTML/CSS); more sensors (lyrics, spectrogram, temps/fans)
 
 ## Development
 
-Contributions welcome. The architecture and roadmap live in
+Build/run instructions, the test gates, and the release process live in
+[docs/development.md](docs/development.md). The architecture and roadmap are in
 [docs/widget-platform.md](docs/widget-platform.md).
 
-### Getting started
+## License
 
-> **Note**  
-> widgetsack has to be built on Windows.
+Licensed under either of
 
-Install [Tauri prerequisites](https://tauri.app/start/prerequisites/) first, plus a current
-**v2** Tauri CLI (the project uses tauri 2.11):
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
-```sh
-# if `cargo tauri` is missing or older than 2.x:
-$ cargo install tauri-cli --version "^2" --locked
-```
+at your option.
 
-```sh
-# Install client dependencies first
-$ (cd client && npm i)
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
 
-# Run the full app in dev (Tauri starts the Vite dev server for you)
-$ cargo tauri dev
-
-# Build the frontend before the Rust checks — Tauri embeds client/build,
-# so cargo test/clippy fail if it is missing
-$ (cd client && npm run build)
-$ cargo test
-$ cargo clippy
-
-# If needed; output is target/release/widgetsack.exe
-$ cargo tauri build
-
-# Client tests and checks (run from client/)
-$ (cd client && npm run test:unit)   # Vitest unit/component tests
-$ (cd client && npm run check)       # tsc --noEmit type checking
-$ (cd client && npm run lint)        # Prettier + ESLint
-```
-
-### Release
-
-1. Bump the version in [widgetsack/tauri.conf.json](widgetsack/tauri.conf.json)
-2. Create a new release on the [releases](https://github.com/gyng/nowplaying-widget/releases) page.
-
-## Links
-
-- https://rfdonnelly.github.io/posts/tauri-async-rust-process/#the-async-process
-- https://github.com/Nerixyz/current-song2
+<p align="center">
+  <img src="branding/icon.png" alt="widgetsack logo — a maneki-neko holding a money sack and a little CRT" width="168" height="168">
+</p>

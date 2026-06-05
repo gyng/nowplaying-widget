@@ -1,0 +1,38 @@
+/* Sizing for the CodeMirror CSS editor; colours/borders come from the in-JS theme (cssEditorExt).
+   Two variants by class: the compact inspector field (default) and the larger theme-editor pane. */
+.css-editor {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+/* Placeholder shown while the CodeMirror chunk loads (sized to avoid a layout jump). */
+.css-editor-loading {
+	min-height: 46px;
+	border: 1px solid #333;
+	border-radius: 3px;
+	background: #1a1a1e;
+}
+
+.css-editor .cm-editor {
+	min-height: 46px;
+}
+
+.css-editor .cm-scroller {
+	max-height: 160px;
+}
+
+/* Theme editor: a tall pane that grows to fill the modal. */
+.css-editor.te-css {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+.css-editor.te-css .cm-editor {
+	flex: 1;
+	min-height: 200px;
+}
+
+.css-editor.te-css .cm-scroller {
+	max-height: none;
+}

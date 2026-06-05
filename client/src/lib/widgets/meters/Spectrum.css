@@ -1,0 +1,13 @@
+/* Structure only (the look lives in the theme / per-instance css, like the other meters). The
+   canvas fills the widget box; bar/heatmap colours are drawn imperatively in Spectrum.tsx. */
+.np-spectrum {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+/* In the studio (edit mode) give the canvas a faint fill so a silent spectrum — which is otherwise
+   fully transparent — is visible and easy to select. Overlay (passive) stays clean/transparent. */
+.widget.editable .np-spectrum {
+	background: rgba(119, 196, 211, 0.06);
+}

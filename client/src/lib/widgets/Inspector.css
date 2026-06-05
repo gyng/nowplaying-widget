@@ -48,6 +48,35 @@
 	align-items: center;
 }
 
+/* The Add/Library palette as a collapsible disclosure — open when nothing is selected (the primary
+   add affordance), collapsed once a node is selected so its properties sit at the TOP of the rail. */
+.inspector details.add-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.inspector details.add-panel > summary {
+	color: rgb(119, 196, 211);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	cursor: pointer;
+	user-select: none;
+	list-style: revert;
+}
+
+.inspector details.add-panel > summary:hover {
+	color: rgb(150, 214, 228);
+}
+
+/* The selected node's "type · id" heading: truncate the (long) id rather than overflow the rail. */
+.inspector .node-hd {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .inspector .fields {
 	display: flex;
 	flex-direction: column;
@@ -137,7 +166,25 @@
 }
 
 .inspector .hint {
-	color: #888;
+	color: var(--dim-fg);
+}
+
+/* Collapsed-by-default "Advanced" disclosure for the raw config-JSON + CSS escape hatches. */
+.inspector details.adv {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.inspector details.adv > summary {
+	color: var(--dim-fg);
+	cursor: pointer;
+	user-select: none;
+	list-style: revert;
+}
+
+.inspector details.adv > summary:hover {
+	color: rgb(119, 196, 211);
 }
 
 /* A config field: the <label> (control) plus a reset-to-default button pinned to its top-right.
@@ -171,9 +218,19 @@
 
 /* Per-field help text from the widget's config schema. */
 .inspector .field-help {
-	color: #888;
+	color: var(--dim-fg);
 	font-size: 10px;
 	line-height: 1.3;
+}
+
+/* Formula (expr) field: a full-width monospace editor + its referenced-sensor hint. */
+.inspector textarea.cfg-expr {
+	width: 100%;
+	resize: vertical;
+	white-space: pre;
+}
+.inspector .cfg-expr-refs .unknown {
+	color: rgb(220, 150, 120);
 }
 
 .inspector .meta {
@@ -183,10 +240,141 @@
 
 .inspector .libitem {
 	display: inline-flex;
+	max-width: 100%;
+	min-width: 0;
+}
+
+/* The def-name button truncates (full name in its title tooltip); the ✕ keeps its size. */
+.inspector .libitem > button:first-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .inspector .libitem .x {
 	border-left: none;
 	color: rgb(230, 160, 160);
 	padding: 2px 4px;
+}
+
+/* Macro field (kind:'macro'): an ordered list of action rows (domain / service / data) + add. */
+.inspector .macro-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.inspector .macro-empty {
+	color: var(--dim-fg);
+	font-size: 10px;
+}
+
+.inspector .macro-row {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 4px;
+	border: 1px solid #2a2a2e;
+	border-radius: 3px;
+}
+
+.inspector .macro-row-main {
+	display: flex;
+	gap: 2px;
+	align-items: center;
+}
+
+.inspector .macro-row-main .macro-domain,
+.inspector .macro-row-main .macro-service {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.inspector .macro-row-ops {
+	display: flex;
+	gap: 2px;
+	flex: 0 0 auto;
+}
+
+.inspector .macro-row-ops button {
+	padding: 0 4px;
+}
+
+.inspector .macro-row-ops .x {
+	color: rgb(220, 150, 120);
+}
+
+.inspector .macro-data.error {
+	border-color: rgb(220, 120, 120);
+}
+
+.inspector .macro-add {
+	align-self: flex-start;
+}
+
+/* CodeMirror CSS editor (widget / def / group css): show the unsaved (dirty) tint on the editor
+   border, mirroring the textarea fields. The colours/borders themselves come from cssEditorExt. */
+.inspector label.dirty .cm-editor {
+	border-color: rgba(119, 196, 211, 0.75);
+}
+
+/* --- "Data" tab: Form / Data switcher + the JSON/YAML representation of the selected node --- */
+.inspector .detail-tabs {
+	display: flex;
+	gap: 2px;
+	border-bottom: 1px solid #333;
+}
+
+.inspector .detail-tabs button {
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	color: #aaa;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 3px 8px;
+	cursor: pointer;
+}
+
+.inspector .detail-tabs button:hover {
+	color: #eee;
+}
+
+.inspector .detail-tabs button.active {
+	color: rgb(150, 214, 228);
+	border-bottom-color: rgb(119, 196, 211);
+}
+
+.inspector .data-bar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.inspector .data-bar .data-spacer {
+	flex: 1;
+}
+
+.inspector .data-bar button.active {
+	border-color: rgb(119, 196, 211);
+	color: rgb(150, 214, 228);
+}
+
+.inspector .data-area {
+	width: 100%;
+	box-sizing: border-box;
+	min-height: 240px;
+	resize: vertical;
+	white-space: pre;
+	tab-size: 2;
+	line-height: 1.4;
+}
+
+.inspector .data-area.error {
+	border-color: rgb(220, 120, 120);
+}
+
+.inspector .data-err {
+	color: rgb(230, 160, 160);
 }

@@ -55,4 +55,22 @@ describe('addContainer targeting (context-menu Add inside)', () => {
 		const root = container('root', 'col', [container('cell-a', 'col', [])]);
 		expect(addContainer(stub(root), 'row', 'does-not-exist')).toEqual({});
 	});
+
+	it('with a cell index, pads earlier empty cells so the band lands in the CLICKED cell', () => {
+		// grid has 1 child (cell 0); right-click the 3rd cell (index 2) → pad cell 1, new band at cell 2.
+		const grid = container('g', 'grid', [container('filled', 'col', [])], { cols: 3 });
+		const patch = addContainer(stub(container('root', 'col', [grid])), 'row', 'g', 2);
+		const g = child((patch.monitor as MonitorLayout).root, 'g');
+		expect(g.children).toHaveLength(3); // filled, spacer, new row
+		expect(g.children[0].id).toBe('filled'); // existing content untouched at cell 0
+		expect((g.children[2] as Container).kind).toBe('row'); // new band lands in cell index 2
+	});
+
+	it('with an index equal to the child count, just appends (no spacer)', () => {
+		const grid = container('g', 'grid', [container('filled', 'col', [])], { cols: 3 });
+		const patch = addContainer(stub(container('root', 'col', [grid])), 'row', 'g', 1);
+		const g = child((patch.monitor as MonitorLayout).root, 'g');
+		expect(g.children).toHaveLength(2);
+		expect((g.children[1] as Container).kind).toBe('row');
+	});
 });

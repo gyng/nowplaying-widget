@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listPlugins, registerPlugin } from './plugin';
+import { listPlugins, pluginSensorNamesFrom, registerPlugin, type Plugin } from './plugin';
 import { getMeta } from '../core/widget';
 import { getControl } from '../core/controls';
 import type { MeterComponent } from './registry';
@@ -61,5 +61,35 @@ describe('plugin registry', () => {
 		const matches = listPlugins().filter((p) => p.id === 'test.dup');
 		expect(matches).toHaveLength(1);
 		expect(matches[0].name).toBe('Second');
+	});
+});
+
+describe('pluginSensorNamesFrom', () => {
+	const src = (id: string, catalog: string[]) => ({
+		id,
+		start: async () => () => undefined,
+		catalog: () => catalog
+	});
+	const list: Plugin[] = [
+		{
+			id: 'home-assistant',
+			name: 'Home Assistant',
+			sources: [src('home-assistant', ['ha.light.kitchen', 'ha.sensor.temp'])]
+		},
+		{ id: 'mqtt', name: 'MQTT', sources: [src('mqtt', ['mqtt.zigbee/temp'])] },
+		{ id: 'no-source', name: 'No Source' } // a plugin without a sensor source contributes nothing
+	];
+
+	it('maps each plugin-source catalog id to its plugin name', () => {
+		const names = pluginSensorNamesFrom(list);
+		expect(names.get('ha.light.kitchen')).toBe('Home Assistant');
+		expect(names.get('ha.sensor.temp')).toBe('Home Assistant');
+		expect(names.get('mqtt.zigbee/temp')).toBe('MQTT');
+	});
+
+	it('does not badge built-in / unlisted sensors', () => {
+		const names = pluginSensorNamesFrom(list);
+		expect(names.has('cpu.total')).toBe(false);
+		expect(names.has('mem.used')).toBe(false);
 	});
 });

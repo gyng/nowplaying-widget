@@ -41,3 +41,22 @@ export function registerPlugin(plugin: Plugin): void {
 export function listPlugins(): Plugin[] {
 	return Array.from(plugins.values());
 }
+
+/** Map each sensor id contributed by a plugin's source(s) to that plugin's display name — for a
+ * "from X" badge in the sensor browser. Pure over the given plugins. The built-in `system` source is
+ * registered directly (not via a plugin), so system sensors are absent here → no badge. First plugin
+ * to claim an id wins. */
+export function pluginSensorNamesFrom(list: Plugin[]): Map<string, string> {
+	const names = new Map<string, string>();
+	for (const p of list) {
+		for (const source of p.sources ?? []) {
+			for (const id of source.catalog?.() ?? []) if (!names.has(id)) names.set(id, p.name);
+		}
+	}
+	return names;
+}
+
+/** `pluginSensorNamesFrom` over the live plugin registry. */
+export function pluginSensorNames(): Map<string, string> {
+	return pluginSensorNamesFrom(listPlugins());
+}

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatClock, formatPercent, formatRate, formatScalar } from './format';
+import {
+	formatBytes,
+	formatClock,
+	formatDuration,
+	formatPercent,
+	formatRate,
+	formatScalar,
+	guessSensorFormat,
+	SCALAR_FORMATS
+} from './format';
 
 describe('formatBytes', () => {
 	it('scales with binary units', () => {
@@ -34,6 +43,108 @@ describe('formatScalar', () => {
 
 	it('shows a placeholder for null', () => {
 		expect(formatScalar(null, 'percent')).toBe('–');
+	});
+
+	it('routes the duration and bytes formats', () => {
+		expect(formatScalar(90061, 'duration')).toBe('1d 1h');
+		expect(formatScalar(17179869184, 'bytes')).toBe('16.0 GiB');
+	});
+
+	// Drift guard for the generated templating docs: every documented named format must actually be
+	// HANDLED by the switch (not fall through to the raw number).
+	it('handles every SCALAR_FORMATS name (none falls through to raw)', () => {
+		for (const f of SCALAR_FORMATS) {
+			expect(formatScalar(1234.5, f.name)).not.toBe((1234.5).toString());
+		}
+		expect(formatScalar(1234.5, 'nope')).toBe('1234.5'); // an unlisted format → raw
+	});
+});
+
+describe('formatDuration', () => {
+	it('shows the two most-significant units', () => {
+		expect(formatDuration(0)).toBe('0s');
+		expect(formatDuration(45)).toBe('45s');
+		expect(formatDuration(125)).toBe('2m 5s');
+		expect(formatDuration(3 * 3600 + 12 * 60 + 9)).toBe('3h 12m');
+		expect(formatDuration(3 * 86400 + 4 * 3600 + 30 * 60)).toBe('3d 4h');
+	});
+
+	it('guards negative and non-finite input', () => {
+		expect(formatDuration(-5)).toBe('0s');
+		expect(formatDuration(Number.NaN)).toBe('0s');
+	});
+});
+
+describe('guessSensorFormat', () => {
+	it('maps byte/total absolutes to bytes', () => {
+		for (const id of [
+			'mem.total',
+			'mem.used.bytes',
+			'mem.available',
+			'mem.free',
+			'swap.total',
+			'gpu.vram.total',
+			'gpu.vram.used',
+			'gpu.vram.free',
+			'disk.c.total',
+			'disk.c.free',
+			'disk.c.used',
+			'net.down.total',
+			'net.up.total'
+		]) {
+			expect(guessSensorFormat(id)).toBe('bytes');
+		}
+	});
+
+	it('keeps the percent ids (incl. per-core and .pct) as percent', () => {
+		for (const id of ['cpu.total', 'cpu.core.7', 'mem.used', 'gpu.vram', 'disk.c.used.pct']) {
+			expect(guessSensorFormat(id)).toBe('percent');
+		}
+	});
+
+	it('maps rates, durations, counts and clocks', () => {
+		expect(guessSensorFormat('net.total')).toBe('rate');
+		expect(guessSensorFormat('net.down')).toBe('rate');
+		expect(guessSensorFormat('host.uptime')).toBe('duration');
+		expect(guessSensorFormat('battery.time')).toBe('duration');
+		expect(guessSensorFormat('host.idle')).toBe('duration');
+		expect(guessSensorFormat('host.procs')).toBe('integer');
+		expect(guessSensorFormat('host.handles')).toBe('integer');
+		expect(guessSensorFormat('cpu.freq')).toBe('integer');
+		expect(guessSensorFormat('gpu.clock.core')).toBe('integer');
+	});
+
+	it('handles the Windows commit/cache/kernel byte ids and live CPU clocks', () => {
+		for (const id of [
+			'mem.commit.used',
+			'mem.commit.limit',
+			'mem.commit.peak',
+			'mem.cached',
+			'mem.kernel.paged',
+			'mem.kernel.nonpaged'
+		]) {
+			expect(guessSensorFormat(id)).toBe('bytes');
+		}
+		// Live CPU clocks are MHz integers; per-core FREQUENCY must not be read as per-core usage %.
+		expect(guessSensorFormat('cpu.freq.current')).toBe('integer');
+		expect(guessSensorFormat('cpu.freq.max')).toBe('integer');
+		expect(guessSensorFormat('cpu.core.3.freq')).toBe('integer');
+		expect(guessSensorFormat('cpu.core.3')).toBe('percent');
+	});
+
+	it('handles disk I/O, network link, and battery power ids', () => {
+		// Live disk I/O: throughput is a rate, active-time is a percent.
+		expect(guessSensorFormat('disk.c.read')).toBe('rate');
+		expect(guessSensorFormat('disk.c.write')).toBe('rate');
+		expect(guessSensorFormat('disk.c.busy.pct')).toBe('percent');
+		// Capacity ids on the same drive stay bytes / percent.
+		expect(guessSensorFormat('disk.c.total')).toBe('bytes');
+		expect(guessSensorFormat('disk.c.used.pct')).toBe('percent');
+		// Network link speed is a rate (bytes/s); battery power/energy are integers.
+		expect(guessSensorFormat('net.linkspeed.rx')).toBe('rate');
+		expect(guessSensorFormat('net.linkspeed.tx')).toBe('rate');
+		expect(guessSensorFormat('battery.rate')).toBe('integer');
+		expect(guessSensorFormat('battery.capacity.remaining')).toBe('integer');
 	});
 });
 

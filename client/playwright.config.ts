@@ -1,0 +1,33 @@
+import { defineConfig, devices } from '@playwright/test';
+
+// End-to-end layout checks against the SPA served by Vite with the dev Tauri mock (src/lib/devMock.ts)
+// installed — a REAL browser (so a real layout engine, unlike happy-dom) drives the studio with a
+// stubbed backend. This covers the layout/interaction surface the vitest unit tests structurally can't
+// (geometry, flexbox, drag). No Tauri runtime → no live sensors/persistence; those need the native app.
+const PORT = 5180;
+
+export default defineConfig({
+	testDir: './e2e',
+	fullyParallel: true,
+	forbidOnly: !!process.env.CI,
+	retries: process.env.CI ? 1 : 0,
+	// Cap parallelism: spawning one headless Chromium per core at once is flaky on Windows
+	// ("browserType.launch: spawn UNKNOWN" under the launch storm). A modest pool is plenty for ~16 tests.
+	workers: process.env.CI ? 2 : 4,
+	reporter: 'list',
+	use: {
+		baseURL: `http://127.0.0.1:${PORT}`,
+		// retain-on-failure (not on-first-retry) so the FIRST failure — incl. CI runs with retries:0 —
+		// still leaves a trace/screenshot/video to debug from.
+		trace: 'retain-on-failure',
+		screenshot: 'only-on-failure',
+		video: 'retain-on-failure'
+	},
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	webServer: {
+		command: `npx vite --port ${PORT} --host 127.0.0.1`,
+		url: `http://127.0.0.1:${PORT}`,
+		reuseExistingServer: !process.env.CI,
+		timeout: 60_000
+	}
+});

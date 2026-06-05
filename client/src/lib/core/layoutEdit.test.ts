@@ -12,6 +12,7 @@ import {
 	moveNode,
 	outlineRows,
 	removeNode,
+	replaceNode,
 	ungroupNode,
 	updateContainer,
 	updateNode
@@ -35,6 +36,36 @@ const tree = (): Container =>
 		container('rowA', 'row', [leaf(prim('A')), leaf(prim('B'))]),
 		leaf(prim('C'))
 	]);
+
+describe('replaceNode', () => {
+	it('replaces a nested leaf in place, preserving its position', () => {
+		const next = replaceNode(tree(), 'B', leaf(prim('B2')));
+		const rowA = findNode(next, 'rowA') as Container;
+		expect(rowA.children.map((c) => c.id)).toEqual(['A', 'B2']);
+		// untouched siblings keep identity-equivalent content
+		expect(findNode(next, 'C')).toBeTruthy();
+	});
+
+	it('replaces a nested container subtree', () => {
+		const next = replaceNode(tree(), 'rowA', container('rowA', 'grid', [leaf(prim('X'))]));
+		const rowA = findNode(next, 'rowA') as Container;
+		expect(rowA.kind).toBe('grid');
+		expect(rowA.children.map((c) => c.id)).toEqual(['X']);
+	});
+
+	it('is a no-op clone when the id is absent', () => {
+		const next = replaceNode(tree(), 'nope', leaf(prim('Z')));
+		expect(outlineRows(next).map((r) => r.node.id)).toEqual(
+			outlineRows(tree()).map((r) => r.node.id)
+		);
+	});
+
+	it('refuses to replace the root with a leaf, but accepts a container', () => {
+		expect(replaceNode(tree(), 'root', leaf(prim('Z'))).id).toBe('root');
+		const replaced = replaceNode(tree(), 'root', container('root', 'row', []));
+		expect(replaced.kind).toBe('row');
+	});
+});
 
 describe('findNode / findParent', () => {
 	it('finds the root, a nested container, and a nested leaf', () => {
@@ -195,6 +226,11 @@ describe('flowLeaves / allContainers', () => {
 		expect(a).toMatchObject({ parentId: 'rowA', index: 0, siblingCount: 2 });
 		const c = rows.find((r) => r.node.id === 'C');
 		expect(c).toMatchObject({ parentId: 'root', index: 1, siblingCount: 2 });
+		// Tree-line guides: a top-level row has no ancestor lanes; A/B sit under rowA, which is NOT
+		// root's last child (C follows), so their single ancestor lane keeps a continuing vertical.
+		expect(rows.find((r) => r.node.id === 'rowA')?.ancestorsLast).toEqual([]);
+		expect(a?.ancestorsLast).toEqual([false]);
+		expect(c?.ancestorsLast).toEqual([]);
 	});
 });
 

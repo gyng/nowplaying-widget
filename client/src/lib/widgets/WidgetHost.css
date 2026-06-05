@@ -30,6 +30,14 @@
 	outline-style: solid;
 }
 
+/* Part of a MULTI-selection: a dashed (vs the single-select solid) outline + a faint ring, so the
+   stage itself shows "several are selected" — the cue lives where the gaze is, not only in the
+   Inspector. Keeps the single mint accent (no new hue); the shape difference carries the meaning. */
+.widget.selected.multi-member {
+	outline-style: dashed;
+	box-shadow: 0 0 0 2px rgba(119, 196, 211, 0.28);
+}
+
 /* Cross-highlight while the matching Outline tree row is hovered: a soft glow that reads even
    when the widget isn't selected (selection keeps its solid accent outline). */
 .widget.hl {

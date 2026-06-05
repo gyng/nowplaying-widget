@@ -5,8 +5,10 @@ import {
 	collectContainerRects,
 	collectGridPlaceholders,
 	collectRenderables,
+	collectSplitters,
 	gridCellRects,
 	intrinsicSize,
+	resizeSplit,
 	resolveGroup,
 	type Solved
 } from './solve';
@@ -250,8 +252,8 @@ describe('collectGridPlaceholders', () => {
 		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
 		const cells = collectGridPlaceholders(mon, solved);
 		expect(cells).toHaveLength(2);
-		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 100 });
-		expect(cells[1]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
+		expect(cells[0]).toEqual({ gridId: 'g', index: 0, rect: { x: 0, y: 0, w: 100, h: 100 } });
+		expect(cells[1]).toEqual({ gridId: 'g', index: 1, rect: { x: 100, y: 0, w: 100, h: 100 } });
 	});
 
 	it('a partial grid outlines only the empty trailing cells', () => {
@@ -261,7 +263,7 @@ describe('collectGridPlaceholders', () => {
 		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
 		const cells = collectGridPlaceholders(mon, solved);
 		expect(cells).toHaveLength(1); // cell 0 filled by A, cell 1 is the placeholder
-		expect(cells[0]).toEqual({ x: 100, y: 0, w: 100, h: 100 });
+		expect(cells[0]).toEqual({ gridId: 'g', index: 1, rect: { x: 100, y: 0, w: 100, h: 100 } });
 	});
 });
 
@@ -295,5 +297,166 @@ describe('non-uniform grid (fixed cell width/height + aspect)', () => {
 		const cells = gridCellRects(grid, { x: 0, y: 0, w: 100, h: 200 });
 		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 50 });
 		expect(cells[1]).toEqual({ x: 0, y: 50, w: 100, h: 150 });
+	});
+
+	it('colFr weights the flexible columns (2:1 over 300 → 200 / 100)', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10)), leaf(prim('B', 10, 10))], {
+			cols: 2,
+			colFr: [2, 1]
+		});
+		const cells = gridCellRects(grid, { x: 0, y: 0, w: 300, h: 100 });
+		expect(cells[0]).toEqual({ x: 0, y: 0, w: 200, h: 100 });
+		expect(cells[1]).toEqual({ x: 200, y: 0, w: 100, h: 100 });
+	});
+
+	it('rowFr weights the flexible rows (1:3 over 200 → 50 / 150)', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10)), leaf(prim('B', 10, 10))], {
+			cols: 1,
+			rowFr: [1, 3]
+		});
+		const cells = gridCellRects(grid, { x: 0, y: 0, w: 100, h: 200 });
+		expect(cells[0]).toEqual({ x: 0, y: 0, w: 100, h: 50 });
+		expect(cells[1]).toEqual({ x: 0, y: 50, w: 100, h: 150 });
+	});
+
+	it('a fixed column is untouched by colFr; only the FLEXIBLE rest is weighted', () => {
+		// col 0 fixed 100; cols 1,2 flexible with weights 1:3 over the remaining 200 → 50 / 150.
+		const c0 = container('c0', 'col', [leaf(prim('A', 10, 10))], { cellW: 100 });
+		const grid = container('g', 'grid', [c0, leaf(prim('B', 10, 10)), leaf(prim('C', 10, 10))], {
+			cols: 3,
+			colFr: [1, 1, 3]
+		});
+		const cells = gridCellRects(grid, { x: 0, y: 0, w: 300, h: 100 });
+		expect(cells[0].w).toBe(100); // fixed
+		expect(cells[1].w).toBe(50); // 200 * 1/4
+		expect(cells[2].w).toBe(150); // 200 * 3/4
+	});
+});
+
+// ---- splitters (interactive row/col resize) ------------------------------
+
+describe('collectSplitters', () => {
+	const frLeaf = (id: string): Leaf => ({ ...leaf(prim(id, 10, 10)), basis: { fr: 1 } });
+
+	it('one bar between two fr children of a row (vertical, at the boundary)', () => {
+		const row = container('r', 'row', [frLeaf('a'), frLeaf('b')]);
+		const mon: MonitorLayout = { root: container('root', 'col', [row]), floating: [] };
+		const solved: Solved = new Map([
+			['a', { x: 0, y: 0, w: 100, h: 50 }],
+			['b', { x: 100, y: 0, w: 100, h: 50 }]
+		]);
+		const sp = collectSplitters(mon, solved);
+		expect(sp).toHaveLength(1);
+		expect(sp[0]).toMatchObject({
+			axis: 'row',
+			aId: 'a',
+			bId: 'b',
+			frA: 1,
+			frB: 1,
+			mainA: 100,
+			mainB: 100
+		});
+		expect(sp[0].rect.x).toBeCloseTo(100 - 4); // centred on the boundary, 8px bar
+	});
+
+	it('skips a pair that is not fr↔fr (only the proportional pool resizes)', () => {
+		const row = container('r', 'row', [
+			frLeaf('a'),
+			{ ...leaf(prim('b', 10, 10)), basis: 'content' }
+		]);
+		const mon: MonitorLayout = { root: container('root', 'col', [row]), floating: [] };
+		const solved: Solved = new Map([
+			['a', { x: 0, y: 0, w: 100, h: 50 }],
+			['b', { x: 100, y: 0, w: 100, h: 50 }]
+		]);
+		expect(collectSplitters(mon, solved)).toHaveLength(0);
+	});
+
+	it('a col with three fr children yields two horizontal bars', () => {
+		const col = container('c', 'col', [frLeaf('a'), frLeaf('b'), frLeaf('d')]);
+		const mon: MonitorLayout = { root: col, floating: [] };
+		const solved: Solved = new Map([
+			['a', { x: 0, y: 0, w: 100, h: 30 }],
+			['b', { x: 0, y: 30, w: 100, h: 30 }],
+			['d', { x: 0, y: 60, w: 100, h: 30 }]
+		]);
+		const sp = collectSplitters(mon, solved);
+		expect(sp).toHaveLength(2);
+		expect(sp.every((s) => s.axis === 'col')).toBe(true);
+	});
+});
+
+describe('collectSplitters — grid tracks', () => {
+	it('a 2-col grid yields one vertical column splitter carrying its track indices', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10)), leaf(prim('B', 10, 10))], {
+			cols: 2
+		});
+		const mon: MonitorLayout = { root: container('root', 'col', [grid]), floating: [] };
+		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
+		const sp = collectSplitters(mon, solved);
+		expect(sp).toHaveLength(1);
+		expect(sp[0]).toMatchObject({
+			containerId: 'g',
+			axis: 'row', // vertical bar
+			frA: 1,
+			frB: 1,
+			track: { which: 'col', a: 0, b: 1 }
+		});
+		expect(sp[0].rect.x).toBeCloseTo(100 - 4); // centred on the boundary, 8px bar
+	});
+
+	it('a 2×2 grid yields one column splitter + one row splitter', () => {
+		const cells = [
+			leaf(prim('A', 10, 10)),
+			leaf(prim('B', 10, 10)),
+			leaf(prim('C', 10, 10)),
+			leaf(prim('D', 10, 10))
+		];
+		const grid = container('g', 'grid', cells, { cols: 2, rows: 2 });
+		const mon: MonitorLayout = { root: grid, floating: [] };
+		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
+		const sp = collectSplitters(mon, solved);
+		expect(sp.filter((s) => s.track?.which === 'col')).toHaveLength(1);
+		expect(sp.filter((s) => s.track?.which === 'row')).toHaveLength(1);
+	});
+
+	it('reflects stored colFr weights as the splitter start fr', () => {
+		const grid = container('g', 'grid', [leaf(prim('A', 10, 10)), leaf(prim('B', 10, 10))], {
+			cols: 2,
+			colFr: [3, 1]
+		});
+		const mon: MonitorLayout = { root: container('root', 'col', [grid]), floating: [] };
+		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
+		const sp = collectSplitters(mon, solved);
+		expect(sp[0]).toMatchObject({ frA: 3, frB: 1 });
+	});
+
+	it('skips a boundary touching a FIXED (cellW) track', () => {
+		const c0 = container('c0', 'col', [leaf(prim('A', 10, 10))], { cellW: 80 });
+		const grid = container('g', 'grid', [c0, leaf(prim('B', 10, 10))], { cols: 2 });
+		const mon: MonitorLayout = { root: container('root', 'col', [grid]), floating: [] };
+		const solved: Solved = new Map([['g', { x: 0, y: 0, w: 200, h: 100 }]]);
+		expect(collectSplitters(mon, solved)).toHaveLength(0);
+	});
+});
+
+describe('resizeSplit', () => {
+	it('keeps the combined fr constant while re-dividing the ratio', () => {
+		// snap off to test the raw ratio (delta +20 → 120/200 = 0.6, but 120 is within 14px of the 2/3 snap).
+		const { frA, frB } = resizeSplit(100, 100, 1, 1, 20, { snapPx: 0 });
+		expect(frA + frB).toBeCloseTo(2);
+		expect(frA).toBeGreaterThan(frB); // A grew
+		expect(frA).toBeCloseTo(1.2); // fraction 0.6 × combined 2
+	});
+
+	it('snaps the boundary to a 1/3 fraction when near', () => {
+		const { frA, frB } = resizeSplit(100, 100, 1, 1, -32, { snapPx: 14 }); // newA 68 ≈ 1/3·200 (66.7)
+		expect(frA).toBeCloseTo((1 / 3) * 2, 2);
+		expect(frB).toBeCloseTo((2 / 3) * 2, 2);
+	});
+
+	it('clamps so neither side drops below the minimum', () => {
+		const { frA } = resizeSplit(100, 100, 1, 1, -500, { minPx: 16, snapPx: 0 });
+		expect(frA).toBeCloseTo((16 / 200) * 2, 2); // newA pinned to 16px
 	});
 });

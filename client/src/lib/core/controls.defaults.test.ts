@@ -23,4 +23,12 @@ describe('built-in controls', () => {
 		expect(getControl('studio.redo')).toBeDefined();
 		expect(detectConflicts(listControls())).toEqual([]);
 	});
+
+	it('exposes keyboard section navigation (Ctrl+1..8 jump + Ctrl+Tab cycle)', () => {
+		expect(getControl('studio.section')?.triggers.length).toBe(8);
+		expect(getControl('studio.sectionNext')).toBeDefined();
+		expect(getControl('studio.sectionPrev')).toBeDefined();
+		// still conflict-free with the new bindings
+		expect(detectConflicts(listControls())).toEqual([]);
+	});
 });

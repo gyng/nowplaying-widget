@@ -13,6 +13,10 @@ import AnalogClock from './meters/AnalogClock';
 import Bar from './meters/Bar';
 import Button from './meters/Button';
 import Cpu from './meters/Cpu';
+import Spectrum from './meters/Spectrum';
+import Iframe from './meters/Iframe';
+import Zone from './meters/Zone';
+import Spacer from './meters/Spacer';
 
 export type { MeterComponent };
 
@@ -24,7 +28,11 @@ const components: Record<string, MeterComponent> = {
 	analogclock: AnalogClock as unknown as MeterComponent,
 	bar: Bar as unknown as MeterComponent,
 	button: Button as unknown as MeterComponent,
-	cpu: Cpu as unknown as MeterComponent
+	cpu: Cpu as unknown as MeterComponent,
+	spectrum: Spectrum as unknown as MeterComponent,
+	iframe: Iframe as unknown as MeterComponent,
+	zone: Zone as unknown as MeterComponent,
+	spacer: Spacer as unknown as MeterComponent
 };
 
 /** Back-compat alias used by WidgetHost (`registry[instance.type]`). */

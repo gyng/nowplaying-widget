@@ -4,6 +4,7 @@
 // canvas/multiSelect.ts and the bulk apply lives in the Canvas (commitOp → one undo step). A list of
 // the selected items lets you drop back to single-select to tweak one.
 import type { MergedField, BasisSummary } from './canvas/multiSelect';
+import Select from './Select';
 import './MultiInspector.css';
 
 type Props = {
@@ -54,17 +55,15 @@ export default function MultiInspector({
 			return (
 				<label key={field.key} className="full">
 					{field.label}
-					<select
+					<Select
 						value={mixed ? '' : str(value)}
-						onChange={(e) => onPatchConfig(field.key, e.currentTarget.value)}
-					>
-						{mixed && <option value="">— mixed —</option>}
-						{field.options.map((o) => (
-							<option key={o} value={o}>
-								{o}
-							</option>
-						))}
-					</select>
+						options={[
+							...(mixed ? [{ value: '', label: '— mixed —' }] : []),
+							...field.options.map((o) => ({ value: o, label: o }))
+						]}
+						onChange={(v) => onPatchConfig(field.key, v)}
+						aria-label={field.label}
+					/>
 				</label>
 			);
 		}
@@ -113,15 +112,17 @@ export default function MultiInspector({
 				{basis && (
 					<label className="full">
 						size along the row / column
-						<select
+						<Select
 							value={basis === 'mixed' ? '' : basis}
-							onChange={(e) => onSetBasis(e.currentTarget.value as 'fixed' | 'content' | 'grow')}
-						>
-							{basis === 'mixed' && <option value="">— mixed —</option>}
-							<option value="fixed">fixed — use each one&apos;s w/h</option>
-							<option value="content">fit to content</option>
-							<option value="grow">grow — stretch to fill</option>
-						</select>
+							options={[
+								...(basis === 'mixed' ? [{ value: '', label: '— mixed —' }] : []),
+								{ value: 'fixed', label: "fixed — use each one's w/h" },
+								{ value: 'content', label: 'fit to content' },
+								{ value: 'grow', label: 'grow — stretch to fill' }
+							]}
+							onChange={(v) => onSetBasis(v as 'fixed' | 'content' | 'grow')}
+							aria-label="size along the row / column"
+						/>
 					</label>
 				)}
 
