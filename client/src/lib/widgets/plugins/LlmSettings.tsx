@@ -22,7 +22,9 @@ import {
 	layoutAssistantReady
 } from '../layoutAssistantBridge';
 import { useLlmChat } from '../../llm/useLlmChat';
-import { speak, ttsAvailable } from '../../tts';
+import { ttsAvailable } from '../../tts';
+import { speakSmart } from './llm-tts';
+import Select from '../Select';
 import {
 	controlStart,
 	controlStop,
@@ -34,27 +36,31 @@ import {
 	saveLlmConfig
 } from './llm-commands';
 import { sttAvailable, startRecording, type Recorder } from '../../stt';
-import type { LlmModel } from './llm-types';
+import type { LlmModel, LlmStatus } from './llm-types';
 
 type TestState = { kind: 'idle' } | { kind: 'ok'; msg: string } | { kind: 'err'; msg: string };
 
 export default function LlmSettings() {
 	const hub = useTelemetryHub();
 
+	// `status` holds EVERY configured provider's non-secret settings, so switching the active provider
+	// reloads its saved entry (URL / model / audio) without losing the others — several stay authed.
+	const [status, setStatus] = useState<LlmStatus | null>(null);
 	const [provider, setProvider] = useState('openai');
 	const [baseUrl, setBaseUrl] = useState('');
 	const [apiKey, setApiKey] = useState(''); // write-only; blank = keep saved
 	const [model, setModel] = useState('');
 	const [insecure, setInsecure] = useState(false);
-	const [temperature, setTemperature] = useState(0.7);
-	const [maxTokens, setMaxTokens] = useState(1024);
-	const [hasKey, setHasKey] = useState(false);
-	const [configured, setConfigured] = useState(false);
+	const [sttModel, setSttModel] = useState('');
+	const [ttsModel, setTtsModel] = useState('');
+	const [ttsVoice, setTtsVoice] = useState('');
+	const [temperature, setTemperature] = useState(0.7); // global
+	const [maxTokens, setMaxTokens] = useState(1024); // global
+	const [agentControl, setAgentControl] = useState(false); // global
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
 	const [test, setTest] = useState<TestState>({ kind: 'idle' });
 	const [models, setModels] = useState<LlmModel[]>([]);
-	const [agentControl, setAgentControl] = useState(false);
 
 	// Auto-dismiss the "Saved ✓" tick like a toast (it otherwise lingers until the next edit).
 	useEffect(() => {
@@ -64,20 +70,37 @@ export default function LlmSettings() {
 	}, [saved]);
 
 	const meta = providerMeta(provider);
+	const needsKey = meta.needsKey;
+	const hasKey = !needsKey || !!status?.providers[provider]?.hasKey;
+
+	// Populate the form from a provider's SAVED entry (or the catalog defaults when it has none yet) —
+	// this is what makes the Base URL / model / audio fields follow the provider on switch. The api key
+	// is write-only, so it always resets to blank ("leave blank to keep").
+	const loadProvider = (id: string, st: LlmStatus | null) => {
+		const m = providerMeta(id);
+		const p = st?.providers[id];
+		setBaseUrl(p?.baseUrl ?? m.defaultBaseUrl);
+		setModel(p?.model ?? '');
+		setInsecure(p?.insecure ?? false);
+		setSttModel(p?.sttModel ?? '');
+		setTtsModel(p?.ttsModel ?? '');
+		setTtsVoice(p?.ttsVoice ?? '');
+		setApiKey('');
+		setModels([]);
+	};
 
 	useEffect(() => {
 		let alive = true;
 		llmConfigStatus()
 			.then((s) => {
 				if (!alive) return;
-				setProvider(s.provider || 'openai');
-				setBaseUrl(s.baseUrl ?? '');
-				setModel(s.model ?? '');
-				setHasKey(s.hasKey);
-				setConfigured(s.configured);
+				setStatus(s);
+				const active = s.active || 'openai';
+				setProvider(active);
 				setTemperature(s.temperature);
 				setMaxTokens(s.maxTokens);
 				setAgentControl(s.agentControl);
+				loadProvider(active, s);
 			})
 			.catch(() => undefined);
 		return () => {
@@ -86,26 +109,43 @@ export default function LlmSettings() {
 	}, []);
 
 	const dirtied = () => setSaved(false);
-	const needsKey = meta.needsKey;
+	const onPickProvider = (id: string) => {
+		setProvider(id);
+		loadProvider(id, status);
+		dirtied();
+	};
+
 	const canSubmit = !saving && (!needsKey || hasKey || apiKey.trim().length > 0);
+
+	// Build the typeahead options for a free-text Select: the live list (when loaded) else the samples.
+	const modelOptions = models.length
+		? models.map((m) => ({ value: m.id, label: m.label }))
+		: meta.sampleModels.map((m) => ({ value: m, label: m }));
+	const sampleOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
+
+	// One save body for both the Save button and the agent-control toggle (the active provider's entry +
+	// the global params). A blank apiKey keeps the saved key.
+	const configBody = (overrides: { apiKey?: string; agentControl?: boolean } = {}) => ({
+		provider,
+		baseUrl: baseUrl.trim(),
+		apiKey: overrides.apiKey ?? apiKey,
+		model: model.trim(),
+		insecure,
+		temperature,
+		maxTokens,
+		agentControl: overrides.agentControl ?? agentControl,
+		sttModel: sttModel.trim(),
+		ttsModel: ttsModel.trim(),
+		ttsVoice: ttsVoice.trim()
+	});
 
 	const onSave = async () => {
 		if (!canSubmit) return;
 		setSaving(true);
 		try {
-			await saveLlmConfig({
-				provider,
-				baseUrl: baseUrl.trim(),
-				apiKey, // blank keeps the saved one
-				model: model.trim(),
-				insecure,
-				temperature,
-				maxTokens,
-				agentControl
-			});
-			if (apiKey.trim()) setHasKey(true);
+			await saveLlmConfig(configBody());
 			setApiKey(''); // back to write-only
-			setConfigured(!needsKey || hasKey || apiKey.trim().length > 0);
+			setStatus(await llmConfigStatus()); // refresh per-provider key badges + hasKey
 			setSaved(true);
 		} catch (err) {
 			setTest({ kind: 'err', msg: `Save failed: ${String(err)}` });
@@ -120,16 +160,7 @@ export default function LlmSettings() {
 	const applyAgentControl = async (next: boolean) => {
 		setAgentControl(next);
 		try {
-			await saveLlmConfig({
-				provider,
-				baseUrl: baseUrl.trim(),
-				apiKey,
-				model: model.trim(),
-				insecure,
-				temperature,
-				maxTokens,
-				agentControl: next
-			});
+			await saveLlmConfig(configBody({ agentControl: next }));
 			await (next ? controlStart() : controlStop());
 		} catch (err) {
 			setTest({ kind: 'err', msg: `Agent control: ${String(err)}` });
@@ -157,29 +188,23 @@ export default function LlmSettings() {
 	return (
 		<div className="has">
 			<div className="has-statusline">
-				<span className={`has-badge ${configured ? 'ok' : 'idle'}`}>
-					● {configured ? 'configured' : 'not configured'}
+				<span className={`has-badge ${hasKey ? 'ok' : 'idle'}`}>
+					● {hasKey ? 'configured' : 'not configured'}
 				</span>
 				<span className="has-state-dim">{meta.label}</span>
 			</div>
 
 			<div className="rp-hd">Provider</div>
 			<div className="has-help">
-				One AI provider, used across the app — the layout assistant, a briefing widget, and any
-				chat. The API key stays on this machine (written to <code>plugins/llm.json</code>) and never
-				crosses into the webview.
+				Pick the active AI provider — used across the app (the layout assistant, a briefing widget,
+				any chat). Each provider keeps its own key + settings, so you can stay signed in to several
+				and switch freely. Keys stay on this machine (<code>plugins/llm.json</code>) and never cross
+				into the webview.
 			</div>
 
 			<label className="has-field">
 				Provider
-				<select
-					value={provider}
-					onChange={(e) => {
-						setProvider(e.currentTarget.value);
-						setModels([]);
-						dirtied();
-					}}
-				>
+				<select value={provider} onChange={(e) => onPickProvider(e.currentTarget.value)}>
 					{PROVIDERS.map((p) => (
 						<option key={p.id} value={p.id}>
 							{p.label}
@@ -187,6 +212,19 @@ export default function LlmSettings() {
 					))}
 				</select>
 			</label>
+			{/* Per-provider auth at a glance, so the multi-provider state is visible. */}
+			<div className="has-help">
+				Authenticated:{' '}
+				{PROVIDERS.map((p, i) => {
+					const keyed = !p.needsKey || !!status?.providers[p.id]?.hasKey;
+					return (
+						<span key={p.id}>
+							{i > 0 ? ' · ' : ''}
+							{p.label.split(' ')[0]} {keyed ? '✓' : '—'}
+						</span>
+					);
+				})}
+			</div>
 			<div className="has-help">{meta.help}</div>
 
 			<label className="has-field">
@@ -222,30 +260,76 @@ export default function LlmSettings() {
 			<div className="has-browser-bar">
 				<label className="has-field" style={{ flex: 3 }}>
 					Model
-					<input
-						type="text"
-						list="llm-models"
-						autoComplete="off"
-						placeholder={meta.sampleModels[0]}
+					<Select
+						allowCustom
 						value={model}
-						onChange={(e) => {
-							setModel(e.currentTarget.value);
+						options={modelOptions}
+						placeholder={meta.sampleModels[0] ?? 'model id'}
+						aria-label="Model"
+						onChange={(v) => {
+							setModel(v);
 							dirtied();
 						}}
 					/>
-					<datalist id="llm-models">
-						{models.map((m) => (
-							<option key={m.id} value={m.id}>
-								{m.label}
-							</option>
-						))}
-						{models.length === 0 && meta.sampleModels.map((m) => <option key={m} value={m} />)}
-					</datalist>
 				</label>
 				<button type="button" onClick={onLoadModels} title="List the provider's models">
 					↻ Models
 				</button>
 			</div>
+
+			{meta.supportsAudio && (
+				<>
+					<div className="rp-hd">Speech</div>
+					<div className="has-help">
+						Voice models for the dictation (speech-to-text) and read-aloud (text-to-speech)
+						features. Leave blank for the provider defaults (whisper-1 / tts-1).
+					</div>
+					<label className="has-field">
+						Speech-to-text model
+						<Select
+							allowCustom
+							value={sttModel}
+							options={sampleOptions(meta.sampleSttModels)}
+							placeholder="whisper-1"
+							aria-label="Speech-to-text model"
+							onChange={(v) => {
+								setSttModel(v);
+								dirtied();
+							}}
+						/>
+					</label>
+					<div className="has-browser-bar">
+						<label className="has-field" style={{ flex: 1 }}>
+							Text-to-speech model
+							<Select
+								allowCustom
+								value={ttsModel}
+								options={sampleOptions(meta.sampleTtsModels)}
+								placeholder="tts-1"
+								aria-label="Text-to-speech model"
+								onChange={(v) => {
+									setTtsModel(v);
+									dirtied();
+								}}
+							/>
+						</label>
+						<label className="has-field" style={{ flex: 1 }}>
+							Voice
+							<Select
+								allowCustom
+								value={ttsVoice}
+								options={sampleOptions(meta.sampleVoices)}
+								placeholder="alloy"
+								aria-label="Text-to-speech voice"
+								onChange={(v) => {
+									setTtsVoice(v);
+									dirtied();
+								}}
+							/>
+						</label>
+					</div>
+				</>
+			)}
 
 			<details className="has-advanced">
 				<summary>Advanced</summary>
@@ -499,7 +583,7 @@ function ChatTester() {
 									className="has-copy"
 									title="Read aloud"
 									aria-label="Read aloud"
-									onClick={() => speak(t.content)}
+									onClick={() => void speakSmart(t.content)}
 								>
 									🔊
 								</button>

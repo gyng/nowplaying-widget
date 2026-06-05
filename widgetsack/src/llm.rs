@@ -72,24 +72,159 @@ pub struct LlmConfig {
     /// default — this opens a token-guarded 127.0.0.1 endpoint (see control.rs).
     #[serde(default)]
     pub agent_control: bool,
+    /// Speech-to-text model (whisper-style); blank → the provider default (`whisper-1`).
+    #[serde(default)]
+    pub stt_model: String,
+    /// Text-to-speech model (OpenAI-style `/audio/speech`); blank → the provider default (`tts-1`).
+    #[serde(default)]
+    pub tts_model: String,
+    /// Text-to-speech voice (e.g. `alloy`); blank → the provider default.
+    #[serde(default)]
+    pub tts_voice: String,
 }
 
-/// What the webview is allowed to learn — deliberately WITHOUT the api_key (only `has_key`, a bool).
-/// camelCase on the wire (matches `llm-types.ts`).
+/// One provider's stored settings inside the multi-provider config file. The provider id is the MAP
+/// KEY in `LlmFile.providers`, so it isn't repeated here. Every field defaults so a partial / older
+/// entry still parses. The `api_key` is the secret — written here, never serialized back to the webview.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct StoredProvider {
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub insecure: bool,
+    #[serde(default)]
+    pub stt_model: String,
+    #[serde(default)]
+    pub tts_model: String,
+    #[serde(default)]
+    pub tts_voice: String,
+}
+
+/// The on-disk `plugins/llm.json` root (multi-provider): per-provider credentials/settings keyed by
+/// provider id, an `active` selection, and the GLOBAL generation params (temperature / max tokens) +
+/// the agent-control toggle. Authenticating several providers means each keeps its own entry, so
+/// switching `active` never discards another's key. Legacy flat files migrate on load (`migrate_flat`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LlmFile {
+    #[serde(default = "default_provider")]
+    pub active: String,
+    #[serde(default)]
+    pub providers: HashMap<String, StoredProvider>,
+    #[serde(default = "default_temperature")]
+    pub temperature: f64,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default)]
+    pub agent_control: bool,
+}
+
+impl LlmFile {
+    fn empty() -> Self {
+        LlmFile {
+            active: default_provider(),
+            providers: HashMap::new(),
+            temperature: default_temperature(),
+            max_tokens: default_max_tokens(),
+            agent_control: false,
+        }
+    }
+
+    /// Resolve one provider's stored entry (or empty defaults) + the global params into the flat
+    /// request config the HTTP seams consume.
+    fn resolve(&self, provider: &str) -> LlmConfig {
+        let p = self.providers.get(provider).cloned().unwrap_or_default();
+        LlmConfig {
+            provider: provider.to_string(),
+            base_url: p.base_url,
+            api_key: p.api_key,
+            model: p.model,
+            insecure: p.insecure,
+            temperature: self.temperature,
+            max_tokens: self.max_tokens,
+            agent_control: self.agent_control,
+            stt_model: p.stt_model,
+            tts_model: p.tts_model,
+            tts_voice: p.tts_voice,
+        }
+    }
+
+    fn resolve_active(&self) -> LlmConfig {
+        self.resolve(&self.active)
+    }
+}
+
+/// Convert a legacy flat config (pre-multi-provider `plugins/llm.json`) into the providers-map shape:
+/// its single provider becomes the one entry and the active selection. Pure — unit-tested.
+fn migrate_flat(old: LlmConfig) -> LlmFile {
+    let mut providers = HashMap::new();
+    providers.insert(
+        old.provider.clone(),
+        StoredProvider {
+            base_url: old.base_url,
+            api_key: old.api_key,
+            model: old.model,
+            insecure: old.insecure,
+            stt_model: old.stt_model,
+            tts_model: old.tts_model,
+            tts_voice: old.tts_voice,
+        },
+    );
+    LlmFile {
+        active: old.provider,
+        providers,
+        temperature: old.temperature,
+        max_tokens: old.max_tokens,
+        agent_control: old.agent_control,
+    }
+}
+
+/// Parse the on-disk JSON, accepting BOTH the new providers-map shape and the legacy flat shape (a file
+/// with no `providers` key). Keeps old configs working without a manual migration. Pure — unit-tested.
+fn parse_config_json(txt: &str) -> Result<LlmFile, String> {
+    let v: Value = serde_json::from_str(txt).map_err(|e| e.to_string())?;
+    if v.get("providers").is_some() {
+        serde_json::from_value(v).map_err(|e| e.to_string())
+    } else {
+        let old: LlmConfig = serde_json::from_value(v).map_err(|e| e.to_string())?;
+        Ok(migrate_flat(old))
+    }
+}
+
+/// One provider's NON-SECRET status — everything the webview may learn EXCEPT the key (only `has_key`).
+/// camelCase on the wire (matches `ProviderStatus` in `llm-types.ts`).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LlmStatus {
-    /// Usable: a keyless provider (ollama) is always configured; a keyed one needs a saved key.
-    pub configured: bool,
-    pub provider: String,
+pub struct ProviderStatus {
     /// The EFFECTIVE base url (the provider default when none is set), so the UI can show it.
     pub base_url: String,
     pub model: String,
     /// Whether a key is on file — the only thing the UI learns about the secret.
     pub has_key: bool,
+    pub insecure: bool,
+    pub stt_model: String,
+    pub tts_model: String,
+    pub tts_voice: String,
+}
+
+/// What the webview is allowed to learn — every configured provider's non-secret status (so the UI can
+/// switch the active provider without losing the others' settings), the active selection, and the
+/// global generation params. Deliberately WITHOUT any api_key. camelCase on the wire (`llm-types.ts`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmStatus {
+    /// Usable: the ACTIVE provider is keyless (ollama) or has a saved key.
+    pub configured: bool,
+    /// The active provider id.
+    pub active: String,
+    /// Per-provider non-secret status, keyed by provider id (only the configured ones).
+    pub providers: HashMap<String, ProviderStatus>,
     pub temperature: f64,
     pub max_tokens: u32,
-    /// Whether the opt-in agent-control server is enabled.
+    /// Whether the opt-in agent-control server is enabled (global).
     pub agent_control: bool,
 }
 
@@ -145,14 +280,21 @@ fn llm_config_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(dir.join("plugins").join("llm.json"))
 }
 
-/// Read `plugins/llm.json`, or `None` if it doesn't exist.
-pub fn load_llm_config<R: Runtime>(app: &AppHandle<R>) -> Result<Option<LlmConfig>, String> {
+/// Read the multi-provider `plugins/llm.json` (migrating a legacy flat file), or `None` if it doesn't
+/// exist.
+pub fn load_llm_file<R: Runtime>(app: &AppHandle<R>) -> Result<Option<LlmFile>, String> {
     let path = llm_config_path(app)?;
     match std::fs::read_to_string(&path) {
-        Ok(txt) => serde_json::from_str(&txt).map(Some).map_err(|e| e.to_string()),
+        Ok(txt) => parse_config_json(&txt).map(Some),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.to_string()),
     }
+}
+
+/// The resolved ACTIVE provider config (the flat request config the HTTP seams consume), or `None`
+/// when nothing is saved. Peers (control.rs) read `.agent_control` from this.
+pub fn load_llm_config<R: Runtime>(app: &AppHandle<R>) -> Result<Option<LlmConfig>, String> {
+    Ok(load_llm_file(app)?.map(|f| f.resolve_active()))
 }
 
 // ---- pure seams (unit-tested, no I/O) ----
@@ -172,14 +314,19 @@ fn default_base_url(provider: &str) -> &'static str {
     }
 }
 
-/// The effective base URL (config override, else provider default), trailing slash stripped.
-fn effective_base(cfg: &LlmConfig) -> String {
-    let b = cfg.base_url.trim().trim_end_matches('/');
+/// The effective base URL for a provider (override, else the provider default), trailing slash stripped.
+fn effective_base_of(provider: &str, base_url: &str) -> String {
+    let b = base_url.trim().trim_end_matches('/');
     if b.is_empty() {
-        default_base_url(&cfg.provider).to_string()
+        default_base_url(provider).to_string()
     } else {
         b.to_string()
     }
+}
+
+/// The effective base URL of a resolved config.
+fn effective_base(cfg: &LlmConfig) -> String {
+    effective_base_of(&cfg.provider, &cfg.base_url)
 }
 
 /// The chat-completion endpoint for a provider given its (already-normalized) base URL.
@@ -228,6 +375,40 @@ fn mime_ext(mime: &str) -> &'static str {
 /// Pull the transcript text out of a transcription response (`{ "text": "..." }`).
 fn parse_transcription(v: &Value) -> Option<String> {
     v["text"].as_str().map(str::to_string).filter(|s| !s.is_empty())
+}
+
+/// The OpenAI-style text-to-speech endpoint. Shares `supports_transcription`'s provider gate (the same
+/// OpenAI-compatible providers expose `/audio/speech`); anthropic + ollama have none.
+fn tts_endpoint(base: &str) -> String {
+    format!("{base}/audio/speech")
+}
+
+/// Whether the provider exposes an OpenAI-style text-to-speech endpoint (same set as transcription).
+fn supports_tts(provider: &str) -> bool {
+    supports_transcription(provider)
+}
+
+/// Sensible default TTS model / voice when the user hasn't picked one (OpenAI's defaults).
+fn default_tts_model() -> &'static str {
+    "tts-1"
+}
+fn default_tts_voice() -> &'static str {
+    "alloy"
+}
+
+/// Build the JSON body for an OpenAI-style `/audio/speech` request. `response_format` mp3 so the
+/// webview can play the bytes via an <audio> element. Pure — unit-tested.
+fn build_tts_body(model: &str, voice: &str, text: &str) -> Value {
+    json!({ "model": model, "voice": voice, "input": text, "response_format": "mp3" })
+}
+
+/// Synthesized audio handed back to the webview: raw bytes + their mime type (so the frontend can build
+/// a Blob and play it). camelCase on the wire (mirrors `LlmAudio` in `llm-types.ts`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmAudio {
+    pub audio: Vec<u8>,
+    pub mime: String,
 }
 
 /// A reasonable default model name per provider when the user hasn't picked one (a starting point — the
@@ -499,19 +680,28 @@ async fn chat_once(cfg: &LlmConfig, messages: &[ChatMessage]) -> Result<String, 
     parse_chat_text(&cfg.provider, &v).ok_or_else(|| "the model returned no text".into())
 }
 
-/// Resolve the api_key for an ad-hoc (UNSAVED) request: a blank incoming key means "use the saved
-/// one" (the UI holds the key write-only, so testing a changed URL must reuse the stored secret).
-fn resolve_key<R: Runtime>(app: &AppHandle<R>, incoming: String) -> Result<String, String> {
+/// Resolve the api_key for an ad-hoc (UNSAVED) request to `provider`: a blank incoming key means "use
+/// that provider's saved one" (the UI holds the key write-only, so testing a changed URL must reuse the
+/// stored secret).
+fn resolve_key<R: Runtime>(
+    app: &AppHandle<R>,
+    provider: &str,
+    incoming: String,
+) -> Result<String, String> {
     if !incoming.is_empty() {
         return Ok(incoming);
     }
-    Ok(load_llm_config(app)?.map(|c| c.api_key).unwrap_or_default())
+    Ok(load_llm_file(app)?
+        .and_then(|f| f.providers.get(provider).map(|p| p.api_key.clone()))
+        .unwrap_or_default())
 }
 
 // ---- Tauri commands ----
 
-/// Persist `plugins/llm.json` (creates `plugins/`). The api_key is written server-side only. A blank
-/// `api_key` keeps the previously-saved one (write-only UI). Studio-only, like every config write.
+/// Persist one provider's entry in `plugins/llm.json` and make it the ACTIVE provider (creates
+/// `plugins/`). The api_key is written server-side only; a blank `api_key` keeps that provider's
+/// previously-saved one (write-only UI). Other providers' entries are preserved untouched, so several
+/// can stay authenticated at once. `temperature`/`max_tokens`/`agent_control` are global. Studio-only.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn save_llm_config(
@@ -525,6 +715,9 @@ pub async fn save_llm_config(
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     agent_control: Option<bool>,
+    stt_model: Option<String>,
+    tts_model: Option<String>,
+    tts_voice: Option<String>,
 ) -> Result<(), String> {
     if window.label() != "studio" {
         return Err("save_llm_config is only allowed from the studio window".into());
@@ -533,57 +726,86 @@ pub async fn save_llm_config(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let api_key = if api_key.is_empty() {
-        load_llm_config(&app)?.map(|c| c.api_key).unwrap_or_default()
+    let id = if provider.is_empty() {
+        default_provider()
     } else {
-        api_key
+        provider
     };
-    let cfg = LlmConfig {
-        provider: if provider.is_empty() {
-            default_provider()
-        } else {
-            provider
-        },
-        base_url: base_url.unwrap_or_default(),
-        api_key,
-        model: model.unwrap_or_default(),
-        insecure: insecure.unwrap_or(false),
-        temperature: temperature.unwrap_or_else(default_temperature),
-        max_tokens: max_tokens.unwrap_or_else(default_max_tokens),
-        agent_control: agent_control.unwrap_or(false),
-    };
-    let txt = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    let mut file = load_llm_file(&app)?.unwrap_or_else(LlmFile::empty);
+    // Merge into THIS provider's entry — leave the others (and their keys) alone.
+    let mut entry = file.providers.get(&id).cloned().unwrap_or_default();
+    if !api_key.is_empty() {
+        entry.api_key = api_key; // blank keeps the saved one
+    }
+    if let Some(b) = base_url {
+        entry.base_url = b;
+    }
+    if let Some(m) = model {
+        entry.model = m;
+    }
+    if let Some(i) = insecure {
+        entry.insecure = i;
+    }
+    if let Some(s) = stt_model {
+        entry.stt_model = s;
+    }
+    if let Some(t) = tts_model {
+        entry.tts_model = t;
+    }
+    if let Some(v) = tts_voice {
+        entry.tts_voice = v;
+    }
+    file.providers.insert(id.clone(), entry);
+    file.active = id;
+    if let Some(t) = temperature {
+        file.temperature = t;
+    }
+    if let Some(m) = max_tokens {
+        file.max_tokens = m;
+    }
+    if let Some(a) = agent_control {
+        file.agent_control = a;
+    }
+    let txt = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
     std::fs::write(&path, txt).map_err(|e| e.to_string())
 }
 
-/// The (non-secret) config — never the api_key, only `has_key`.
+/// The (non-secret) config for EVERY configured provider + the active selection — never any api_key,
+/// only per-provider `has_key`. The UI uses the map to switch the active provider without a round-trip.
 #[tauri::command]
 pub fn llm_config_status<R: Runtime>(app: AppHandle<R>) -> Result<LlmStatus, String> {
-    match load_llm_config(&app)? {
-        Some(cfg) => {
-            let has_key = !cfg.api_key.trim().is_empty();
-            Ok(LlmStatus {
-                configured: !needs_key(&cfg.provider) || has_key,
-                base_url: effective_base(&cfg),
-                provider: cfg.provider,
-                model: cfg.model,
-                has_key,
-                temperature: cfg.temperature,
-                max_tokens: cfg.max_tokens,
-                agent_control: cfg.agent_control,
-            })
-        }
-        None => Ok(LlmStatus {
-            configured: false,
-            provider: default_provider(),
-            base_url: default_base_url(&default_provider()).to_string(),
-            model: String::new(),
-            has_key: false,
-            temperature: default_temperature(),
-            max_tokens: default_max_tokens(),
-            agent_control: false,
-        }),
-    }
+    let file = load_llm_file(&app)?.unwrap_or_else(LlmFile::empty);
+    let providers = file
+        .providers
+        .iter()
+        .map(|(id, p)| {
+            (
+                id.clone(),
+                ProviderStatus {
+                    base_url: effective_base_of(id, &p.base_url),
+                    model: p.model.clone(),
+                    has_key: !p.api_key.trim().is_empty(),
+                    insecure: p.insecure,
+                    stt_model: p.stt_model.clone(),
+                    tts_model: p.tts_model.clone(),
+                    tts_voice: p.tts_voice.clone(),
+                },
+            )
+        })
+        .collect();
+    let active_has_key = file
+        .providers
+        .get(&file.active)
+        .map(|p| !p.api_key.trim().is_empty())
+        .unwrap_or(false);
+    Ok(LlmStatus {
+        configured: !needs_key(&file.active) || active_has_key,
+        active: file.active,
+        providers,
+        temperature: file.temperature,
+        max_tokens: file.max_tokens,
+        agent_control: file.agent_control,
+    })
 }
 
 /// Validate an UNSAVED provider/url/key/model by sending a tiny prompt, so the settings UI can tell
@@ -601,19 +823,23 @@ pub async fn llm_test_connection(
     if window.label() != "studio" {
         return Err("llm_test_connection is only allowed from the studio window".into());
     }
+    let id = if provider.is_empty() {
+        default_provider()
+    } else {
+        provider
+    };
     let cfg = LlmConfig {
-        provider: if provider.is_empty() {
-            default_provider()
-        } else {
-            provider
-        },
+        api_key: resolve_key(&app, &id, api_key)?,
+        provider: id,
         base_url: base_url.unwrap_or_default(),
-        api_key: resolve_key(&app, api_key)?,
         model: model.unwrap_or_default(),
         insecure: insecure.unwrap_or(false),
         temperature: 0.0,
         max_tokens: 32,
         agent_control: false,
+        stt_model: String::new(),
+        tts_model: String::new(),
+        tts_voice: String::new(),
     };
     let messages = vec![ChatMessage {
         role: "user".into(),
@@ -692,10 +918,15 @@ pub async fn llm_transcribe<R: Runtime>(
     }
     let base = effective_base(&cfg);
     let url = transcribe_endpoint(&base);
-    // Trim + treat empty as unset (mirrors model_or_default), so a blank model never reaches the API.
+    // Resolve the model: an explicit arg wins, else the provider's saved stt_model, else whisper-1.
+    // Trim + treat empty as unset, so a blank model never reaches the API.
+    let nonempty = |s: &str| {
+        let t = s.trim();
+        (!t.is_empty()).then(|| t.to_string())
+    };
     let model = model
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty())
+        .and_then(|m| nonempty(&m))
+        .or_else(|| nonempty(&cfg.stt_model))
         .unwrap_or_else(|| "whisper-1".to_string());
     let mime = mime.unwrap_or_else(|| "audio/webm".to_string());
     let part = reqwest::multipart::Part::bytes(audio)
@@ -728,6 +959,68 @@ pub async fn llm_transcribe<R: Runtime>(
     }
     let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     parse_transcription(&v).ok_or_else(|| "no transcription text in response".into())
+}
+
+/// Synthesize speech (text-to-speech) for `text` via the ACTIVE provider's OpenAI-style `/audio/speech`
+/// endpoint, returning the raw audio bytes + mime so the webview can play them. The model/voice come
+/// from the provider's saved config (defaults `tts-1` / `alloy`). Only OpenAI-compatible providers
+/// expose this — anthropic + ollama do not (the frontend falls back to the browser's Web Speech voice).
+/// NOT studio-guarded: the overlay's widgets read it aloud too; the key never crosses the bridge.
+#[tauri::command]
+pub async fn llm_synthesize<R: Runtime>(app: AppHandle<R>, text: String) -> Result<LlmAudio, String> {
+    let cfg = load_llm_config(&app)?.ok_or("AI provider not configured")?;
+    if !supports_tts(&cfg.provider) {
+        return Err(format!(
+            "the '{}' provider has no text-to-speech endpoint — use an OpenAI-compatible provider",
+            cfg.provider
+        ));
+    }
+    if needs_key(&cfg.provider) && cfg.api_key.trim().is_empty() {
+        return Err("no API key configured".into());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("nothing to speak".into());
+    }
+    let model = if cfg.tts_model.trim().is_empty() {
+        default_tts_model().to_string()
+    } else {
+        cfg.tts_model.trim().to_string()
+    };
+    let voice = if cfg.tts_voice.trim().is_empty() {
+        default_tts_voice().to_string()
+    } else {
+        cfg.tts_voice.trim().to_string()
+    };
+    let base = effective_base(&cfg);
+    let url = tts_endpoint(&base);
+    let body = build_tts_body(&model, &voice, text);
+    let client = llm_http_client(cfg.insecure)?;
+    let resp = apply_auth(client.post(&url), &cfg.provider, &cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        // The error body is JSON (audio is only returned on success), so surface the provider message.
+        let body = resp.text().await.unwrap_or_default();
+        return Err(serde_json::from_str::<Value>(&body)
+            .ok()
+            .and_then(|v| provider_error(&v))
+            .unwrap_or_else(|| format!("speech synthesis failed: HTTP {status}")));
+    }
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("audio/mpeg")
+        .to_string();
+    let audio = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+    if audio.is_empty() {
+        return Err("speech synthesis returned no audio".into());
+    }
+    Ok(LlmAudio { audio, mime })
 }
 
 fn emit_delta<R: Runtime>(app: &AppHandle<R>, request_id: &str, token: &str, done: bool, error: Option<String>) {
@@ -901,6 +1194,9 @@ mod tests {
             temperature: 0.7,
             max_tokens: 1024,
             agent_control: false,
+            stt_model: String::new(),
+            tts_model: String::new(),
+            tts_voice: String::new(),
         };
         assert_eq!(effective_base(&cfg), "https://api.anthropic.com");
         cfg.base_url = "http://localhost:11434/".into();
@@ -1065,20 +1361,80 @@ mod tests {
 
     #[test]
     fn status_never_serializes_the_api_key() {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "openai".to_string(),
+            ProviderStatus {
+                base_url: "https://api.openai.com/v1".into(),
+                model: "gpt-4o-mini".into(),
+                has_key: true,
+                insecure: false,
+                stt_model: String::new(),
+                tts_model: String::new(),
+                tts_voice: String::new(),
+            },
+        );
         let v = serde_json::to_value(LlmStatus {
             configured: true,
-            provider: "openai".into(),
-            base_url: "https://api.openai.com/v1".into(),
-            model: "gpt-4o-mini".into(),
-            has_key: true,
+            active: "openai".into(),
+            providers,
             temperature: 0.7,
             max_tokens: 1024,
             agent_control: false,
         })
         .unwrap();
         assert!(v.get("api_key").is_none() && v.get("apiKey").is_none());
-        assert_eq!(v["hasKey"], true);
-        assert_eq!(v["baseUrl"], "https://api.openai.com/v1");
+        assert_eq!(v["providers"]["openai"]["hasKey"], true);
+        assert_eq!(v["providers"]["openai"]["baseUrl"], "https://api.openai.com/v1");
         assert_eq!(v["maxTokens"], 1024);
+    }
+
+    #[test]
+    fn migrates_legacy_flat_config_into_providers_map() {
+        // A pre-multi-provider file (no `providers` key) → one entry, active = its provider, globals kept.
+        let file = parse_config_json(
+            r#"{ "provider": "anthropic", "api_key": "sk-x", "model": "claude-x", "max_tokens": 2048 }"#,
+        )
+        .unwrap();
+        assert_eq!(file.active, "anthropic");
+        assert_eq!(file.max_tokens, 2048);
+        let entry = file.providers.get("anthropic").unwrap();
+        assert_eq!(entry.api_key, "sk-x");
+        assert_eq!(entry.model, "claude-x");
+        // The resolved active config flattens the entry + the globals back together.
+        let cfg = file.resolve_active();
+        assert_eq!(cfg.provider, "anthropic");
+        assert_eq!(cfg.api_key, "sk-x");
+        assert_eq!(cfg.max_tokens, 2048);
+    }
+
+    #[test]
+    fn parses_new_multi_provider_config() {
+        let file = parse_config_json(
+            r#"{ "active": "ollama", "providers": { "ollama": { "model": "llama3.2" }, "openai": { "api_key": "k", "stt_model": "whisper-1" } } }"#,
+        )
+        .unwrap();
+        assert_eq!(file.active, "ollama");
+        assert_eq!(file.providers.len(), 2);
+        assert_eq!(file.providers["openai"].stt_model, "whisper-1");
+        // Switching the resolved provider picks a different entry — both stay authenticated.
+        assert_eq!(file.resolve("openai").api_key, "k");
+        assert_eq!(file.resolve("ollama").model, "llama3.2");
+    }
+
+    #[test]
+    fn tts_seams() {
+        assert_eq!(
+            tts_endpoint("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/audio/speech"
+        );
+        assert!(supports_tts("openai"));
+        assert!(!supports_tts("anthropic"));
+        assert!(!supports_tts("ollama"));
+        let body = build_tts_body("tts-1", "alloy", "hello");
+        assert_eq!(body["model"], "tts-1");
+        assert_eq!(body["voice"], "alloy");
+        assert_eq!(body["input"], "hello");
+        assert_eq!(body["response_format"], "mp3");
     }
 }

@@ -5,17 +5,20 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage } from '../../core/llm';
-import type { LlmModel, LlmStatus, LlmTestResult } from './llm-types';
+import type { LlmAudio, LlmModel, LlmStatus, LlmTestResult } from './llm-types';
 
 export type LlmConfigInput = {
-	provider: string;
+	provider: string; // the entry to save + make active
 	baseUrl: string;
 	apiKey: string; // blank = keep the saved one
 	model: string;
 	insecure: boolean;
-	temperature: number;
-	maxTokens: number;
-	agentControl: boolean;
+	temperature: number; // global
+	maxTokens: number; // global
+	agentControl: boolean; // global
+	sttModel: string; // speech-to-text model (whisper)
+	ttsModel: string; // text-to-speech model
+	ttsVoice: string; // text-to-speech voice
 };
 
 /** Start the opt-in local agent-control server (after enabling it). Idempotent. */
@@ -54,6 +57,12 @@ export const llmComplete = (
 
 /** The configured provider's available models (best-effort; may be empty). */
 export const llmListModels = (): Promise<LlmModel[]> => invoke<LlmModel[]>('llm_list_models');
+
+/** Synthesize speech for `text` via the active provider's TTS endpoint (OpenAI-compatible only). Returns
+ * the audio bytes + mime; rejects when the provider has no TTS endpoint or no key (caller falls back to
+ * the browser's Web Speech voice). */
+export const llmSynthesize = (text: string): Promise<LlmAudio> =>
+	invoke<LlmAudio>('llm_synthesize', { text });
 
 /** Start a streamed completion; tokens arrive over the `llm_delta` event keyed by `requestId`. */
 export const llmStream = (requestId: string, messages: ChatMessage[]): Promise<void> =>

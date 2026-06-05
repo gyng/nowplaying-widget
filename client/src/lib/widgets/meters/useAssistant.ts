@@ -8,7 +8,7 @@ import type { SensorValue, TelemetryHub } from '../../core/telemetry';
 import { buildAssistantMessages } from '../../core/llm';
 import { cronMatches, intervalMs, isCron } from '../../core/schedule';
 import { isStudioWindow } from '../../overlay';
-import { speak } from '../../tts';
+import { speakSmart } from '../plugins/llm-tts';
 import { llmComplete } from '../plugins/llm-commands';
 
 // The default sensor snapshot ("auto") — present-only; absent ids are skipped.
@@ -79,7 +79,7 @@ export function useAssistant(cfg: AssistantConfig): AssistantState {
 			});
 			const trimmed = out.trim();
 			setText(trimmed);
-			if (cfgRef.current.speak) speak(trimmed);
+			if (cfgRef.current.speak) void speakSmart(trimmed);
 		} catch (e) {
 			setError(String(e));
 		} finally {

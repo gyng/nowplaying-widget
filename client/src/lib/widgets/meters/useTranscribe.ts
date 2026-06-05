@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildTranslateMessages } from '../../core/llm';
 import { startRecording, type Recorder } from '../../stt';
-import { speak } from '../../tts';
+import { speakSmart } from '../plugins/llm-tts';
 import { llmComplete, llmTranscribe } from '../plugins/llm-commands';
 
 export type TranscribeConfig = {
@@ -78,7 +78,7 @@ export function useTranscribe(cfg: TranscribeConfig): TranscribeState {
 					).trim();
 				}
 				setOutput(result);
-				if (cfgRef.current.speak && result) speak(result);
+				if (cfgRef.current.speak && result) void speakSmart(result);
 			} catch (e) {
 				setError(String(e));
 			} finally {

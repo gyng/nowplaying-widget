@@ -42,7 +42,20 @@ export type ProviderMeta = {
 	help: string;
 	/** A couple of example model ids for the placeholder (the live list comes from llm_list_models). */
 	sampleModels: string[];
+	/** Whether the provider exposes OpenAI-style speech endpoints (/audio/transcriptions + /audio/speech).
+	 * Gates the STT/TTS model fields in the settings UI; mirrors `supports_transcription`/`supports_tts`
+	 * in widgetsack/src/llm.rs (OpenAI-compatible only — anthropic + ollama have none). */
+	supportsAudio: boolean;
+	/** Example speech-to-text (whisper) model ids for the placeholder. */
+	sampleSttModels: string[];
+	/** Example text-to-speech model ids for the placeholder. */
+	sampleTtsModels: string[];
+	/** Selectable TTS voices for the placeholder/picker. */
+	sampleVoices: string[];
 };
+
+// OpenAI's speech voices + model families — the placeholders/typeahead for any OpenAI-compatible provider.
+const OPENAI_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 
 export const PROVIDERS: ProviderMeta[] = [
 	{
@@ -51,7 +64,11 @@ export const PROVIDERS: ProviderMeta[] = [
 		defaultBaseUrl: 'https://api.anthropic.com',
 		needsKey: true,
 		help: 'Claude models. Get a key at console.anthropic.com.',
-		sampleModels: ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-3-5-haiku-latest']
+		sampleModels: ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-3-5-haiku-latest'],
+		supportsAudio: false,
+		sampleSttModels: [],
+		sampleTtsModels: [],
+		sampleVoices: []
 	},
 	{
 		id: 'openai',
@@ -59,7 +76,11 @@ export const PROVIDERS: ProviderMeta[] = [
 		defaultBaseUrl: 'https://api.openai.com/v1',
 		needsKey: true,
 		help: 'OpenAI, or any OpenAI-compatible endpoint (Groq, OpenRouter, LM Studio, llama.cpp, Ollama’s /v1) — set Base URL to point elsewhere.',
-		sampleModels: ['gpt-4o-mini', 'gpt-4o', 'o4-mini']
+		sampleModels: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'],
+		supportsAudio: true,
+		sampleSttModels: ['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe'],
+		sampleTtsModels: ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'],
+		sampleVoices: OPENAI_VOICES
 	},
 	{
 		id: 'ollama',
@@ -67,7 +88,11 @@ export const PROVIDERS: ProviderMeta[] = [
 		defaultBaseUrl: 'http://localhost:11434',
 		needsKey: false,
 		help: 'A local Ollama server — private, free, no key. Pull a model first (e.g. `ollama pull llama3.2`).',
-		sampleModels: ['llama3.2', 'qwen2.5', 'mistral']
+		sampleModels: ['llama3.2', 'qwen2.5', 'mistral'],
+		supportsAudio: false,
+		sampleSttModels: [],
+		sampleTtsModels: [],
+		sampleVoices: []
 	}
 ];
 
