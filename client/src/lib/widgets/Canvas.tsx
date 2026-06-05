@@ -140,6 +140,7 @@ import { useCanvasPointer } from './canvas/useCanvasPointer';
 import { useKeyboard } from './canvas/useKeyboard';
 import { useControls } from './canvas/useControls';
 import { clampMenuToViewport } from './canvas/menuPosition';
+import { buildMenuPreview } from './canvas/menuPreview';
 import { innermostContainerAt } from './canvas/containerAt';
 import { readStudioMonitor, writeStudioMonitor } from './canvas/studioMonitorPref';
 import { studioHints } from './canvas/studioHints';
@@ -1848,6 +1849,24 @@ export default function Canvas({ studio = false }: Props) {
 		id: string;
 		cellIndex?: number;
 	} | null>(null);
+	// Context-menu HOVER PREVIEW: the structural op (split / add inside / add beside) under the pointer
+	// or keyboard focus in the menu. A read-only ghost — never mutates the model, undo, or disk (the
+	// preview rects are derived analytically from the measured boxes). Cleared when the menu closes.
+	const [previewOp, setPreviewOp] = useState<LayoutOp | null>(null);
+	// Revert the preview whenever the menu closes — one place covers the backdrop click, Esc/Tab,
+	// applying an item (menuAct closes the menu), and any programmatic close.
+	useEffect(() => {
+		if (!menu) setPreviewOp(null);
+	}, [menu]);
+	// Ghost rects for the hovered/focused menu item, derived analytically from the measured boxes
+	// (gridPlaceholders supply the empty-cell targets). Purely additive — no model/undo/disk effect.
+	const previewShapes = useMemo(
+		() =>
+			previewOp
+				? buildMenuPreview(previewOp, monitor, combinedSolved, gridPlaceholders, workArea)
+				: [],
+		[previewOp, monitor, combinedSolved, gridPlaceholders, workArea]
+	);
 	// The menu opens at the cursor but is clamped inside the window so it isn't clipped at the
 	// right/bottom edges. We render at the cursor first, then measure the box and shift it back in a
 	// layout effect (runs before paint → no visible jump). Reset when the menu closes.
@@ -2053,6 +2072,19 @@ export default function Canvas({ studio = false }: Props) {
 			setMenu(null);
 		},
 		[handleOp]
+	);
+	// Props for a previewable menu item: apply on click, and PREVIEW on hover/keyboard-focus (the same
+	// `op` drives both, so the ghost can't drift from what clicking does). onMouseLeave/onBlur revert;
+	// closing the menu reverts too (the effect on `menu`).
+	const previewItemProps = useCallback(
+		(op: LayoutOp) => ({
+			onClick: () => menuAct(op),
+			onMouseEnter: () => setPreviewOp(op),
+			onMouseLeave: () => setPreviewOp(null),
+			onFocus: () => setPreviewOp(op),
+			onBlur: () => setPreviewOp(null)
+		}),
+		[menuAct]
 	);
 	const mPick = useCallback(
 		(sel: string) => {
@@ -2456,6 +2488,24 @@ export default function Canvas({ studio = false }: Props) {
 									/>
 								);
 							})}
+							{/* Context-menu hover preview: ghost rects for the item under the pointer/focus,
+							    drawn on top of the existing overlays. pointer-events:none (CSS) so they never
+							    steal the menu hover or stage clicks; in .world so they inherit pan/zoom. */}
+							{previewShapes.map((s, i) =>
+								s.kind === 'bar' ? (
+									<div
+										key={`pv${i}`}
+										className="ctx-preview-bar"
+										style={{ left: s.rect.x, top: s.rect.y, width: s.rect.w, height: s.rect.h }}
+									/>
+								) : (
+									<div
+										key={`pv${i}`}
+										className={s.kind === 'zone' ? 'ctx-preview-zone' : 'ctx-preview-cell'}
+										style={{ left: s.rect.x, top: s.rect.y, width: s.rect.w, height: s.rect.h }}
+									/>
+								)
+							)}
 						</>
 					)}
 					{/* The flow tree, laid out natively by the browser (FlowNode). The frame insets it to
@@ -2953,11 +3003,17 @@ export default function Canvas({ studio = false }: Props) {
 								)}
 								{navSection === 'widget-designer' && !designing && (
 									<div className="designer-empty">
+										<div className="de-title">Widget designer</div>
 										<div className="de-hint">
-											Select a widget on the left to edit, or ＋ New widget to design one.
+											Build a reusable <strong>widget type</strong> — its inner layout, sensors, and
+											styling — once, then drop copies of it onto any monitor.
 											<br />
 											<br />
-											Placing a meter (CPU, clock, …) onto your layout? That’s the{' '}
+											Pick a widget on the left to edit, clone a template, or ＋&nbsp;New widget to
+											start from scratch.
+											<br />
+											<br />
+											Just placing a meter (CPU, clock, …) on your desktop? That’s the{' '}
 											<strong>Layouts</strong> section — pick a spot, then use the “Add” palette.
 										</div>
 									</div>
@@ -3489,43 +3545,34 @@ export default function Canvas({ studio = false }: Props) {
 											<span className="ctx-hd">Split</span>
 											<button
 												type="button"
-												onClick={() =>
-													menu &&
-													menuAct({
-														op: 'split',
-														id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
-														dir: 'rows',
-														cellIndex: menu.cellIndex
-													})
-												}
+												{...previewItemProps({
+													op: 'split',
+													id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
+													dir: 'rows',
+													cellIndex: menu.cellIndex
+												})}
 											>
 												⬍ Into rows
 											</button>
 											<button
 												type="button"
-												onClick={() =>
-													menu &&
-													menuAct({
-														op: 'split',
-														id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
-														dir: 'cols',
-														cellIndex: menu.cellIndex
-													})
-												}
+												{...previewItemProps({
+													op: 'split',
+													id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
+													dir: 'cols',
+													cellIndex: menu.cellIndex
+												})}
 											>
 												⬌ Into columns
 											</button>
 											<button
 												type="button"
-												onClick={() =>
-													menu &&
-													menuAct({
-														op: 'split',
-														id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
-														dir: 'grid',
-														cellIndex: menu.cellIndex
-													})
-												}
+												{...previewItemProps({
+													op: 'split',
+													id: menu.id === '__canvas__' ? monitor.root.id : menu.id,
+													dir: 'grid',
+													cellIndex: menu.cellIndex
+												})}
 											>
 												▦ Into 2×2 grid
 											</button>
@@ -3550,15 +3597,12 @@ export default function Canvas({ studio = false }: Props) {
 												<button
 													key={kind}
 													type="button"
-													onClick={() =>
-														menu &&
-														menuAct({
-															op: 'addContainer',
-															kind,
-															containerId: menu.id === '__canvas__' ? monitor.root.id : menu.id,
-															index: menu.cellIndex
-														})
-													}
+													{...previewItemProps({
+														op: 'addContainer',
+														kind,
+														containerId: menu.id === '__canvas__' ? monitor.root.id : menu.id,
+														index: menu.cellIndex
+													})}
 												>
 													{kind === 'row'
 														? '＋ Row inside'
@@ -3603,9 +3647,7 @@ export default function Canvas({ studio = false }: Props) {
 														<button
 															key={kind}
 															type="button"
-															onClick={() =>
-																menu && menuAct({ op: 'addBeside', kind, id: menu.id })
-															}
+															{...previewItemProps({ op: 'addBeside', kind, id: menu.id })}
 														>
 															{kind === 'row'
 																? '＋ Row beside'

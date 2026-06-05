@@ -282,16 +282,24 @@
 .canvas .splitter::after {
 	content: '';
 	position: absolute;
-	background: rgba(119, 196, 211, 0.28);
+	background: rgba(119, 196, 211, 0.45);
 	pointer-events: none;
 	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
-/* On hover the midpoint tick brightens + glows, so the boundary reads as "ready to grab". */
+/* On hover (or keyboard focus) the midpoint tick brightens + glows, so the boundary reads as
+   "ready to grab". The splitter is tabbable (role=separator, arrow-key resize), so focus must
+   light it up too — otherwise the keyboard path lands on an invisible target. */
 .canvas .splitter:hover::after,
-.canvas .splitter:active::after {
+.canvas .splitter:active::after,
+.canvas .splitter:focus-visible::after {
 	background: rgba(119, 196, 211, 0.85);
 	box-shadow: 0 0 6px rgba(119, 196, 211, 0.5);
+}
+/* The splitter is a thin invisible pad; a normal outline would hug nothing. Drop the default ring
+   (the brightened tick above is the focus affordance) but keep the keyboard cue obvious. */
+.canvas .splitter:focus-visible {
+	outline: none;
 }
 .canvas .splitter.v::after {
 	left: 50%;
@@ -370,6 +378,42 @@
 	z-index: 3;
 	/* The insertion line fades in as it appears, giving the landing point a touch of momentum. */
 	animation: dropzone-in var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+/* Context-menu HOVER PREVIEW ghosts: shown while a Split / Add item is hovered or keyboard-focused, so
+   the result is visible BEFORE clicking. All non-interactive (pointer-events:none) and above the flow +
+   the grid/splitter overlays; they live in .world so they inherit the stage pan/zoom. Reuse the
+   dropzone fade so they "announce" themselves. */
+.canvas .ctx-preview-cell,
+.canvas .ctx-preview-zone,
+.canvas .ctx-preview-bar {
+	position: absolute;
+	box-sizing: border-box;
+	pointer-events: none;
+	z-index: 6;
+	animation: dropzone-in var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+/* The structure a split creates: a dashed outline per resulting region (the region that keeps the
+   existing content). */
+.canvas .ctx-preview-cell {
+	border: 1px dashed rgba(119, 196, 211, 0.6);
+}
+
+/* NEW space the op opens up (a fresh split cell, or the container an "Add inside" targets): a solid
+   outline + faint fill so it reads as "this region will be added". */
+.canvas .ctx-preview-zone {
+	border: 1px solid rgb(119, 196, 211);
+	background: rgba(119, 196, 211, 0.14);
+}
+
+/* Insertion line for "Add beside" / the trailing edge of an "Add inside": a glowing mint bar. Its
+   full geometry — position AND thickness/orientation — comes from the inline rect (menuPreview's
+   afterBar sizes it per axis), so no orientation rule is needed here. */
+.canvas .ctx-preview-bar {
+	background: rgb(119, 196, 211);
+	box-shadow: 0 0 5px rgba(119, 196, 211, 0.9);
+	border-radius: 1px;
 }
 
 /* Rubber-band selection rectangle (item 3). Above the world/widgets, below the tool bars. */
@@ -583,6 +627,7 @@
 	font-family: monospace;
 	font-size: 11px;
 	cursor: pointer;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 .canvas .studio-menu button:hover {
 	background: rgba(119, 196, 211, 0.18);
@@ -741,6 +786,7 @@
 	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		opacity var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		transform var(--motion-fast, 100ms) var(--ease-out, ease-out);
 }
 
@@ -854,6 +900,16 @@
 	padding: 4px 10px;
 	cursor: pointer;
 	font-family: monospace;
+	transition: background var(--motion-fast, 100ms) var(--ease-out, ease-out),
+		transform var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+.canvas .theme-editor .te-actions button:hover {
+	background: rgb(150, 214, 228);
+}
+
+.canvas .theme-editor .te-actions button:active {
+	transform: translateY(1px);
 }
 
 /* Prose vs values: monospace stays the studio default (and keeps all data/value columns aligned),
@@ -866,6 +922,26 @@
 .canvas .has-help,
 .canvas .multi-note {
 	font-family: system-ui, sans-serif;
+}
+
+/* Designer empty-state: a quiet title above the prose hint so the panel reads as an intentional
+   "here's what this is" rather than a stray sentence. */
+.canvas .designer-empty {
+	padding: 12px;
+	max-width: 320px;
+}
+
+.canvas .de-title {
+	color: rgb(150, 214, 228);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	font-size: 11px;
+	margin-bottom: 6px;
+}
+
+.canvas .de-hint {
+	line-height: 1.5;
+	color: var(--dim-fg);
 }
 
 .canvas .edit-badge {
