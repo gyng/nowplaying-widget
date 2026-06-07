@@ -24,6 +24,9 @@
       "timestampUrl": "",
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "startMenuFolder": "widgetsack"
       }
     },
     "longDescription": "WidgetSack desktop widget platform",
