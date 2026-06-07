@@ -1,13 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import Cpu from './Cpu';
 import { TelemetryHubContext } from '../telemetryContext';
 import { createTelemetryHub, type SensorSample, type TelemetryHub } from '../../core/telemetry';
 
-// A hub seeded with cpu.total + `coreCount` per-core sensors, two ticks each so every core has
-// enough history to draw a <polyline>. When `withFreq` is set it also emits the per-core FREQUENCY
-// sensors (cpu.core.N.freq, MHz) the studio's "*" subscription broadcasts — they must NOT show up.
+// The per-core grid is now drawn into a <canvas> (CpuCoresCanvas), which has no queryable DOM and no 2D
+// context under happy-dom. So we mock it and capture the props Cpu feeds it — that's where the meaningful
+// logic lives (which sensors become cores, the column count, colour). The drawing geometry is covered by
+// the pure cpuCoresMath + sparklineMath tests.
+const cap = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+vi.mock('./CpuCoresCanvas', () => ({
+	default: (p: Record<string, unknown>) => {
+		cap.props = p;
+		return null;
+	}
+}));
+
+// A hub seeded with cpu.total + `coreCount` per-core sensors, two ticks each so every core has history.
+// When `withFreq` is set it also emits the per-core FREQUENCY sensors (cpu.core.N.freq, MHz) the studio's
+// "*" subscription broadcasts — they must NOT be counted as cores.
 function hubWith(coreCount: number, withFreq = false): TelemetryHub {
 	const hub = createTelemetryHub();
 	for (let t = 0; t < 2; t++) {
@@ -30,6 +42,7 @@ function hubWith(coreCount: number, withFreq = false): TelemetryHub {
 }
 
 function renderCpu(node: ReactElement, coreCount: number, withFreq = false) {
+	cap.props = null;
 	return render(
 		<TelemetryHubContext.Provider value={hubWith(coreCount, withFreq)}>
 			{node}
@@ -38,43 +51,36 @@ function renderCpu(node: ReactElement, coreCount: number, withFreq = false) {
 }
 
 describe('Cpu (per-core grid)', () => {
-	it('renders one sparkline per core', () => {
-		const { container } = renderCpu(<Cpu />, 32);
-		expect(container.querySelectorAll('.np-sparkline').length).toBe(32);
+	it('feeds the canvas one history per core', () => {
+		renderCpu(<Cpu />, 32);
+		expect((cap.props?.cores as number[][]).length).toBe(32);
 	});
 
-	it('defaults to one column per core — a single row spanning every core', () => {
-		const { container } = renderCpu(<Cpu />, 32);
-		const grid = container.querySelector('.np-cpu-cores') as HTMLElement;
-		expect(grid.style.gridTemplateColumns).toBe('repeat(32, 1fr)');
+	it('defaults to an 8-column grid', () => {
+		renderCpu(<Cpu />, 32);
+		expect(cap.props?.cols).toBe(8);
 	});
 
 	it('ignores per-core frequency sensors (cpu.core.N.freq) — usage only', () => {
-		// 32 usage + 32 freq present (as when the studio "*" subscription is live); the grid must
-		// stay at exactly the 32 usage cores, not pad out with 32 blank off-scale freq sparklines.
-		const { container } = renderCpu(<Cpu />, 32, true);
-		expect(container.querySelectorAll('.np-sparkline').length).toBe(32);
-		const grid = container.querySelector('.np-cpu-cores') as HTMLElement;
-		expect(grid.style.gridTemplateColumns).toBe('repeat(32, 1fr)');
+		// 32 usage + 32 freq present (as when the studio "*" subscription is live); the grid must stay at
+		// exactly the 32 usage cores, not pad out with 32 off-scale freq lines.
+		renderCpu(<Cpu />, 32, true);
+		expect((cap.props?.cores as number[][]).length).toBe(32);
+		expect(cap.props?.cols).toBe(8);
 	});
 
 	it('respects an explicit cols override (a fixed-width grid)', () => {
-		const { container } = renderCpu(<Cpu cols={4} />, 32);
-		const grid = container.querySelector('.np-cpu-cores') as HTMLElement;
-		expect(grid.style.gridTemplateColumns).toBe('repeat(4, 1fr)');
+		renderCpu(<Cpu cols={4} />, 32);
+		expect(cap.props?.cols).toBe(4);
 	});
 
-	it('defaults the core lines to --np-fg (follows the theme; white fallback, not the accent)', () => {
-		const { container } = renderCpu(<Cpu />, 4);
-		const line = container.querySelector('polyline') as SVGElement;
-		// Token-driven so the cores track the active theme; the literal fallback keeps today's white look
-		// when no theme sets --np-fg. (NOT var(--np-accent) — the cores are foreground, not the accent.)
-		expect(line.style.stroke).toBe('var(--np-fg, rgb(255, 255, 255))');
+	it('passes the colour through (undefined → CpuCoresCanvas falls back to the --np-fg token)', () => {
+		renderCpu(<Cpu />, 4);
+		expect(cap.props?.color).toBeUndefined();
 	});
 
 	it('lets an explicit color override the token default', () => {
-		const { container } = renderCpu(<Cpu color="red" />, 4);
-		const line = container.querySelector('polyline') as SVGElement;
-		expect(line.style.stroke).toBe('red');
+		renderCpu(<Cpu color="red" />, 4);
+		expect(cap.props?.color).toBe('red');
 	});
 });

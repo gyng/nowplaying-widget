@@ -1,7 +1,8 @@
-.np-cpu-cores {
-	display: grid;
-	/* Roomier spacing between the per-core lines; override via the theme to taste. */
-	gap: var(--np-cpu-core-gap, 4px);
+/* The per-core grid is now a single <canvas> (CpuCoresCanvas) to avoid the N-SVG WebView2 leak. The
+   canvas fills the widget; spacing between cores is read from --np-cpu-core-gap (default 4px) and
+   applied inside the draw, so the theme can still tune it. */
+.np-cpu-cores-canvas {
+	display: block;
 	width: 100%;
 	height: 100%;
 }

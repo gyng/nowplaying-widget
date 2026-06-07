@@ -5,7 +5,7 @@
 import { useContext, useEffect, useState } from 'react';
 import { TelemetryHubContext } from '../telemetryContext';
 import Gauge from './Gauge';
-import Sparkline from './Sparkline';
+import CpuCoresCanvas from './CpuCoresCanvas';
 import './Cpu.css';
 
 type Props = {
@@ -33,7 +33,7 @@ export default function Cpu({
 	cols,
 	label = 'CPU',
 	color,
-	seconds = 60,
+	seconds = 30,
 	histogram = false,
 	lineWidth
 }: Props) {
@@ -63,26 +63,18 @@ export default function Cpu({
 		return <Gauge value={total} label={label} unit="%" min={0} max={100} color={color} />;
 	}
 
-	// Per-core grid: default to ONE COLUMN PER CORE — a single full-width row spanning every core
-	// ("max cores"). An explicit `cols` overrides this to wrap the cores into a fixed-width grid.
-	const colCount =
-		cols != null && cols > 0 ? Math.max(1, Math.round(cols)) : Math.max(1, cores.length);
-	const gridStyle = { gridTemplateColumns: `repeat(${colCount}, 1fr)` };
+	// Per-core grid drawn into a single <canvas> (not N SVG sparklines) — see CpuCoresCanvas for why
+	// (the SVG-per-core grid leaks WebView2 native memory). `cols` defaults to 8 columns; the canvas
+	// lays out the grid internally via coreCellRects (which clamps cols to the core count).
 	return (
-		<div className="cores np-cpu-cores" style={gridStyle}>
-			{cores.map((history, i) => (
-				<Sparkline
-					key={i}
-					history={history}
-					min={0}
-					max={100}
-					color={color ?? 'var(--np-fg, rgb(255, 255, 255))'}
-					seconds={seconds}
-					histogram={histogram}
-					lineWidth={lineWidth}
-					fill={false}
-				/>
-			))}
-		</div>
+		<CpuCoresCanvas
+			cores={cores}
+			cols={cols != null && cols > 0 ? Math.round(cols) : 8}
+			color={color}
+			seconds={seconds}
+			histogram={histogram}
+			lineWidth={lineWidth ?? 1.5}
+			fill={false}
+		/>
 	);
 }
