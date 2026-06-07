@@ -237,7 +237,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		label: 'Sparkline',
 		defaultSensor: 'cpu.total',
 		defaultSize: { w: 140, h: 30 },
-		defaultConfig: { seconds: 60 },
+		defaultConfig: { seconds: 60, barGap: 0.2, axis: true },
 		configFields: [
 			color('color', 'color'),
 			{ key: 'fill', label: 'fill', kind: 'toggle', help: 'fill the area under the line' },
@@ -246,6 +246,12 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 				label: 'histogram (bars)',
 				kind: 'toggle',
 				help: 'draw bars instead of a line'
+			},
+			{
+				key: 'axis',
+				label: 'baseline axis',
+				kind: 'toggle',
+				help: 'show a baseline axis line under the bars (histogram mode)'
 			},
 			num('barGap', 'bar gap', {
 				min: 0,
@@ -360,7 +366,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		binds: 'none',
 		label: 'CPU',
 		defaultSize: { w: 160, h: 90 },
-		defaultConfig: { mode: 'cores' },
+		defaultConfig: { mode: 'cores', cols: 8, seconds: 30 },
 		configFields: [
 			{
 				key: 'mode',
@@ -371,7 +377,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			},
 			num('cols', 'cols (per-core grid)', {
 				min: 1,
-				help: 'columns in the per-core grid (blank = one row of every core)'
+				help: 'columns in the per-core grid (blank = 8; clamped to the core count)'
 			}),
 			num('seconds', 'history (s)', { min: 5, step: 5, help: 'seconds of history to show' }),
 			{

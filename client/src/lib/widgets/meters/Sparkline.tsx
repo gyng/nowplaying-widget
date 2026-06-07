@@ -12,8 +12,11 @@ type Props = {
 	fill?: boolean;
 	// Histogram mode: draw value bars rising from the baseline instead of a line.
 	histogram?: boolean;
-	// Gap between histogram bars as a fraction of each slot (0 = bars touching, the default).
+	// Gap between histogram bars as a fraction of each slot (0 = bars touching). Defaults to a
+	// standard 0.2 margin.
 	barGap?: number;
+	// Draw a baseline axis line under the histogram bars (default on; histogram mode only).
+	axis?: boolean;
 	// Rolling history window in SECONDS; the chart is right-anchored to this window.
 	seconds?: number;
 	// Line thickness in px (non-scaling, so constant regardless of widget size).
@@ -30,7 +33,8 @@ export default function Sparkline({
 	color,
 	fill = true,
 	histogram = false,
-	barGap = 0,
+	barGap = 0.2,
+	axis = true,
 	seconds = 60,
 	lineWidth = 1.5
 }: Props) {
@@ -50,17 +54,30 @@ export default function Sparkline({
 			aria-label="history"
 		>
 			{histogram ? (
-				bars.map((b, i) => (
-					<rect
-						key={i}
-						data-part="bar"
-						x={b.x}
-						y={b.y}
-						width={b.w}
-						height={b.h}
-						style={{ fill: colorCss }}
-					/>
-				))
+				<>
+					{bars.map((b, i) => (
+						<rect
+							key={i}
+							data-part="bar"
+							x={b.x}
+							y={b.y}
+							width={b.w}
+							height={b.h}
+							style={{ fill: colorCss }}
+						/>
+					))}
+					{/* Baseline axis: a thin line at the bottom the bars rise from (default on). */}
+					{axis && (
+						<rect
+							data-part="axis"
+							x={0}
+							y={H - 1}
+							width={W}
+							height={1}
+							style={{ fill: colorCss }}
+						/>
+					)}
+				</>
 			) : (
 				<>
 					{fill && points.length > 0 && (

@@ -90,7 +90,8 @@ Compact line / area / histogram of a sensor history (a time series).
 | `color` | color |  |  |  |
 | `fill` | toggle |  |  | fill the area under the line |
 | `histogram` | toggle |  |  | draw bars instead of a line |
-| `barGap` | number |  | min 0, max 0.9, step 0.05 | gap between histogram bars, 0–0.9 of a slot (0 = touching) |
+| `axis` | toggle | true |  | show a baseline axis line under the bars (histogram mode) |
+| `barGap` | number | 0.2 | min 0, max 0.9, step 0.05 | gap between histogram bars, 0–0.9 of a slot (0 = touching) |
 | `seconds` | number | 60 | min 5, step 5 | seconds of history to show |
 | `lineWidth` | number |  | min 0.5, step 0.5 | stroke thickness (line mode) |
 
@@ -175,8 +176,8 @@ Self-sourcing CPU widget: a per-core sparkline grid or one combined gauge.
 | key | type | default | options / range | description |
 | --- | --- | --- | --- | --- |
 | `mode` | select | "cores" | `cores`, `combined` | per-core sparkline grid vs one combined gauge |
-| `cols` | number |  | min 1 | columns in the per-core grid (blank = one row of every core) |
-| `seconds` | number |  | min 5, step 5 | seconds of history to show |
+| `cols` | number | 8 | min 1 | columns in the per-core grid (blank = 8; clamped to the core count) |
+| `seconds` | number | 30 | min 5, step 5 | seconds of history to show |
 | `histogram` | toggle |  |  | draw bars instead of lines |
 | `lineWidth` | number |  | min 0.5, step 0.5 | per-core stroke thickness |
 | `label` | text |  |  |  |
