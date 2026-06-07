@@ -1,6 +1,7 @@
 // Framework-agnostic diagnostics core (AGENTS.md §5): pure shapes + reducers for the studio's
 // Diagnostics panel. No Tauri, no DOM, no React — the live gathering and the cross-window event bridge
 // live in the outer-ring adapter lib/diag.ts; this module only models and folds the data.
+import { formatBytes } from './format';
 
 /** A window's JS heap usage (from Chromium's non-standard `performance.memory`), or null where the
  * runtime doesn't expose it. Bytes, not MB — the UI formats with core/format.ts formatBytes. */
@@ -89,9 +90,67 @@ export function aggregateWidgets(widgets: { type: string; nodes: number }[]): Wi
 	return [...byType.values()].sort((a, b) => b.nodes - a.nodes || a.type.localeCompare(b.type));
 }
 
+/** A compact, human-readable one-line summary of a window's diagnostics, for the memory TRAIL — the
+ *  periodic line each window appends to the rotating log file (lib/diag.ts `startMemoryTrail`). Because
+ *  it lands on disk every interval, the run-up to an (unattended, overnight) OOM survives the crash:
+ *  read the last lines to see which metric — JS heap, DOM, retained art, or a specific widget's DOM
+ *  weight — was climbing. NOTE: `heap` is the JS heap only; a WebView2 OOM from bitmaps/GPU/iframes
+ *  won't show here (cross-check the process memory in Task Manager). Pure. */
+export function formatDiagTrail(d: WindowDiag): string {
+	const heap = d.heap
+		? `heap ${formatBytes(d.heap.usedBytes)}/${formatBytes(d.heap.limitBytes)}`
+		: 'heap n/a';
+	const frac = heapUsedFraction(d.heap);
+	const pct = frac != null ? ` ${Math.round(frac * 100)}%` : '';
+	const top = d.widgets
+		.slice(0, 4)
+		.map((w) => `${w.type}${w.count > 1 ? `×${w.count}` : ''}:${w.nodes}`)
+		.join(',');
+	return (
+		`${heap}${pct} · dom ${d.domNodes} · art ${formatBytes(d.artBytes)} · sess ${d.sessions}` +
+		` · sensors ${d.activeSensors}/${d.sensors}${top ? ` · top ${top}` : ''}`
+	);
+}
+
 /** Derive a window's role from its Tauri label, mirroring overlay.ts conventions. Pure. */
 export function roleFromLabel(label: string): WindowRole {
 	if (label === 'studio') return 'studio';
 	if (label === 'main') return 'main';
 	return 'overlay';
+}
+
+/** One row of the Diagnostics panel: a window the backend currently knows about, plus whether its JS is
+ *  still answering the poll. `responding:false` with a non-null `report` is a window that has gone quiet
+ *  since its last report — almost always a CRASHED webview (e.g. OOM): its JS can't reply, but the OS
+ *  window still exists, so it stays listed (and remains rescuable / inspectable by label) instead of
+ *  silently vanishing. `report:null` is a window that hasn't reported yet (just launched). */
+export type DiagRow = {
+	label: string;
+	role: WindowRole;
+	responding: boolean;
+	report: WindowDiag | null;
+};
+
+/**
+ * Merge the backend's authoritative window-label list with the JS heap reports into the panel's rows.
+ * The label list (not the reports) is the source of membership, so a window whose webview crashed —
+ * and therefore stopped reporting — still appears, marked not-responding, carrying its LAST report so
+ * the last-known heap is still visible. A row is "responding" only if its report is fresher than
+ * `maxAgeMs`. Reports whose label the backend no longer lists (a truly-closed window) are dropped.
+ * Falls back to the report labels when `labels` is empty (no backend command — tests / plain browser),
+ * so the panel still works. Pure; sorted by label.
+ */
+export function mergeWindowList(
+	reports: Record<string, WindowDiag>,
+	labels: string[],
+	now: number,
+	maxAgeMs: number
+): DiagRow[] {
+	const effective = labels.length ? labels : Object.keys(reports);
+	const rows = effective.map((label) => {
+		const report = reports[label] ?? null;
+		const responding = !!report && (maxAgeMs <= 0 || now - report.at <= maxAgeMs);
+		return { label, role: roleFromLabel(label), responding, report };
+	});
+	return rows.sort((a, b) => a.label.localeCompare(b.label));
 }

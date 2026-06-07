@@ -85,6 +85,7 @@ import { useConditionHidden } from './canvas/useConditionHidden';
 import GroupFrame from './GroupFrame';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
 import { useOverlayPrefs, type OverlayLayer } from './canvas/overlayPrefs';
+import { overlayPresentation, isWholeWindowInteractive } from './canvas/overlayPresentation';
 import { screenRectToLayout } from '../core/measureMath';
 import Inspector from './Inspector';
 import ThemePreview from './ThemePreview';
@@ -99,7 +100,7 @@ import { SYSTEM_GROUP } from '../core/sensorList';
 import ThemeList from './ThemeList';
 import StyleLayer from './StyleLayer';
 import DiagnosticsPanel from './DiagnosticsPanel';
-import { startDiagResponder } from '../diag';
+import { startDiagResponder, startMemoryTrail } from '../diag';
 import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
 import { snapRectToPeers } from '../core/align';
@@ -136,10 +137,10 @@ import {
 	closeWindow,
 	onStudioCloseRequested,
 	reconcileOverlays,
-	setClickThrough,
 	setMainWindowVisible,
 	syncInteractiveRects,
-	applyOverlayLayer
+	applyOverlayPresentation,
+	rescueWindows
 } from '../overlay';
 import { TelemetryHubContext } from './telemetryContext';
 import { listMicrophones } from '../stt';
@@ -155,7 +156,6 @@ import {
 import { usePersistence } from './canvas/usePersistence';
 import { setLayoutAssistantApi } from './layoutAssistantBridge';
 import { applyAssistantOps } from '../core/llm';
-import { decideStudioClose } from './canvas/closePrompt';
 import { decideDesignerLeave } from './canvas/designerLeave';
 import { useStageSize } from './canvas/useStageSize';
 import { useZoomFit } from './canvas/useZoomFit';
@@ -730,12 +730,30 @@ export default function Canvas({ studio = false }: Props) {
 	// Overlay rendering prefs (taskbar awareness + z-order layer). Set from studio Settings, read on
 	// the overlay (synced cross-window via the 'storage' event).
 	const [overlayPrefs, setOverlayPrefs] = useOverlayPrefs();
-	// Overlay windows apply the chosen z-order layer (top / below windows / wallpaper), re-applying
-	// live when the pref changes. The studio is a normal editor window and never moves layers.
+	// Freshest prefs for the stable syncRects callback (which reads them without re-subscribing).
+	const overlayPrefsRef = useRef(overlayPrefs);
+	overlayPrefsRef.current = overlayPrefs;
+	// This window's role: the primary `main` overlay carries no ?monitor= param; secondary overlays do.
+	// The main overlay is ALWAYS interactive (see overlayPresentation) so its webview can never get stuck
+	// behind a click-through surface (e.g. an un-clickable crash page).
+	const isMain = !studio && monitorParam() === null;
+	// Windowed-debug mode paints an opaque background (styles.css) so the otherwise see-through overlay
+	// surface reads as a normal window. The actual window flags are applied by the presentation effect
+	// (below, once editMode/syncRects are in scope). The studio never participates.
 	useEffect(() => {
 		if (studio) return;
-		void applyOverlayLayer(overlayPrefs.overlayLayer);
-	}, [studio, overlayPrefs.overlayLayer]);
+		const el = document.documentElement;
+		el.classList.toggle('overlay-windowed', overlayPrefs.debugWindowed);
+		return () => el.classList.remove('overlay-windowed');
+	}, [studio, overlayPrefs.debugWindowed]);
+	// Memory trail: persist this window's diagnostics to the rotating log file every interval so an
+	// unattended (e.g. overnight) leak's climb survives a crash for post-mortem. Gated on windowed-debug
+	// mode — off in normal runs so they stay quiet. (NB: it logs the JS heap, so it can't see a native
+	// WebView2/compositor leak; cross-check the renderer's RSS in Task Manager for those.)
+	useEffect(() => {
+		if (!overlayPrefs.debugWindowed) return;
+		return startMemoryTrail(() => hub);
+	}, [hub, overlayPrefs.debugWindowed]);
 	// The studio listens for each overlay's last layer-apply result (broadcast by applyOverlayLayer)
 	// so Settings can show whether the wallpaper/below mode actually took on the overlay.
 	const [layerStatus, setLayerStatus] = useState<string>('');
@@ -1043,10 +1061,22 @@ export default function Canvas({ studio = false }: Props) {
 	editModeRef.current = editMode;
 
 	const syncRects = useCallback(() => {
-		syncInteractiveRects(interactiveItemsRef.current(), editModeRef.current).catch((err) =>
+		const p = overlayPrefsRef.current;
+		// Send the per-widget interactive rects only when the window is a passive overlay; when the WHOLE
+		// window is interactive (edit mode, the main overlay, or windowed-debug) clear them. The studio is
+		// always whole-window interactive too.
+		const whole =
+			studio ||
+			isWholeWindowInteractive({
+				windowed: p.debugWindowed,
+				layer: p.overlayLayer,
+				isMain,
+				editMode: editModeRef.current
+			});
+		syncInteractiveRects(interactiveItemsRef.current(), whole).catch((err) =>
 			console.warn('set_interactive_rects failed', err)
 		);
-	}, []);
+	}, [studio, isMain]);
 
 	// Overlay (CSS layout): the interactive rects come from the measured DOM, so re-sync whenever the
 	// measured map changes (not just on save). Gated on a non-empty map so the first paint doesn't
@@ -1175,18 +1205,32 @@ export default function Canvas({ studio = false }: Props) {
 
 	// --- setEdit ---
 	const setEdit = useCallback(
-		async (value: boolean) => {
+		(value: boolean) => {
 			setEditMode(value);
 			editModeRef.current = value;
-			try {
-				await setClickThrough(!value);
-			} catch (err) {
-				console.warn('setIgnoreCursorEvents failed', err);
-			}
+			// Whole-window click-through + decorations follow `editMode` via the presentation effect below;
+			// refresh the per-widget interactive rects now using the new mode.
 			syncRects();
 		},
 		[syncRects]
 	);
+
+	// Overlay presentation: decorations / taskbar / z-order / whole-window click-through, derived in ONE
+	// place (overlayPresentation) from the chosen layer, the windowed-debug pref, and the edit state, and
+	// re-applied whenever any of them change (incl. on mount, which establishes passive vs. interactive —
+	// so the main overlay starts interactive and a secondary starts click-through). The studio never
+	// participates. This supersedes the old per-window setClickThrough(true) at init.
+	useEffect(() => {
+		if (studio) return;
+		const input = {
+			windowed: overlayPrefs.debugWindowed,
+			layer: overlayPrefs.overlayLayer,
+			isMain,
+			editMode
+		};
+		void applyOverlayPresentation(overlayPresentation(input), overlayPrefs.overlayLayer);
+		syncRects();
+	}, [studio, isMain, editMode, overlayPrefs.debugWindowed, overlayPrefs.overlayLayer, syncRects]);
 
 	// --- selection helpers ---
 	const setSelection = useCallback(
@@ -1293,13 +1337,16 @@ export default function Canvas({ studio = false }: Props) {
 		if (!studio) return;
 		let unlisten: () => void = () => undefined;
 		onStudioCloseRequested(async () => {
-			const action = decideStudioClose(
-				dirtyRef.current || pendingExtrasRef.current.length > 0,
-				(m) => window.confirm(m)
-			);
-			if (action === 'save') await commitSaveRef.current();
-			else if (action === 'discard') await revertDraftToDiskRef.current();
-			return action !== 'cancel'; // proceed to close unless the user chose to keep editing
+			// Always close. `window.confirm` is unreliable in the webview (it can silently return false,
+			// which previously TRAPPED the close — the ✕ did nothing), and the studio live-previews every
+			// edit straight to disk, so closing loses nothing. Persist any not-yet-written work (e.g.
+			// queued cross-monitor moves) first; an explicit discard is available via "cancel edits".
+			try {
+				if (dirtyRef.current || pendingExtrasRef.current.length > 0) await commitSaveRef.current();
+			} catch (err) {
+				console.warn('save on studio close failed', err);
+			}
+			return true;
 		}).then((u) => {
 			unlisten = u;
 		});
@@ -1318,8 +1365,6 @@ export default function Canvas({ studio = false }: Props) {
 		clearPreviewWrite();
 		await writeBaseline(b, myMonitorRef.current);
 	}, [dispatch, clearPreviewWrite, writeBaseline]);
-	const revertDraftToDiskRef = useRef(revertDraftToDisk);
-	revertDraftToDiskRef.current = revertDraftToDisk;
 
 	const cancelEdits = useCallback(async () => {
 		if (!studio || !dirtyRef.current || !savedBaselineRef.current) return;
@@ -2195,13 +2240,21 @@ export default function Canvas({ studio = false }: Props) {
 	const onCanvasContextMenu = useCallback(
 		(event: React.MouseEvent) => {
 			if (!editModeRef.current || previewingRef.current) return; // read-only while previewing
+			// The stage context menu (split / add inside / add beside / paste / …) only makes sense on a
+			// STAGE — the Layouts section or the widget designer. In an off-stage section (Settings,
+			// Sensors, Themes, Plugins, …), or on a docked rail/panel (Inspector, Outline, …), there's
+			// nothing for those items to act on, so bail BEFORE preventDefault — leaving the right-click
+			// to its native behaviour (e.g. a text field keeps its copy/paste menu) instead of popping an
+			// irrelevant stage menu. (Overlays have no sections; their whole surface is the stage.)
+			if (studio && !(navSection === 'layouts' || designing)) return;
+			if ((event.target as HTMLElement | null)?.closest(PANEL_SEL)) return;
 			event.preventDefault();
 			if (consumeSuppressCtx()) return; // swallow the contextmenu trailing a right-drag free-move
 			const mon = monitorForDragRef.current;
 			const id = studio ? containerAt(toWorld(event.clientX, event.clientY)) : mon.root.id;
 			setMenu({ x: event.clientX, y: event.clientY, id: id === mon.root.id ? '__canvas__' : id });
 		},
-		[studio, containerAt, toWorld, consumeSuppressCtx]
+		[studio, navSection, designing, containerAt, toWorld, consumeSuppressCtx]
 	);
 	// Drag a palette widget (the Inspector "Add" buttons set text/x-widget-type) onto the stage to
 	// drop a new floating widget at the cursor (item 7). Drops over a docked rail belong to that
@@ -3755,6 +3808,31 @@ export default function Canvas({ studio = false }: Props) {
 															{layerStatus || '(waiting for the overlay to apply a layer…)'}
 														</code>
 													</div>
+													<div className="rp-hd" style={{ marginTop: 12 }}>
+														Debug
+													</div>
+													<label className="rp-row" style={{ cursor: 'pointer' }}>
+														<span>windowed mode</span>
+														<input
+															type="checkbox"
+															checked={overlayPrefs.debugWindowed}
+															onChange={(e) =>
+																setOverlayPrefs({ debugWindowed: e.currentTarget.checked })
+															}
+														/>
+													</label>
+													<div className="pl-desc">
+														Render overlays as ordinary decorated, interactive, alt-tab-able windows
+														(opaque, taskbar-present, not click-through), so a crashing or
+														misbehaving overlay is visible, clickable (its “Reload” page), and
+														inspectable — the borderless click-through overlay otherwise hides all
+														of that. Takes effect on the live overlay.
+													</div>
+													<div className="pl-desc" style={{ marginTop: 6 }}>
+														Stuck behind a click-through window? Press <code>Ctrl+Alt+Shift+E</code>{' '}
+														anytime — the rescue hotkey forces every window interactive (works even
+														if its webview crashed).
+													</div>
 												</>
 											)}
 											{settingsTab === 'startup' && (
@@ -3796,6 +3874,13 @@ export default function Canvas({ studio = false }: Props) {
 													</div>
 													<button type="button" onClick={openDevtools}>
 														⌗ Inspect this window (devtools)
+													</button>
+													<button
+														type="button"
+														onClick={() => void rescueWindows()}
+														title="Make every window interactive and bring it forward — recovers a click-through or crashed overlay you can't click (same as the Ctrl+Alt+Shift+E hotkey)."
+													>
+														⛑ Rescue all windows
 													</button>
 													<DiagnosticsPanel />
 												</>

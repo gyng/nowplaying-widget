@@ -26,6 +26,19 @@
 	border-left-width: 2px;
 }
 
+/* A window that's stopped answering the poll (closed / launching / crashed): dim it and tint the edge
+   amber so it reads as degraded, while keeping its last-known stats + recovery controls visible. */
+.diag-stale {
+	border-color: rgba(220, 160, 60, 0.45);
+	background: rgba(220, 160, 60, 0.06);
+	opacity: 0.85;
+}
+
+.diag-warn {
+	color: rgb(220, 160, 60);
+	font-weight: bold;
+}
+
 .diag-win-hd {
 	display: flex;
 	justify-content: space-between;

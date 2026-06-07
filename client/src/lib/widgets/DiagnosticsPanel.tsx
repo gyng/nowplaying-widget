@@ -1,28 +1,41 @@
 // Studio Diagnostics panel (settings → Diagnostics): polls every window over the diag bridge and shows
 // each one's JS heap, retained now-playing sessions + album-art bytes, sensor counts, and DOM size —
 // so a memory leak shows up as a climbing heap (and a climbing "art" total is the media-store
-// fingerprint). For overlays it also exposes the debug controls you can't reach on a click-through
-// window: open its devtools, and toggle click-through off so you can interact with / right-click it.
-// All cross-window plumbing lives in lib/diag.ts; the folds/shapes in core/diagnostics.ts.
+// fingerprint). The window LIST comes from the backend (list_window_labels), not the JS reports, so a
+// window whose webview crashed — and therefore stopped reporting — still appears (marked "not
+// responding") instead of vanishing. Its recovery controls (open devtools, drop click-through) go
+// through the backend too, so they work even when that window's own JS is dead. All cross-window
+// plumbing lives in lib/diag.ts; the folds/shapes in core/diagnostics.ts.
 import { useEffect, useState } from 'react';
-import { heapUsedFraction, mergeReport, pruneStale, type WindowDiag } from '../core/diagnostics';
+import {
+	heapUsedFraction,
+	mergeReport,
+	mergeWindowList,
+	type WindowDiag
+} from '../core/diagnostics';
 import { formatBytes } from '../core/format';
 import { formatDuration } from '../core/timer';
 import {
 	getProcessDiagnostics,
 	listenDiagReports,
+	listWindowLabels,
+	openDevtoolsFor,
+	reloadWindow,
 	requestDiagnostics,
-	sendDiagCommand,
+	setWindowInteractive,
 	type ProcessDiag
 } from '../diag';
 import './DiagnosticsPanel.css';
 
 const POLL_MS = 1500;
-// Drop a window that's missed several polls (closed / crashed) so it doesn't linger as a ghost row.
+// A window that hasn't reported within this window is treated as not responding (closed / crashed). It
+// stays listed (the backend still knows the OS window) so it can be rescued / inspected by label.
 const STALE_MS = 6000;
 
 export default function DiagnosticsPanel() {
 	const [reports, setReports] = useState<Record<string, WindowDiag>>({});
+	// Authoritative window labels from the backend — the source of truth for which windows exist.
+	const [labels, setLabels] = useState<string[]>([]);
 	// The native (Rust host) process's CPU% + memory — polled by command, not the per-window bridge.
 	const [proc, setProc] = useState<ProcessDiag | null>(null);
 	// Local mirror of the click-through toggle we last sent each overlay (the overlay owns the truth;
@@ -34,7 +47,7 @@ export default function DiagnosticsPanel() {
 		const offReports = listenDiagReports((r) => {
 			if (!alive) return;
 			// Re-stamp arrival on the STUDIO clock — each window's performance.now() is its own domain, so
-			// the reporter's `at` isn't comparable across windows; the studio clock makes pruning valid.
+			// the reporter's `at` isn't comparable across windows; the studio clock makes staleness valid.
 			setReports((prev) => mergeReport(prev, { ...r, at: performance.now() }));
 		});
 		// Poll the native process alongside the per-window heap poll (CPU% needs the repeated call to
@@ -43,29 +56,30 @@ export default function DiagnosticsPanel() {
 			void getProcessDiagnostics().then((p) => {
 				if (alive && p) setProc(p);
 			});
+		const pollLabels = () =>
+			void listWindowLabels().then((l) => {
+				if (alive && l.length) setLabels(l);
+			});
 		requestDiagnostics();
 		pollProc();
+		pollLabels();
 		const poll = window.setInterval(() => {
 			requestDiagnostics();
 			pollProc();
+			pollLabels();
 		}, POLL_MS);
-		const prune = window.setInterval(
-			() => setReports((prev) => pruneStale(prev, performance.now(), STALE_MS)),
-			POLL_MS
-		);
 		return () => {
 			alive = false;
 			void offReports.then((un) => un());
 			clearInterval(poll);
-			clearInterval(prune);
 		};
 	}, []);
 
-	const rows = Object.values(reports).sort((a, b) => a.label.localeCompare(b.label));
+	const rows = mergeWindowList(reports, labels, performance.now(), STALE_MS);
 
 	const toggleInteractive = (label: string, value: boolean): void => {
 		setInteractive((m) => ({ ...m, [label]: value }));
-		sendDiagCommand(label, { action: 'interactive', value });
+		void setWindowInteractive(label, value);
 	};
 
 	return (
@@ -97,34 +111,48 @@ export default function DiagnosticsPanel() {
 			{rows.length === 0 ? (
 				<div className="rp-stub">Polling windows…</div>
 			) : (
-				rows.map((r) => {
-					const frac = heapUsedFraction(r.heap);
+				rows.map((row) => {
+					const r = row.report;
+					const frac = r ? heapUsedFraction(r.heap) : null;
 					return (
-						<div className="diag-win" key={r.label}>
+						<div className={`diag-win${row.responding ? '' : ' diag-stale'}`} key={row.label}>
 							<div className="diag-win-hd">
-								<span className="diag-label">{r.label}</span>
+								<span className="diag-label">{row.label}</span>
 								<span className="dim">
-									{r.role}
-									{r.monitor != null ? ` · mon ${r.monitor}` : ''}
+									{row.role}
+									{r?.monitor != null ? ` · mon ${r.monitor}` : ''}
+									{!row.responding && (
+										<>
+											{' · '}
+											<span
+												className="diag-warn"
+												title="No reply to the last polls — the window is closed, launching, or its webview crashed. Use the controls below to inspect or reach it."
+											>
+												not responding
+											</span>
+										</>
+									)}
 								</span>
 							</div>
-							<div className="diag-stats">
-								<span title="JS heap used / limit (Chromium estimate)">
-									heap{' '}
-									{r.heap
-										? `${formatBytes(r.heap.usedBytes)} / ${formatBytes(r.heap.limitBytes)}`
-										: 'n/a'}
-									{frac != null ? ` · ${Math.round(frac * 100)}%` : ''}
-								</span>
-								<span title="now-playing sessions retained, and total album-art bytes held">
-									sessions {r.sessions} · art {formatBytes(r.artBytes)}
-								</span>
-								<span title="sensors active / total seen by this window's hub">
-									sensors {r.activeSensors}/{r.sensors}
-								</span>
-								<span title="DOM element count">dom {r.domNodes}</span>
-							</div>
-							{r.widgets.length > 0 && (
+							{r && (
+								<div className="diag-stats">
+									<span title="JS heap used / limit (Chromium estimate)">
+										heap{' '}
+										{r.heap
+											? `${formatBytes(r.heap.usedBytes)} / ${formatBytes(r.heap.limitBytes)}`
+											: 'n/a'}
+										{frac != null ? ` · ${Math.round(frac * 100)}%` : ''}
+									</span>
+									<span title="now-playing sessions retained, and total album-art bytes held">
+										sessions {r.sessions} · art {formatBytes(r.artBytes)}
+									</span>
+									<span title="sensors active / total seen by this window's hub">
+										sensors {r.activeSensors}/{r.sensors}
+									</span>
+									<span title="DOM element count">dom {r.domNodes}</span>
+								</div>
+							)}
+							{r && r.widgets.length > 0 && (
 								<div
 									className="diag-widgets"
 									title="DOM nodes owned per widget type (heaviest first) — a climbing total is a per-widget DOM leak"
@@ -137,22 +165,26 @@ export default function DiagnosticsPanel() {
 									))}
 								</div>
 							)}
-							{r.role !== 'studio' && (
+							{row.role !== 'studio' && (
 								<div className="diag-actions">
+									<button type="button" onClick={() => void openDevtoolsFor(row.label)}>
+										⌗ Devtools
+									</button>
 									<button
 										type="button"
-										onClick={() => sendDiagCommand(r.label, { action: 'devtools' })}
+										onClick={() => void reloadWindow(row.label)}
+										title="Reload this window's webview — respawns its renderer to recover a crashed (Out of Memory) overlay without relaunching the app."
 									>
-										⌗ Devtools
+										↻ Reload
 									</button>
 									<label
 										className="diag-toggle"
-										title="Disable click-through so you can interact with / right-click this overlay (then open devtools). Toggle off when done."
+										title="Disable click-through so you can interact with / right-click this overlay (then open devtools). Driven from the backend, so it works even on a crashed window. Toggle off when done."
 									>
 										<input
 											type="checkbox"
-											checked={!!interactive[r.label]}
-											onChange={(e) => toggleInteractive(r.label, e.currentTarget.checked)}
+											checked={!!interactive[row.label]}
+											onChange={(e) => toggleInteractive(row.label, e.currentTarget.checked)}
 										/>
 										interactive
 									</label>
@@ -164,8 +196,10 @@ export default function DiagnosticsPanel() {
 			)}
 			<div className="rp-stub diag-note">
 				Watch an overlay’s heap climb to confirm a leak; a steadily-rising “art” total is the
-				media-store fingerprint. “Interactive” disables click-through so you can open that overlay’s
-				devtools — toggle it back off when done.
+				media-store fingerprint. A “not responding” window has likely crashed — “interactive” (or
+				the Ctrl+Alt+Shift+E rescue hotkey) drops its click-through so you can reach its Reload
+				page; “Devtools” inspects it. Both work from the backend, so a dead webview is still
+				reachable.
 			</div>
 		</div>
 	);

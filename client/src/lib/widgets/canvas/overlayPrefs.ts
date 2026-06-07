@@ -21,11 +21,18 @@ export type OverlayPrefs = {
 	respectWorkArea: boolean;
 	// Where the overlay sits in the window z-order (see OverlayLayer). Default 'bottom'.
 	overlayLayer: OverlayLayer;
+	// DEBUG: render overlays as ordinary decorated, interactive, alt-tab-able windows (opaque
+	// background, taskbar-present, not topmost, not click-through). Off by default. Makes a crashing
+	// or misbehaving overlay visible, clickable (e.g. its "Reload" page), and inspectable — the
+	// borderless click-through overlay otherwise hides all of that. Persisted so it survives the
+	// reload you use to reproduce a crash.
+	debugWindowed: boolean;
 };
 
 export const OVERLAY_PREF_DEFAULTS: OverlayPrefs = {
 	respectWorkArea: true,
-	overlayLayer: 'bottom'
+	overlayLayer: 'bottom',
+	debugWindowed: false
 };
 
 export function readOverlayPrefs(): OverlayPrefs {

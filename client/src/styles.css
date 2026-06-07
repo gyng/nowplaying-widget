@@ -81,6 +81,14 @@ body {
 	background: var(--ui-bg);
 }
 
+/* Windowed-debug mode (Settings → Overlay → Debug): an overlay temporarily rendered as a normal
+   decorated window. Paint the page opaque so the see-through overlay surface reads as an ordinary
+   window (and a crash/Reload page isn't transparent). Keyed on a class the Canvas toggles on <html>. */
+html.overlay-windowed,
+html.overlay-windowed body {
+	background: var(--ui-bg);
+}
+
 /* Visually-hidden but kept in the accessibility tree: screen-reader-only labels + polite live regions
    (e.g. the studio's "Layout saved" announcement). The well-known clip technique. */
 .sr-only {

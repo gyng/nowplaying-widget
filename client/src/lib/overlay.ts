@@ -19,6 +19,7 @@ import { builtinCss } from './core/builtinThemes';
 import { monitorOptionLabel } from './monitorLabel';
 import { parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
+import type { OverlayPresentation } from './widgets/canvas/overlayPresentation';
 
 /** Apply the overlay z-order layer to THIS window: 'top' = always-on-top (default), 'bottom' =
  *  always-on-bottom (below app windows), 'wallpaper' = parented to the desktop WorkerW (on the
@@ -179,6 +180,48 @@ export async function fillPrimaryMonitor(): Promise<void> {
 /** Whole-window click-through: true = clicks pass through (passive overlay). */
 export async function setClickThrough(enabled: boolean): Promise<void> {
 	await getCurrentWindow().setIgnoreCursorEvents(enabled);
+}
+
+/** Apply a computed {@link OverlayPresentation} to THIS overlay window: decorations, taskbar presence,
+ *  z-order, and whole-window click-through. The z-order half (incl. the experimental wallpaper SetParent
+ *  and the studio status broadcast) is delegated to {@link applyOverlayLayer} on the normal path; the
+ *  windowed-debug path instead detaches any wallpaper parent and drops topmost/bottom so the overlay is
+ *  an ordinary movable window. The opaque-background half is the caller's (a CSS concern). Best-effort —
+ *  failures are logged, never thrown. The studio never calls this (it's a normal editor window). */
+export async function applyOverlayPresentation(
+	p: OverlayPresentation,
+	layer: OverlayLayer
+): Promise<void> {
+	const win = getCurrentWindow();
+	try {
+		if (p.opaque) {
+			// Windowed-debug: a normal decorated, interactive, alt-tab-able window. Un-parent from any
+			// WorkerW and clear topmost/bottom so it behaves like an ordinary window you can move/close.
+			await invoke('set_overlay_wallpaper', { enabled: false }).catch(() => undefined);
+			await win.setAlwaysOnTop(false);
+			await win.setAlwaysOnBottom(false);
+		} else {
+			// Normal overlay: defer the z-order (incl. wallpaper) + status broadcast to applyOverlayLayer.
+			await applyOverlayLayer(layer);
+		}
+		await win.setDecorations(p.decorations);
+		await win.setShadow(false);
+		await win.setSkipTaskbar(!p.taskbar);
+		await win.setIgnoreCursorEvents(p.clickThrough);
+	} catch (err) {
+		console.warn('applyOverlayPresentation failed', err);
+	}
+}
+
+/** Backend "panic button": make every window interactive again and bring it forward (drops
+ *  click-through, un-minimizes, focuses). Survives a dead webview because it runs entirely in Rust —
+ *  the studio's manual counterpart to the Ctrl+Alt+Shift+E rescue hotkey. */
+export async function rescueWindows(): Promise<void> {
+	try {
+		await invoke('rescue_windows');
+	} catch (err) {
+		console.warn('rescue_windows failed', err);
+	}
 }
 
 /** Read the saved control remaps (`controls.json`), or null if none/failed. The frontend validates
@@ -481,11 +524,10 @@ export function isStudioWindow(): boolean {
 }
 
 /**
- * Guard the studio window's close: intercept the OS close request and ask the caller's `decide`
- * what to do (typically prompt to save / discard / keep editing the unsaved changes — the studio
- * live-previews edits to disk, so closing without a decision would silently keep them). `decide`
- * resolves to `true` to proceed with the close or `false` to keep the window open; it should have
- * already saved/discarded as chosen. No-op off the studio window / outside Tauri. Returns an unlisten fn.
+ * Guard the studio window's close: intercept the OS close request, run the caller's `decide` (which
+ * persists any pending work), then close. The studio live-previews edits to disk, so we never block —
+ * `decide` returning `false` would keep it open, but the studio's decider always proceeds. No-op off
+ * the studio window / outside Tauri. Returns an unlisten fn.
  */
 export async function onStudioCloseRequested(
 	decide: () => Promise<boolean> | boolean
@@ -493,9 +535,11 @@ export async function onStudioCloseRequested(
 	if (!isStudioWindow()) return () => undefined;
 	try {
 		const win = getCurrentWindow();
-		let closing = false;
-		const unlisten = await win.onCloseRequested(async (event) => {
-			if (closing) return; // second pass after our own close(): let it through
+		let unlisten: () => void = () => undefined;
+		let handling = false;
+		unlisten = await win.onCloseRequested(async (event) => {
+			if (handling) return; // ignore repeat clicks while we're already processing one
+			handling = true;
 			event.preventDefault();
 			let proceed = true;
 			try {
@@ -504,14 +548,18 @@ export async function onStudioCloseRequested(
 				// Never trap the user in a window we couldn't decide about — let the close proceed.
 				console.warn('studio close decision failed', err);
 			}
-			if (!proceed) return; // keep the window open (preventDefault already applied)
-			// Set the flag first so that even if close() rejects (e.g. a missing capability), a second
-			// click on the OS close button falls straight through (the decision already ran either way).
-			closing = true;
+			if (!proceed) {
+				handling = false; // the user kept editing; allow a later close attempt
+				return;
+			}
+			// Once a close is preventDefault'd, a programmatic close() is swallowed for that cycle — even
+			// deferred or after unlistening (only a fresh native click closed it: the "click twice" bug).
+			// destroy() force-tears-down the window directly (not a close *request*), so it closes on the
+			// first click. Studio only; the host + overlays keep running.
 			try {
-				await win.close();
+				await win.destroy();
 			} catch (err) {
-				console.warn('studio close failed', err);
+				console.warn('studio destroy failed', err);
 			}
 		});
 		return unlisten;
@@ -752,15 +800,17 @@ export async function reconcileOverlays(): Promise<void> {
 /**
  * Tell the backend which of this window's widgets should catch clicks in passive mode,
  * as physical screen rects. Each item carries its SOLVED logical rect (flow widgets are
- * not at their unit.rect). In edit mode the whole window is interactive, so send none.
+ * not at their unit.rect). When the WHOLE window is already interactive — edit mode, the
+ * always-interactive `main` window, or windowed-debug mode — send none (no per-widget
+ * cursor watching is needed).
  */
 export async function syncInteractiveRects(
 	items: { rect: Rect; interactive?: boolean }[],
-	editMode: boolean
+	wholeWindowInteractive: boolean
 ): Promise<void> {
 	const win = getCurrentWindow();
 	const label = win.label;
-	if (editMode) {
+	if (wholeWindowInteractive) {
 		await invoke('set_interactive_rects', { label, rects: [] });
 		return;
 	}

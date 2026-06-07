@@ -131,6 +131,12 @@ async fn main() -> Result<(), ()> {
             command::save_layout_as,
             command::delete_layout,
             command::open_devtools,
+            command::list_window_labels,
+            command::open_devtools_for,
+            command::set_window_interactive,
+            command::rescue_windows,
+            command::reload_window,
+            command::log_diag,
             command::system_fonts,
             display::list_display_names,
             clickthrough::set_interactive_rects,
@@ -295,6 +301,27 @@ async fn main() -> Result<(), ()> {
                     })
             {
                 log::error("startup", "failed to register global shortcut")
+                    .field("error", err)
+                    .emit();
+            }
+
+            // Rescue hotkey (Ctrl+Alt+Shift+E): make EVERY window interactive again and bring it
+            // forward. The backend "panic button" for an overlay you can't reach — a click-through
+            // window, or one whose webview crashed so its own JS can no longer drop click-through.
+            // Handled entirely in Rust, so it works even when the target window's JS is dead.
+            let rescue_shortcut = Shortcut::new(
+                Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT),
+                Code::KeyE,
+            );
+            if let Err(err) =
+                app.global_shortcut()
+                    .on_shortcut(rescue_shortcut, |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            command::rescue_all(app);
+                        }
+                    })
+            {
+                log::error("startup", "failed to register rescue shortcut")
                     .field("error", err)
                     .emit();
             }

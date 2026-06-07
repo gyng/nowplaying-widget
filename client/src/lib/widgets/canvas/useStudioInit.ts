@@ -12,7 +12,6 @@ import {
 	listThemes,
 	monitorParam,
 	openStudio,
-	setClickThrough,
 	setMainWindowVisible,
 	studioMonitorOptions
 } from '../../overlay';
@@ -126,7 +125,9 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				unlistenStudio?.();
 				return;
 			}
-			await setClickThrough(true);
+			// Initial whole-window click-through is established by Canvas's presentation effect (so the
+			// main overlay starts interactive and a secondary starts click-through); here we only seed the
+			// per-widget interactive rects for a passive overlay.
 			d.current.syncRects();
 			unlistenEdit = await listen('toggle_edit', () => d.current.setEdit(!d.current.editMode()));
 			if (cancelled) {

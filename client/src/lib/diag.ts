@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
 	aggregateWidgets,
+	formatDiagTrail,
 	heapFromMemory,
 	roleFromLabel,
 	type DiagMemory,
@@ -18,14 +19,10 @@ import {
 import type { TelemetryHub } from './core/telemetry';
 import { mediaStore } from '../stores/stores';
 import { sumArtBytes } from './components/NowPlaying/priority';
-import { monitorParam, openDevtools, setClickThrough } from './overlay';
+import { monitorParam } from './overlay';
 
 const DIAG_REQUEST = 'diag:request'; // studio → all windows: report your stats
 const DIAG_REPORT = 'diag:report'; // window → studio: a WindowDiag
-const DIAG_CMD = 'diag:cmd'; // studio → one window (by label): a debug command
-
-/** A debug action the studio can drive on a target window. */
-export type DiagCommand = { action: 'devtools' } | { action: 'interactive'; value: boolean };
 
 /** The native (Rust HOST) process's perf snapshot. Mirrors `ProcessDiag` in
  * `widgetsack/src/process_diag.rs`. On Windows the WebView2 renderers are SEPARATE processes (their JS
@@ -102,23 +99,15 @@ export function collectLocalDiagnostics(hub: TelemetryHub | null): WindowDiag {
 	};
 }
 
-/** Run the per-window responder: answer the studio's poll and obey debug commands targeted at this
- * window. Mount ONCE per window (both roles). `getHub` is read lazily so the freshest hub is used.
- * Resolves to a teardown that removes both listeners. */
+/** Run the per-window responder: answer the studio's heap/stats poll. Mount ONCE per window (both
+ * roles). `getHub` is read lazily so the freshest hub is used. Resolves to a teardown that removes the
+ * listener. (Debug ACTIONS — devtools / drop click-through — are NOT handled here: they go through the
+ * backend by-label commands so they keep working when this window's webview has crashed.) */
 export async function startDiagResponder(getHub: () => TelemetryHub | null): Promise<UnlistenFn> {
 	const offRequest = await listen(DIAG_REQUEST, () => {
 		void emitTo('studio', DIAG_REPORT, collectLocalDiagnostics(getHub())).catch(() => undefined);
 	});
-	const offCmd = await listen<DiagCommand>(DIAG_CMD, (ev) => {
-		const cmd = ev.payload;
-		// `emitTo(label, …)` already targets one window, so no self-check is needed.
-		if (cmd.action === 'devtools') void openDevtools();
-		else if (cmd.action === 'interactive') void setClickThrough(!cmd.value);
-	});
-	return () => {
-		offRequest();
-		offCmd();
-	};
+	return offRequest;
 }
 
 /** Studio side: poll every window for a fresh report (broadcast — the studio answers itself too). */
@@ -131,7 +120,73 @@ export function listenDiagReports(cb: (report: WindowDiag) => void): Promise<Unl
 	return listen<WindowDiag>(DIAG_REPORT, (ev) => cb(ev.payload));
 }
 
-/** Studio side: send a debug command to one window by label (devtools / interactive toggle). */
-export function sendDiagCommand(label: string, cmd: DiagCommand): void {
-	void emitTo(label, DIAG_CMD, cmd).catch(() => undefined);
+// --- backend-driven recovery (works on a CRASHED window) -------------------------------------------
+// The JS bridge above dies with a window's webview, so these go through the Rust backend (the OS window
+// object outlives the renderer). Used by the Diagnostics panel so a crashed overlay stays listable,
+// inspectable, and rescuable even when its own JS is gone.
+
+/** Every live app window's label, straight from the backend (the source of truth for the panel's rows,
+ *  so a crashed/quiet window still appears). Resolves to [] outside Tauri / on failure. */
+export async function listWindowLabels(): Promise<string[]> {
+	try {
+		return await invoke<string[]>('list_window_labels');
+	} catch {
+		return [];
+	}
+}
+
+/** Open devtools for the window `label` from the backend — reaches a crashed/passive overlay the JS
+ *  bridge can't. */
+export async function openDevtoolsFor(label: string): Promise<void> {
+	try {
+		await invoke('open_devtools_for', { label });
+	} catch (err) {
+		console.warn('open_devtools_for failed', label, err);
+	}
+}
+
+/** Drop/restore whole-window click-through for `label` from the backend (and, when made interactive,
+ *  bring it forward) — so a crashed overlay's click-through can be cleared to reach its "Reload" page. */
+export async function setWindowInteractive(label: string, interactive: boolean): Promise<void> {
+	try {
+		await invoke('set_window_interactive', { label, interactive });
+	} catch (err) {
+		console.warn('set_window_interactive failed', label, err);
+	}
+}
+
+/** Reload the webview of `label` from the backend — respawns a crashed overlay's renderer (recovers the
+ *  "Out of Memory" page) without relaunching the app. */
+export async function reloadWindow(label: string): Promise<void> {
+	try {
+		await invoke('reload_window', { label });
+	} catch (err) {
+		console.warn('reload_window failed', label, err);
+	}
+}
+
+// --- memory trail: each window logs its diagnostics to the rotating log file on an interval ----------
+// The Diagnostics panel only shows live windows; an UNATTENDED overnight leak crashes the overlay
+// before anyone sees the climb. Persisting a compact summary to disk every interval means the run-up to
+// the OOM survives the crash — read the last `memtrail` lines (widgetsack.log) to see which metric (JS
+// heap / DOM / retained art / a specific widget) was growing.
+
+/** Append THIS window's diagnostics summary to the backend's rotating log file (best-effort). */
+export async function logDiag(getHub: () => TelemetryHub | null): Promise<void> {
+	try {
+		await invoke('log_diag', { summary: formatDiagTrail(collectLocalDiagnostics(getHub())) });
+	} catch {
+		/* outside Tauri / command unavailable — the trail just doesn't record */
+	}
+}
+
+/** Start the memory trail for this window: log a diagnostics summary now and every `intervalMs`.
+ *  Mount ONCE per window. Returns a stop fn that clears the interval. */
+export function startMemoryTrail(
+	getHub: () => TelemetryHub | null,
+	intervalMs = 30_000
+): () => void {
+	void logDiag(getHub); // a baseline line at startup
+	const id = setInterval(() => void logDiag(getHub), intervalMs);
+	return () => clearInterval(id);
 }
