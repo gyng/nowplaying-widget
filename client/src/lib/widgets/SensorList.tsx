@@ -28,13 +28,20 @@ const SensorRow = memo(function SensorRow({
 	return (
 		<div className="rp-row" title={id}>
 			{activity ? (
-				// After-close fate: ● mint = a widget keeps it alive, ● dim = cheap always-on, ○ = stops.
+				// After-close fate, told apart by SHAPE (not colour alone — WCAG 1.4.1): ★ = a widget keeps
+				// it alive, ● = a cheap always-on sensor, ○ = studio-only (stops on close).
 				<span
 					className={`sensor-dot ${activity.referenced ? 'on' : activity.active ? 'amb' : 'off'}`}
 					title={activity.reason}
-					aria-label={activity.active ? 'stays active after the studio closes' : 'stops on close'}
+					aria-label={
+						activity.referenced
+							? 'used by a widget — stays active after the studio closes'
+							: activity.active
+							? 'always-on — stays active after the studio closes'
+							: 'studio-only — stops when the studio closes'
+					}
 				>
-					{activity.active ? '●' : '○'}
+					{activity.referenced ? '★' : activity.active ? '●' : '○'}
 				</span>
 			) : null}
 			<span className="rp-id">{id}</span>
@@ -121,7 +128,7 @@ export default function SensorList({
 			title="Which sensors keep being sampled once you close the studio"
 		>
 			<span>
-				<span className="sensor-dot on">●</span> {refN} used by widgets
+				<span className="sensor-dot on">★</span> {refN} used by widgets
 			</span>
 			<span>
 				<span className="sensor-dot amb">●</span> {activeN - refN} always-on

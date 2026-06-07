@@ -95,14 +95,16 @@ test('Sensors pane: per-sensor "stays active after the studio closes?" dots + le
 	const filter = page.locator('.rp-filter input');
 	const dotFor = (id: string) => page.locator('.rp-row', { hasText: id }).locator('.sensor-dot');
 
-	// Referenced by the gauge → mint ● (.on): stays sampled because a widget uses it.
+	// Referenced by the gauge → mint ★ (.on): stays sampled because a widget uses it. Distinct SHAPE
+	// (star, not just colour) from the always-on dot below.
 	await filter.fill('cpu.total');
 	await expect(dotFor('cpu.total')).toHaveClass(/\bon\b/);
-	await expect(dotFor('cpu.total')).toHaveText('●');
+	await expect(dotFor('cpu.total')).toHaveText('★');
 
-	// Cheap always-on system sensor, unused → dim ● (.amb): still sampled regardless.
+	// Cheap always-on system sensor, unused → amber ● (.amb): still sampled regardless.
 	await filter.fill('cpu.cores.logical');
 	await expect(dotFor('cpu.cores.logical')).toHaveClass(/\bamb\b/);
+	await expect(dotFor('cpu.cores.logical')).toHaveText('●');
 
 	// Demand-gated sensor, no widget → hollow ○ (.off): stops once the studio closes.
 	await filter.fill('net.linkspeed.rx');
