@@ -53,15 +53,18 @@ const GENERIC_FAMILIES = new Set([
 ]);
 
 /** The first concrete font family in a CSS `font-family` value (quotes stripped), or null when the
- * value leads with a generic keyword. Lets the font loader pick which installed family to
- * @font-face so a configured font renders even when the webview won't enumerate it (per-user). */
+ * value leads with a generic keyword OR a `var(...)` reference. Lets the font loader pick which
+ * installed family to @font-face so a configured font renders even when the webview won't enumerate
+ * it (per-user). A `var(--np-font-display, …)` value is NOT a loadable font name — the concrete font
+ * comes from the token's own value (scanned separately) or the var()'s fallback, so it's skipped;
+ * otherwise splitting on the first comma would yield the bogus family "var(--np-font-display". */
 export function firstFontFamily(value: string): string | null {
 	const first = value
 		.split(',')[0]
 		.trim()
 		.replace(/^['"]|['"]$/g, '')
 		.trim();
-	if (!first || GENERIC_FAMILIES.has(first.toLowerCase())) return null;
+	if (!first || first.startsWith('var(') || GENERIC_FAMILIES.has(first.toLowerCase())) return null;
 	return first;
 }
 

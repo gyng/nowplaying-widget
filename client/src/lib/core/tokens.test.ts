@@ -69,6 +69,16 @@ describe('extractFontFamilies', () => {
 	it('returns an empty list for css with no concrete fonts', () => {
 		expect(extractFontFamilies('a{color:red} b{font-family: monospace}')).toEqual([]);
 	});
+
+	it('skips a var() font-family reference (the concrete font comes from the token decl)', () => {
+		// Regression: `font-family: var(--np-font-display, 'Bahnschrift', …)` used to yield the bogus
+		// family "var(--np-font-display" (split on the first comma), which ensureFont then warned about.
+		const css = `:root { --np-font-display: 'Orbitron', sans-serif; }
+			.np-text { font-family: var(--np-font-display, 'Bahnschrift', 'Arial Narrow', sans-serif); }`;
+		const families = extractFontFamilies(css);
+		expect(families).toEqual(['Orbitron']); // the token value, not the var() reference
+		expect(families.some((f) => f.includes('var('))).toBe(false);
+	});
 });
 
 describe('firstFontFamily', () => {
@@ -81,6 +91,13 @@ describe('firstFontFamily', () => {
 		expect(firstFontFamily('sans-serif')).toBeNull();
 		expect(firstFontFamily(' SYSTEM-UI , Arial')).toBeNull();
 		expect(firstFontFamily('')).toBeNull();
+	});
+
+	it('returns null when the value leads with a var() reference (not a loadable font)', () => {
+		expect(firstFontFamily("var(--np-font-display, 'Bahnschrift', sans-serif)")).toBeNull();
+		expect(firstFontFamily('var(--np-font)')).toBeNull();
+		// …but a real family followed by a var() fallback still resolves the real family.
+		expect(firstFontFamily("'Orbitron', var(--np-font-display)")).toBe('Orbitron');
 	});
 });
 
