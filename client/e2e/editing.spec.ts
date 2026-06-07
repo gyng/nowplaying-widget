@@ -1,9 +1,22 @@
 import { test, expect } from '@playwright/test';
-import { gotoStudio, rightClickEmptyCanvas } from './helpers';
+import { gotoStudio, openSection, rightClickEmptyCanvas } from './helpers';
 
 // Direct-manipulation editor flows: the right-click → menu → op pipeline, selection, and delete/undo.
 // These live entirely in the in-memory editor model (no backend), but need a real layout engine
 // (measured rects drive the menu, grid cells, and selection), so they belong in e2e not happy-dom.
+
+test('the stage context menu does not open in off-stage sections (no irrelevant Split/Add items)', async ({
+	page
+}) => {
+	await gotoStudio(page);
+	await openSection(page, 'settings');
+	const panel = page.locator('.rail-panel').first();
+	await expect(panel).toBeVisible();
+	// Right-click an off-stage section panel: the stage menu (Split / Add inside / …) has nothing to act
+	// on here, so it must NOT pop. (On a stage it does — see the tests below.)
+	await panel.click({ button: 'right' });
+	await expect(page.locator('.ctx')).toHaveCount(0);
+});
 
 test('canvas context menu opens with Split/Add items; Copy debug JSON sits just above Inspect', async ({
 	page
