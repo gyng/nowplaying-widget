@@ -23,7 +23,15 @@ export default defineConfig({
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure'
 	},
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	// A realistic desktop studio height: the default Desktop Chrome 720px is shorter than the studio's
+	// tall context menus render to on Linux/CI fonts, which pushed bottom items (e.g. "Into 2×2 grid")
+	// off-screen and timed the click out. 960px gives menus room; the .ctx max-height is the backstop.
+	projects: [
+		{
+			name: 'chromium',
+			use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 960 } }
+		}
+	],
 	webServer: {
 		command: `npx vite --port ${PORT} --host 127.0.0.1`,
 		url: `http://127.0.0.1:${PORT}`,
