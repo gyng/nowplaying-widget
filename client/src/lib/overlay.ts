@@ -95,10 +95,47 @@ export async function setMainWindowVisible(visible: boolean): Promise<void> {
 			// some other window gets activated). Tauri's always-on-bottom is a one-shot HWND_BOTTOM.
 			await applyOverlayLayer(readOverlayPrefs().overlayLayer);
 		} else {
-			await win.hide();
+			// DESTROY, don't hide: a hidden WebView2 window keeps its full renderer process (~150 MB)
+			// resident — hiding reclaims nothing. Tearing the window down frees the renderer. This runs
+			// in `main`'s own webview, so it self-destructs (exactly like the studio's win.destroy()).
+			// `main` is re-created on demand when the primary regains a widget: by the studio on close
+			// (reconcileOverlays + recreateMain) and by Rust's watch_layout respawn for external edits.
+			// While `main` is gone the reconcile driver moves off it; secondaries keep their own renderers.
+			await win.destroy();
 		}
 	} catch (err) {
 		console.warn('setMainWindowVisible failed', err);
+	}
+}
+
+/** Re-create the primary MAIN window after `setMainWindowVisible(false)` tore it down to reclaim its
+ * renderer. No-op when `main` already exists or the primary monitor's layout (`default`) is still
+ * empty. Mirrors the static `main` config in tauri.conf.json; born hidden, it reveals itself once its
+ * Canvas init runs `syncPrimaryOverlays` (or re-destroys if the primary is empty again). Callable from
+ * any surviving window — the studio calls it on close; Rust respawns `main` for external edits. */
+export async function recreateMain(): Promise<void> {
+	try {
+		const all = await getAllWebviewWindows();
+		if (all.some((w) => w.label === 'main')) return; // already present
+		if (!(await populatedMonitorKeys()).has('default')) return; // primary still empty — leave it gone
+		const layer = readOverlayPrefs().overlayLayer;
+		const w = new WebviewWindow('main', {
+			url: '/',
+			transparent: true,
+			decorations: false,
+			shadow: false,
+			alwaysOnTop: layer === 'top',
+			// Seed the bottom flag for non-top layers (matches the static config) so a 'bottom'/'wallpaper'
+			// window doesn't flash on top before its Canvas reveal re-asserts the full layer.
+			alwaysOnBottom: layer !== 'top',
+			skipTaskbar: true,
+			focus: false,
+			visible: false,
+			dragDropEnabled: false
+		});
+		w.once('tauri://error', (err) => console.warn('recreateMain window error', err));
+	} catch (err) {
+		console.warn('recreateMain failed', err);
 	}
 }
 

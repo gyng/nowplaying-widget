@@ -39,6 +39,39 @@ pub struct AppState {
     pub sessions: Mutex<HashMap<usize, SessionRecord>>,
 }
 
+/// Open the studio window, or focus it if already open. Normally the primary `main` overlay's JS owns
+/// studio construction (it listens for `open_studio`) — but `main` is DESTROYED to reclaim its renderer
+/// when the primary monitor is empty (overlay.ts `setMainWindowVisible` / command.rs `watch_layout`),
+/// and a dead window can't host that listener. So when `main` is absent we build the studio directly
+/// here, mirroring overlay.ts `openStudio`, keeping the tray "Open designer", the tray left-click, and
+/// the single-instance second-launch working even with no primary overlay present. Runs on the main
+/// thread (its callers are tray/single-instance handlers on the event loop).
+fn open_or_focus_studio(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("studio") {
+        let _ = w.set_focus();
+        return;
+    }
+    if app.get_webview_window("main").is_some() {
+        // `main` is alive — keep a single source of truth for the studio window config: let its JS
+        // build the studio (unchanged path) by emitting the event it listens for.
+        let _ = app.emit("open_studio", ());
+        return;
+    }
+    if let Err(err) =
+        tauri::WebviewWindowBuilder::new(app, "studio", tauri::WebviewUrl::App("/".into()))
+            .title("WidgetSack Studio")
+            .inner_size(980.0, 680.0)
+            .resizable(true)
+            .decorations(false)
+            .disable_drag_drop_handler()
+            .build()
+    {
+        log::warn("studio", "failed to open studio window from backend")
+            .field("error", err)
+            .emit();
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     // Route panics through the logging pipeline (stderr + rotating file + webview) so a panic on
@@ -58,8 +91,7 @@ async fn main() -> Result<(), ()> {
         // launch, before windows exist). A second launch focuses the running app by emitting
         // open_studio (the primary overlay opens the studio), then that process exits.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            use tauri::Emitter;
-            let _ = app.emit("open_studio", ());
+            open_or_focus_studio(app);
         }))
         // "Launch at login" support. The Settings toggle enables/disables it via the granted
         // autostart:* commands (overlay.json capability); registering it here just makes them work.
@@ -263,8 +295,9 @@ async fn main() -> Result<(), ()> {
                         let _ = app.emit("toggle_edit", ());
                     }
                     "designer" => {
-                        // The primary overlay listens and opens the studio window (5s).
-                        let _ = app.emit("open_studio", ());
+                        // Opens (or focuses) the studio. Falls back to building it directly when the
+                        // primary overlay (`main`) was reclaimed and can't host the open_studio listener.
+                        open_or_focus_studio(app);
                     }
                     "arrange" => {
                         // Each overlay snaps the windows matching ITS monitor's zone rules.
@@ -282,7 +315,7 @@ async fn main() -> Result<(), ()> {
                         ..
                     } = event
                     {
-                        let _ = tray.app_handle().emit("open_studio", ());
+                        open_or_focus_studio(tray.app_handle());
                     }
                 })
                 .build(app)?;
