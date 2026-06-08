@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 
 use gsmtc::{Image, ManagerEvent, SessionModel, SessionUpdateEvent};
 use serde::Serialize;
@@ -97,11 +98,15 @@ impl fmt::Debug for ImageWrapper {
     }
 }
 
-// Serde's remote doesn't seem to work on enum fields? Image in Media wants to be Serialize, but that won't work
+// Serde's remote doesn't seem to work on enum fields? Image in Media wants to be Serialize, but that won't work.
+// The cover art is held behind an `Arc` so carrying it forward across model/timeline updates
+// (state.rs `updater`) and emitting it are pointer copies, not memcpy of the (hundreds-of-KB) bytes.
+// `Arc<ImageWrapper>` serializes identically to `ImageWrapper` (serde `rc` feature) — the bridge JSON
+// is unchanged, so the TS mirror in stores.ts needs no change.
 #[derive(Clone, Debug, Serialize)]
 pub enum SessionUpdateEventWrapper {
     Model(SessionModel),
-    Media(SessionModel, Option<ImageWrapper>),
+    Media(SessionModel, Option<Arc<ImageWrapper>>),
 }
 
 impl From<gsmtc::SessionUpdateEvent> for SessionUpdateEventWrapper {
@@ -109,7 +114,7 @@ impl From<gsmtc::SessionUpdateEvent> for SessionUpdateEventWrapper {
         match value {
             SessionUpdateEvent::Model(model) => SessionUpdateEventWrapper::Model(model),
             SessionUpdateEvent::Media(model, image) => {
-                SessionUpdateEventWrapper::Media(model, image.map(|i| i.into()))
+                SessionUpdateEventWrapper::Media(model, image.map(|i| Arc::new(i.into())))
             }
         }
     }
