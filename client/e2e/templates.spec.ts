@@ -10,7 +10,9 @@ test('System monitor: VRAM under RAM, GPU under CPU, rows stacked, 8-column core
 }) => {
 	await gotoStudio(page);
 	await previewTemplate(page, 'System monitor');
-	await expect(page.locator('.np-cpu-cores')).toBeVisible();
+	// The per-core grid is a single <canvas> (.np-cpu-cores-canvas) that lays columns out internally;
+	// the old .np-cpu-cores CSS grid is gone (it leaked WebView2 memory — see CpuCoresCanvas).
+	await expect(page.locator('.np-cpu-cores-canvas')).toBeVisible();
 
 	const g = await page.evaluate(() => {
 		const cell = (lbl: string) => {
@@ -22,7 +24,7 @@ test('System monitor: VRAM under RAM, GPU under CPU, rows stacked, 8-column core
 			const r = host.getBoundingClientRect();
 			return { x: r.x, y: r.y };
 		};
-		const cores = document.querySelector('.np-cpu-cores');
+		const cores = document.querySelector('.np-cpu-cores-canvas');
 		if (!cores) throw new Error('missing cores grid');
 		return {
 			cpu: cell('CPU'),
@@ -31,7 +33,8 @@ test('System monitor: VRAM under RAM, GPU under CPU, rows stacked, 8-column core
 			gpu: cell('GPU'),
 			vram: cell('VRAM'),
 			coresY: cores.getBoundingClientRect().y,
-			coreTracks: getComputedStyle(cores).gridTemplateColumns.split(' ').length,
+			// The grid is canvas-internal now; the effective column count is surfaced as data-cols.
+			coreTracks: Number(cores.getAttribute('data-cols')),
 			npText: document.querySelectorAll('.np-text').length
 		};
 	});
