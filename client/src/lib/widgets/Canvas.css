@@ -442,6 +442,11 @@
 	display: flex;
 	flex-direction: column;
 	min-width: 132px;
+	/* Never let a menu taller than the viewport trap items off-screen (clampMenuToViewport can only
+	   pin a too-tall menu to the top, leaving the bottom items unreachable). Cap to the viewport and
+	   scroll instead — the clamp then positions the capped box; items stay reachable on any screen. */
+	max-height: calc(100vh - 8px);
+	overflow-y: auto;
 	padding: 3px;
 	background: var(--ui-bar-bg);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.6);

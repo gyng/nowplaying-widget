@@ -605,6 +605,30 @@ pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Re-create the primary `main` overlay window (born hidden) after it was torn down to reclaim its
+/// renderer (overlay.ts `setMainWindowVisible(false)`). Mirrors the static `main` config in
+/// tauri.conf.json; the frontend reveals it — or re-destroys it if the primary is still empty — once
+/// its Canvas init runs. Must be called on the main thread (window creation). Best-effort: logs.
+fn respawn_main_hidden(app: &tauri::AppHandle) {
+    match tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+        .title("WidgetSack")
+        .inner_size(300.0, 400.0)
+        .transparent(true)
+        .shadow(false)
+        .decorations(false)
+        .always_on_top(false)
+        .always_on_bottom(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .disable_drag_drop_handler()
+        .build()
+    {
+        Ok(_) => log::info("reclaim", "respawned primary overlay (main) after external layout change")
+            .emit(),
+        Err(err) => log::warn("reclaim", "failed to respawn main").field("error", err).emit(),
+    }
+}
+
 /// Watch the config dir for changes to widgets.json and emit `layout_changed`
 /// so the frontend can live-reload. Best-effort: logs and returns on failure.
 pub fn watch_layout(app: tauri::AppHandle) -> Result<(), String> {
@@ -638,6 +662,22 @@ pub fn watch_layout(app: tauri::AppHandle) -> Result<(), String> {
                 Ok(event) => {
                     if event.paths.iter().any(|p| p.file_name() == path.file_name()) {
                         let _ = app.emit("layout_changed", ());
+                        // Reclaim: `main` is DESTROYED (not hidden) to free its renderer when the primary
+                        // monitor is empty (overlay.ts setMainWindowVisible). While it's gone, no window
+                        // drives overlay reconcile, so an external edit to widgets.json that re-populates
+                        // the primary would never bring the primary overlay back. Respawn `main` (born
+                        // hidden) so its own Canvas init decides: reveal if the primary now has widgets, or
+                        // self-destroy if still empty. Skipped while the studio is open — the studio
+                        // recreates `main` on close, so we avoid spawn/destroy churn during live editing.
+                        // Window creation must run on the main thread.
+                        let app_for_respawn = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            if app_for_respawn.get_webview_window("main").is_none()
+                                && app_for_respawn.get_webview_window("studio").is_none()
+                            {
+                                respawn_main_hidden(&app_for_respawn);
+                            }
+                        });
                     }
                 }
                 Err(err) => log::warn("watch", "layout watch error").field("error", err).emit(),

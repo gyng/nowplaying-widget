@@ -185,6 +185,7 @@ mod tests {
     #[test]
     fn model_update_strips_album_art_from_emitted_record_but_keeps_it_stored() {
         use crate::listener::ImageWrapper;
+        use std::sync::Arc;
         let mut sessions = HashMap::new();
         let _ = updater(
             &mut sessions,
@@ -200,10 +201,10 @@ mod tests {
         // A media update lands cover art on the session — and DOES carry it to the bridge.
         let media_ev = SessionUpdateEventWrapper::Media(
             model("p"),
-            Some(ImageWrapper {
+            Some(Arc::new(ImageWrapper {
                 content_type: "image/png".to_string(),
                 data: vec![1, 2, 3, 4],
-            }),
+            })),
         );
         let (_, media_delta) = updater(&mut sessions, NpSessionEvent::Update(7, media_ev));
         assert!(

@@ -121,12 +121,16 @@ export default function CpuCoresCanvas(props: Props) {
 		return () => ro.disconnect();
 	}, [draw]);
 
+	// The grid is laid out INSIDE the canvas bitmap (coreCellRects), so the column count isn't otherwise
+	// observable in the DOM — surface it for inspection/tests. Mirrors the draw's colCount (line ~58).
+	const colCount = props.cols && props.cols > 0 ? Math.round(props.cols) : props.cores.length;
 	return (
 		<canvas
 			ref={canvasRef}
 			className="np-cpu-cores-canvas"
 			role="img"
 			aria-label="CPU per-core usage"
+			data-cols={colCount}
 		/>
 	);
 }

@@ -5,6 +5,8 @@
 // shows the Outline (structure) + Inspector (props) which funnel every change through handleOp →
 // core/layoutEdit. React port of Canvas.svelte (behaviour parity is paramount).
 import {
+	lazy,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -87,19 +89,12 @@ import { useMeasuredRects } from './canvas/useMeasuredRects';
 import { useOverlayPrefs, type OverlayLayer } from './canvas/overlayPrefs';
 import { overlayPresentation, isWholeWindowInteractive } from './canvas/overlayPresentation';
 import { screenRectToLayout } from '../core/measureMath';
-import Inspector from './Inspector';
-import ThemePreview from './ThemePreview';
-import TokenFields from './TokenFields';
-import ControlsPanel from './ControlsPanel';
-import Outline from './Outline';
-import NavRail from './NavRail';
-import Select from './Select';
-import SensorList from './SensorList';
 import { collectSensorRefs, sensorActivity } from '../core/sensorActivity';
 import { SYSTEM_GROUP } from '../core/sensorList';
-import ThemeList from './ThemeList';
+// StyleLayer renders on BOTH roles (overlay + studio), so it stays eager. The studio-only panels
+// below are lazy()-loaded (see the const block after the imports) so the OVERLAY renderer never
+// fetches/parses/retains them — they only load when this Canvas runs as the studio.
 import StyleLayer from './StyleLayer';
-import DiagnosticsPanel from './DiagnosticsPanel';
 import { startDiagResponder, startMemoryTrail } from '../diag';
 import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
@@ -137,6 +132,7 @@ import {
 	closeWindow,
 	onStudioCloseRequested,
 	reconcileOverlays,
+	recreateMain,
 	setMainWindowVisible,
 	syncInteractiveRects,
 	applyOverlayPresentation,
@@ -170,7 +166,6 @@ import { studioHints } from './canvas/studioHints';
 import { buildDebugInfo } from './canvas/debugInfo';
 import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
 import { usePaneSizes } from './canvas/usePaneSizes';
-import MultiInspector from './MultiInspector';
 import { RAIL_ORDER, type SectionId } from './canvas/studioSections';
 import {
 	BUILTIN_THEMES,
@@ -185,6 +180,25 @@ import { useStudioInit } from './canvas/useStudioInit';
 import type { EditorState, Extra, MonitorOption } from './canvas/types';
 import mascotUrl from '../../assets/mascot.png';
 import './Canvas.css';
+
+// Lazy-loaded editor panels: each lives in its OWN chunk (loaded on demand) instead of the eager
+// bundle. The PASSIVE overlay (not in edit mode) renders none of these, so it never loads them — that
+// is the memory win. Most are studio-only; Inspector/Outline/MultiInspector ALSO render on an overlay
+// IN EDIT MODE (Ctrl+E / tray "Edit layout"), so they load when edit mode is first entered — under the
+// local <Suspense> wrapping the `{editMode && (…)}` block below, which keeps the desktop widgets visible
+// while a chunk loads. The studio warms ALL of these on mount (effect below) so section-switching never
+// suspends. StyleLayer is NOT lazy — both roles render it on every paint.
+const Inspector = lazy(() => import('./Inspector'));
+const ThemePreview = lazy(() => import('./ThemePreview'));
+const TokenFields = lazy(() => import('./TokenFields'));
+const ControlsPanel = lazy(() => import('./ControlsPanel'));
+const Outline = lazy(() => import('./Outline'));
+const NavRail = lazy(() => import('./NavRail'));
+const Select = lazy(() => import('./Select'));
+const SensorList = lazy(() => import('./SensorList'));
+const ThemeList = lazy(() => import('./ThemeList'));
+const DiagnosticsPanel = lazy(() => import('./DiagnosticsPanel'));
+const MultiInspector = lazy(() => import('./MultiInspector'));
 
 type Props = { studio?: boolean };
 
@@ -1173,6 +1187,27 @@ export default function Canvas({ studio = false }: Props) {
 		await setMainWindowVisible(monitorHasWidgets(monitorRef.current));
 	}, []);
 
+	// Warm the lazy panel chunks once on the studio so navigating between sections never suspends
+	// mid-session. The passive OVERLAY skips this and stays lean; on an overlay these chunks load only
+	// if/when edit mode is entered, under the local <Suspense> around the {editMode} block. The studio's
+	// first paint may briefly suspend on a panel, but the window is just appearing so it is hidden.
+	useEffect(() => {
+		if (!studio) return;
+		void Promise.all([
+			import('./Inspector'),
+			import('./Outline'),
+			import('./NavRail'),
+			import('./ThemePreview'),
+			import('./TokenFields'),
+			import('./ControlsPanel'),
+			import('./SensorList'),
+			import('./ThemeList'),
+			import('./DiagnosticsPanel'),
+			import('./MultiInspector'),
+			import('./Select')
+		]).catch(() => undefined);
+	}, [studio]);
+
 	// --- init (mount effect, non-idempotent) ---
 	useStudioInit({
 		studio,
@@ -1345,6 +1380,16 @@ export default function Canvas({ studio = false }: Props) {
 				if (dirtyRef.current || pendingExtrasRef.current.length > 0) await commitSaveRef.current();
 			} catch (err) {
 				console.warn('save on studio close failed', err);
+			}
+			// While `main` is destroyed to reclaim its renderer (empty primary), nothing drives overlay
+			// reconcile. The studio is the editing surface, so on close it applies the final layout: spawn
+			// /close secondary overlays for the edited monitors, and bring `main` back if the primary was
+			// re-populated. Both are idempotent no-ops when nothing changed / `main` already exists.
+			try {
+				await reconcileOverlays();
+				await recreateMain();
+			} catch (err) {
+				console.warn('overlay reconcile on studio close failed', err);
 			}
 			return true;
 		}).then((u) => {
@@ -2864,7 +2909,12 @@ export default function Canvas({ studio = false }: Props) {
 				)}
 
 				{editMode && (
-					<>
+					// Local Suspense boundary for the lazy studio/edit-mode panels (declared at the top of this
+					// file). It wraps ONLY the edit-mode chrome — the canvas widgets render earlier in `.world`,
+					// OUTSIDE this block — so a panel chunk loading (e.g. first time the overlay enters edit mode
+					// via Ctrl+E and Inspector/Outline/MultiInspector fetch) shows a brief empty chrome area but
+					// NEVER blanks the desktop widgets. fallback={null}: the panels just pop in a frame later.
+					<Suspense fallback={null}>
 						{studio && (
 							<>
 								{/* Primary bar (always): identity, current monitor, persistence. The canvas-only
@@ -4245,7 +4295,7 @@ export default function Canvas({ studio = false }: Props) {
 								</div>
 							</>
 						)}
-					</>
+					</Suspense>
 				)}
 			</div>
 		</TelemetryHubContext.Provider>
