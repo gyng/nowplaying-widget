@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { gotoStudio } from './helpers';
 
-// The clock-cluster TEMPLATE OPTIONS, end to end (the pure resolve/format logic is unit-tested in
+// The clock-cluster TEMPLATE OPTIONS, end to end (the pure resolve/apply logic is unit-tested in
 // core/templates.test.ts). In the Inspector's Templates palette the clock renders as an options card
-// (TemplateOptionsForm): a <Select> per option + an Insert button. Picking options then inserting must
-// flow chosen → resolveTemplateOptions → clockTree(opts) → the insertTemplate op → live clock meters.
+// (TemplateOptionsForm): a <Select> per ParamSpec + an Insert button. Picking options then inserting
+// must flow chosen → resolveTemplateOptions → applyParams onto the template tree → the insertTemplate
+// op → live clock meters. The specs are the SAME ParamSpecs a def cloned from the template keeps.
 //
 // DOM order of the cluster's four clocks is time · weekday · date · month (see studio.spec.ts), so
 // .np-clock .value .nth(0) is the time and .nth(1) is the weekday.
@@ -20,11 +21,11 @@ async function pickClockOption(
 	await page.locator('.np-select-option', { hasText: choice }).click();
 }
 
-test('clock template options: 12-hour + colon separator apply on insert', async ({ page }) => {
+test('clock template options: 12-hour + colon time format applies on insert', async ({ page }) => {
 	await gotoStudio(page);
 
-	await pickClockOption(page, 'Hour', '12-hour');
-	await pickClockOption(page, 'Separator', 'Colon');
+	// The Time select's choice VALUE is the dayjs format itself; '· 5:00 PM' is the 12-hour + colon one.
+	await pickClockOption(page, 'Time', '5:00 PM');
 	await page.locator('.tpl-opts-insert').click();
 
 	// 12-hour + colon → "h:mm AM/PM" (vs the default 24-hour 4-digit "HHmm" with no separator).

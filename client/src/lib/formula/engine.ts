@@ -14,7 +14,7 @@ import {
 // fetch (robust under Tauri's CSP/asset protocol) instead of the umbrella package's 4 wasm flavors.
 import quickjsVariant from '@jitl/quickjs-singlefile-browser-release-sync';
 import { formatBytes, formatPercent, formatRate } from '../core/format';
-import { buildScope } from '../core/template';
+import { buildScope } from '../core/textTemplate';
 
 // Each eval is bounded so a pathological formula (e.g. `while(true){}` in an imported sack) can't hang
 // the UI thread — the interrupt handler trips once this many ms elapse and the eval throws.

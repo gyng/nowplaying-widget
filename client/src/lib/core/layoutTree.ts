@@ -127,11 +127,15 @@ export type LayoutV2 = {
 };
 
 // Reusable library entry (Phase 6). Instantiate one def many times, rebinding params.
+/** One value a select param can take (rendered as a dropdown option). */
+export type ParamChoice = { value: string; label: string };
 export type ParamSpec = {
 	key: string; // e.g. 'core'
 	label?: string;
 	default?: unknown;
 	target?: string; // dotted path into the cloned child, e.g. 'unit.sensor'
+	targets?: string[]; // several paths driven by ONE value (e.g. a locale shared by two clocks)
+	choices?: ParamChoice[]; // present → the param is a SELECT; values are validated against it
 };
 
 export type WidgetDef = {

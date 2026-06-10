@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { WidgetInstance } from './layout';
-import { container, group, leaf, type Library, type Leaf, type MonitorLayout } from './layoutTree';
+import {
+	container,
+	group,
+	leaf,
+	type Container,
+	type Library,
+	type Leaf,
+	type MonitorLayout
+} from './layoutTree';
 import {
 	collectContainerRects,
 	collectGridPlaceholders,
@@ -96,6 +104,35 @@ describe('groups', () => {
 		expect((b.child as Leaf).unit).toMatchObject({ sensor: 'cpu.core.9' });
 		// the def's own child is untouched
 		expect((defChild.unit as WidgetInstance).sensor).toBe('cpu.core.0');
+	});
+
+	it('a `targets` (plural) spec writes ONE param value to several paths (e.g. a shared locale)', () => {
+		const defChild = container('row', 'row', [
+			leaf(prim('a', 10, 10, { config: { locale: 'en' } })),
+			leaf(prim('b', 10, 10, { config: { locale: 'en' } }))
+		]);
+		const def = {
+			id: 'd',
+			name: 'd',
+			size: { w: 40, h: 26 },
+			child: defChild,
+			params: [
+				{
+					key: 'lang',
+					targets: ['children.0.unit.config.locale', 'children.1.unit.config.locale']
+				}
+			]
+		};
+		const lib: Library = { version: 1, defs: [def] };
+		const r = resolveGroup(
+			group('g', { w: 40, h: 26 }, leaf(prim('x', 1, 1)), { def: 'd', params: { lang: 'ja' } }),
+			lib
+		);
+		const kids = (r.child as Container).children as Leaf[];
+		expect((kids[0].unit as WidgetInstance).config?.locale).toBe('ja');
+		expect((kids[1].unit as WidgetInstance).config?.locale).toBe('ja');
+		// the def's own child is untouched (clone-before-apply)
+		expect((defChild.children[0] as Leaf).unit).toMatchObject({ config: { locale: 'en' } });
 	});
 
 	it('default param target is fail-closed on a container-rooted child (no bogus unit grafted)', () => {

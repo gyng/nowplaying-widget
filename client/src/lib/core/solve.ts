@@ -19,6 +19,7 @@ import {
 	type Length,
 	type Library,
 	type MonitorLayout,
+	type ParamSpec,
 	type WidgetDef,
 	isContainer,
 	isGroup,
@@ -514,16 +515,21 @@ function insetPad(box: Rect, pad: Container['pad']): Rect {
 
 // ---- group params / clone (Phase 6c) -------------------------------------
 
-function applyParams(
+/** Write `params` onto a (cloned) child tree following each spec's dotted path(s) — `targets`
+ * (several nodes driven by one value), else `target`, else the default 'unit.config.<key>'.
+ * Exported so the template system applies insert-time options through the SAME mechanism. */
+export function applyParams(
 	child: LayoutNode,
-	specs: { key: string; target?: string }[] | undefined,
+	specs: ParamSpec[] | undefined,
 	params: Record<string, unknown>
 ): void {
 	if (!specs) return;
 	for (const spec of specs) {
 		if (!(spec.key in params)) continue;
-		const target = spec.target ?? 'unit.config.' + spec.key;
-		setPath(child as unknown as Record<string, unknown>, target, params[spec.key]);
+		const targets = spec.targets ?? [spec.target ?? 'unit.config.' + spec.key];
+		for (const target of targets) {
+			setPath(child as unknown as Record<string, unknown>, target, params[spec.key]);
+		}
 	}
 }
 

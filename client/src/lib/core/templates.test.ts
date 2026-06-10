@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { TEMPLATES, getTemplate, resolveTemplateOptions, type Template } from './templates';
+import {
+	TEMPLATES,
+	demoSeed,
+	freshIds,
+	getTemplate,
+	instantiateTemplate,
+	resolveTemplateOptions,
+	type Template
+} from './templates';
 import {
 	isContainer,
 	isGroup,
@@ -112,50 +120,125 @@ function tplOf(id: string): Template {
 const byId = (tree: LayoutNode, id: string): WidgetInstance | undefined =>
 	leaves(tree).find((w) => w.id === id);
 
-describe('clock cluster options', () => {
+describe('clock cluster params (unified ParamSpec — same mechanism as library def params)', () => {
 	const clock = tplOf('clock-jp');
 
-	it('defaults reproduce the original (ja weekday, en date, 24-hour, no separator)', () => {
-		const tree = clock.tree();
+	it('defaults reproduce the original (ja weekday, en date, 24-hour "HHmm")', () => {
+		const tree = instantiateTemplate(clock);
 		expect(byId(tree, 'dt-time')?.config.format).toBe('HHmm');
 		expect(byId(tree, 'dt-day')?.config.locale).toBe('ja');
 		expect(byId(tree, 'dt-date')?.config.locale).toBe('en');
 		expect(byId(tree, 'dt-month')?.config.locale).toBe('en');
 	});
 
-	it('weekday and date languages are independent (en/ja/zh)', () => {
-		const tree = clock.tree({ weekdayLang: 'zh', dateLang: 'ja' });
+	it('weekday and date languages are independent; dateLang drives BOTH date + month (targets[])', () => {
+		const tree = instantiateTemplate(clock, { weekdayLang: 'zh', dateLang: 'ja' });
 		expect(byId(tree, 'dt-day')?.config.locale).toBe('zh');
 		expect(byId(tree, 'dt-date')?.config.locale).toBe('ja');
 		expect(byId(tree, 'dt-month')?.config.locale).toBe('ja');
 	});
 
-	it('12/24-hour and separator compose the time format', () => {
-		const time = (opts: Record<string, string>) => byId(clock.tree(opts), 'dt-time')?.config.format;
-		expect(time({ hour: '24', separator: 'colon' })).toBe('HH:mm');
-		expect(time({ hour: '24', separator: 'dot' })).toBe('HH.mm');
-		expect(time({ hour: '12', separator: 'colon' })).toBe('h:mm A');
-		expect(time({ hour: '12', separator: 'none' })).toBe('hmm A');
+	it('the time param writes the chosen dayjs format literal (12/24-hour × separator choices)', () => {
+		const time = (v: string) =>
+			byId(instantiateTemplate(clock, { time: v }), 'dt-time')?.config.format;
+		expect(time('HH:mm')).toBe('HH:mm');
+		expect(time('HH.mm')).toBe('HH.mm');
+		expect(time('h:mm A')).toBe('h:mm A');
+		expect(time('hmm A')).toBe('hmm A');
+	});
+
+	it('every clock param is a select whose target path actually hits a node (guards a tree reshuffle)', () => {
+		for (const p of clock.params ?? []) {
+			expect(p.choices?.length, `${p.key} has choices`).toBeGreaterThan(1);
+			// Apply a NON-default choice; the instantiated tree must differ from the default tree —
+			// proving the index path still resolves (setPath is fail-closed and would silently no-op).
+			const other = p.choices?.find((c) => c.value !== p.default)?.value as string;
+			const changed = instantiateTemplate(clock, { [p.key]: other });
+			expect(JSON.stringify(changed), `param ${p.key} reaches its target`).not.toBe(
+				JSON.stringify(instantiateTemplate(clock))
+			);
+		}
 	});
 });
 
 describe('resolveTemplateOptions', () => {
-	it('fills every option with its default when nothing is passed', () => {
+	it('fills every param with its default when nothing is passed', () => {
 		expect(resolveTemplateOptions(tplOf('clock-jp'))).toEqual({
+			time: 'HHmm',
 			weekdayLang: 'ja',
-			dateLang: 'en',
-			hour: '24',
-			separator: 'none'
+			dateLang: 'en'
 		});
 	});
 
 	it('keeps valid overrides but drops invalid values and unknown keys', () => {
 		expect(
-			resolveTemplateOptions(tplOf('clock-jp'), { weekdayLang: 'zh', hour: '13', bogus: 'x' })
-		).toEqual({ weekdayLang: 'zh', dateLang: 'en', hour: '24', separator: 'none' });
+			resolveTemplateOptions(tplOf('clock-jp'), { weekdayLang: 'zh', time: '13', bogus: 'x' })
+		).toEqual({ weekdayLang: 'zh', dateLang: 'en', time: 'HHmm' });
 	});
 
-	it('resolves a template with no options to an empty map', () => {
+	it('resolves a template with no params to an empty map', () => {
 		expect(resolveTemplateOptions(tplOf('system'))).toEqual({});
+	});
+});
+
+describe('freshIds', () => {
+	it('remaps every node/unit id (typed prefixes, leaf id mirrors unit id) without touching structure', () => {
+		const src = treeOf('clock-jp');
+		const out = freshIds(src);
+		const srcIds = nodes(src).map((n) => n.id);
+		const outIds = nodes(out).map((n) => n.id);
+		expect(outIds).toHaveLength(srcIds.length);
+		expect(new Set(outIds).size).toBe(outIds.length);
+		expect(outIds.some((id) => srcIds.includes(id))).toBe(false);
+		for (const l of nodes(out).filter(isLeaf)) expect(l.id).toBe(l.unit.id);
+		// Structure (and configs) survive: same JSON modulo the ids.
+		const strip = (n: LayoutNode): string => JSON.stringify(n, (k, v) => (k === 'id' ? 0 : v));
+		expect(strip(out)).toBe(strip(src));
+	});
+});
+
+describe('demoSeed (the default skin = the templates, single source of truth)', () => {
+	it('seeds the system/network/nowplaying templates as floating groups + a demo button', () => {
+		const seed = demoSeed();
+		const groups = seed.filter((l) => isGroup(l.unit));
+		expect(groups.map((l) => (isGroup(l.unit) ? l.unit.name : ''))).toEqual([
+			'System monitor',
+			'Network',
+			'Now playing'
+		]);
+		// Each group is SELF-CONTAINED (inline child, no library def) and anchored via config x/y.
+		for (const g of groups) {
+			if (!isGroup(g.unit)) continue;
+			expect(g.unit.def).toBeUndefined();
+			expect(g.unit.child).toBeTruthy();
+			expect(typeof g.unit.config?.x).toBe('number');
+			expect(typeof g.unit.config?.y).toBe('number');
+		}
+		const button = seed.find((l) => !isGroup(l.unit) && l.unit.type === 'button');
+		expect(button, 'interactive demo button present').toBeTruthy();
+	});
+
+	it('group contents mirror the actual templates (same widget types/sensors as the source trees)', () => {
+		const shape = (n: LayoutNode): string[] =>
+			leaves(n)
+				.map((w) => `${w.type}:${w.sensor ?? ''}`)
+				.sort();
+		const seed = demoSeed();
+		for (const [i, id] of ['system', 'network', 'nowplaying'].entries()) {
+			const g = seed[i];
+			if (!isLeaf(g) || !isGroup(g.unit) || !g.unit.child) throw new Error('expected a group');
+			expect(shape(g.unit.child), id).toEqual(shape(treeOf(id)));
+		}
+	});
+
+	it('every call yields fresh, non-colliding ids (including inside the group children)', () => {
+		const ids = (ls: Leaf[]): string[] =>
+			ls.flatMap((l) => [
+				l.id,
+				...(isGroup(l.unit) && l.unit.child ? nodes(l.unit.child).map((n) => n.id) : [])
+			]);
+		const a = ids(demoSeed());
+		const b = ids(demoSeed());
+		expect(new Set([...a, ...b]).size).toBe(a.length + b.length);
 	});
 });

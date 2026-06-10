@@ -6,7 +6,7 @@ import {
 	renderTemplate,
 	templateRefs,
 	type TemplatePart
-} from './template';
+} from './textTemplate';
 
 describe('parseTemplate', () => {
 	it('splits literal text and {expr} segments', () => {
