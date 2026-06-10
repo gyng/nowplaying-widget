@@ -871,10 +871,13 @@ export default function Inspector({
 					<div className="row2">
 						<label className={dirtyKeys.has('gap') ? 'dirty' : undefined}>
 							gap
+							{/* step=2 nudges the steppers onto the canvas spacing scale (2/4/6/8/16);
+							    typing any value still works. */}
 							<input
 								type="number"
 								min="0"
 								max={gapMax}
+								step="2"
 								value={container.gap ?? 0}
 								onInput={(e) =>
 									patchContainer({ gap: clampSpacing(Number(e.currentTarget.value), gapMax) })

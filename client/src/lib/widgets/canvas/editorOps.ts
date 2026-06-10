@@ -13,6 +13,7 @@ import {
 	isGroup,
 	isLeaf,
 	leaf,
+	NEW_CONTAINER_GAP,
 	type AlignH,
 	type AlignV,
 	type BackgroundSpec,
@@ -160,16 +161,25 @@ export function addWidgetAt(s: EditorState, type: string, x: number, y: number):
 
 // Build a fresh container of `kind`: an empty row/col, or a 2×2 grid of col cells. Shared by the
 // "Add inside" (addContainer) and "Add beside" (addBeside) paths so both produce identical bands.
+// New containers carry the default gap so freshly dropped widgets never start fused edge-to-edge
+// (every built-in template overrides 0 — nothing actually wants it); the Inspector zeroes it in one
+// step for the dense-cluster cases.
 function newContainerOfKind(kind: Container['kind'], id: string): Container {
 	if (kind === 'grid') {
 		const cols = 2;
 		const rows = 2;
 		const cells = Array.from({ length: cols * rows }, () =>
-			container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
+			container(`cell-${rand()}`, 'col', [], { align: 'stretch', gap: NEW_CONTAINER_GAP })
 		);
-		return container(id, 'grid', cells, { cols, rows, basis: { fr: 1 }, align: 'stretch' });
+		return container(id, 'grid', cells, {
+			cols,
+			rows,
+			gap: NEW_CONTAINER_GAP,
+			basis: { fr: 1 },
+			align: 'stretch'
+		});
 	}
-	return container(id, kind, [], { basis: { fr: 1 }, align: 'stretch' });
+	return container(id, kind, [], { gap: NEW_CONTAINER_GAP, basis: { fr: 1 }, align: 'stretch' });
 }
 
 // Insert a new child container of `kind` into `containerId` (or the selected container / root). Used
@@ -194,7 +204,7 @@ export function addContainer(
 			root = insertChild(
 				root,
 				target,
-				container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
+				container(`cell-${rand()}`, 'col', [], { align: 'stretch', gap: NEW_CONTAINER_GAP })
 			);
 		}
 	}
@@ -220,7 +230,11 @@ export function addBeside(s: EditorState, id: string, kind: Container['kind']): 
 // Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
 // has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
 const splitCell = (kind: Container['kind']): Container =>
-	container(`cell-${rand()}`, kind, [], { align: 'stretch', basis: { fr: 1 } });
+	container(`cell-${rand()}`, kind, [], {
+		align: 'stretch',
+		gap: NEW_CONTAINER_GAP,
+		basis: { fr: 1 }
+	});
 
 // The new band CONTAINER a split produces (no existing content to keep): for 'rows' a col of two
 // rows, for 'cols' a row of two cols, for 'grid' a fresh 2×2 grid.
@@ -230,6 +244,7 @@ function splitBandContainer(dir: 'rows' | 'cols' | 'grid'): Container {
 	const bandKind: Container['kind'] = dir === 'rows' ? 'row' : 'col';
 	return container(`cell-${rand()}`, parentKind, [splitCell(bandKind), splitCell(bandKind)], {
 		align: 'stretch',
+		gap: NEW_CONTAINER_GAP,
 		basis: { fr: 1 }
 	});
 }

@@ -6,7 +6,8 @@
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
-	gap: 1px;
+	/* 2px label↔value gap — the HA family's shared rhythm (matches HaLight's label/state pair). */
+	gap: 2px;
 	width: 100%;
 	height: 100%;
 	color: var(--np-fg, #fff);
@@ -33,7 +34,7 @@
 
 .np-ha-climate .ha-climate-set {
 	display: flex;
-	gap: 4px;
+	gap: var(--np-gap, 4px);
 	margin-top: 2px;
 }
 
