@@ -10,6 +10,7 @@ import {
 	handleDelete,
 	type SessionRecord
 } from '../../../stores/stores';
+import { COMMANDS, EVENTS } from '../../bridge/contract';
 
 // Which transport controls the active session supports (mirrors the Rust `MediaCaps` struct in
 // widgetsack/src/media.rs — keep both sides in sync, AGENTS.md §5). The widget hides buttons a
@@ -29,9 +30,20 @@ export type MediaCaps = {
 /** Ask the backend which controls the matched (or current) session supports. Returns null when the
  * query can't run (non-Windows, no backend in tests) so the caller shows every button by default. */
 export function getMediaCapabilities(source?: string): Promise<MediaCaps | null> {
-	return invoke<MediaCaps | null>('media_capabilities', { source: source ?? null }).catch(
+	return invoke<MediaCaps | null>(COMMANDS.mediaCapabilities, { source: source ?? null }).catch(
 		() => null
 	);
+}
+
+/** Send a transport action (play/pause/next/seek/…) to the backend's media controller. `source`
+ * targets a specific session (null = the active one); `value` carries a seek position. Rejects on
+ * invoke failure so a macro run can record the failed step. */
+export function mediaControl(
+	action: string,
+	source: string | null,
+	value: number | null
+): Promise<void> {
+	return invoke(COMMANDS.mediaControl, { action, source, value });
 }
 
 let started = false;
@@ -39,13 +51,13 @@ let started = false;
 export function startMediaSource(): void {
 	if (started) return;
 	started = true;
-	invoke<{ sessions: Record<number, SessionRecord> }>('get_initial_sessions', { message: '' })
+	invoke<{ sessions: Record<number, SessionRecord> }>(COMMANDS.getInitialSessions, { message: '' })
 		.then((ev) => handleInitialize({ sessions: ev.sessions }))
 		.catch(() => undefined);
-	tauriEvent.listen<SessionRecord>('session_update', (ev) =>
+	tauriEvent.listen<SessionRecord>(EVENTS.sessionUpdate, (ev) =>
 		handleUpdate({ sessionRecord: ev.payload })
 	);
-	tauriEvent.listen<SessionRecord>('session_delete', (ev) =>
+	tauriEvent.listen<SessionRecord>(EVENTS.sessionDelete, (ev) =>
 		handleDelete({ sessionRecord: ev.payload })
 	);
 }

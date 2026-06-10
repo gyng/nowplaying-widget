@@ -1,8 +1,6 @@
-// Self-sourcing AI Briefing widget (binds:'none'): generates its own text from a configurable prompt
-// on a configurable schedule (interval or cron), using the live sensor hub + the AI provider. The
-// generation lives in the useAssistant hook (the documented self-sourcing exception — like Cpu reads
-// the hub); the presentation is the pure `AssistantView` below, so it stays trivially testable.
-import { useAssistant } from './useAssistant';
+// The AI Briefing meter — pure presentation (AGENTS.md §6): renders the generated text / busy /
+// error state it is GIVEN. The generation wiring (sensor-hub snapshot, LLM call, interval/cron
+// schedule, TTS) lives in the AssistantHost container (../AssistantHost.tsx + ../useAssistant.ts).
 import './Assistant.css';
 
 export type AssistantViewProps = {
@@ -14,8 +12,7 @@ export type AssistantViewProps = {
 	onRefresh?: () => void;
 };
 
-/** Pure presentation: what the widget looks like for a given text/state. */
-export function AssistantView({
+export default function Assistant({
 	text = '',
 	busy = false,
 	error = '',
@@ -50,35 +47,5 @@ export function AssistantView({
 				</button>
 			)}
 		</div>
-	);
-}
-
-type Props = {
-	prompt?: string;
-	schedule?: string;
-	sensors?: string;
-	speak?: boolean;
-	label?: string;
-	color?: string;
-};
-
-export default function Assistant({
-	prompt = '',
-	schedule = '10m',
-	sensors = 'auto',
-	speak = false,
-	label = '',
-	color
-}: Props) {
-	const { text, busy, error, refresh } = useAssistant({ prompt, schedule, sensors, speak });
-	return (
-		<AssistantView
-			text={text}
-			busy={busy}
-			error={error}
-			label={label}
-			color={color}
-			onRefresh={refresh}
-		/>
 	);
 }

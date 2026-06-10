@@ -3,8 +3,9 @@
 // (Phase 8): register a meta + its component in one call. The built-in metas are
 // registered by core/widget on load; this attaches their components.
 
+import type { ComponentType } from 'react';
 import { getMeta, listMetas, registerMeta, type WidgetMeta } from '../core/widget';
-import type { MeterComponent } from './meterProps';
+import { asMeter, type MeterComponent, type MeterProps } from './meterProps';
 import Gauge from './meters/Gauge';
 import Sparkline from './meters/Sparkline';
 import Text from './meters/Text';
@@ -20,37 +21,43 @@ import Spacer from './meters/Spacer';
 import Timer from './meters/Timer';
 
 export type { MeterComponent };
+export { asMeter };
 
 const components: Record<string, MeterComponent> = {
-	gauge: Gauge as unknown as MeterComponent,
-	sparkline: Sparkline as unknown as MeterComponent,
-	text: Text as unknown as MeterComponent,
-	clock: Clock as unknown as MeterComponent,
-	analogclock: AnalogClock as unknown as MeterComponent,
-	bar: Bar as unknown as MeterComponent,
-	button: Button as unknown as MeterComponent,
-	cpu: Cpu as unknown as MeterComponent,
-	spectrum: Spectrum as unknown as MeterComponent,
-	iframe: Iframe as unknown as MeterComponent,
-	zone: Zone as unknown as MeterComponent,
-	spacer: Spacer as unknown as MeterComponent,
-	timer: Timer as unknown as MeterComponent
+	gauge: asMeter(Gauge),
+	sparkline: asMeter(Sparkline),
+	text: asMeter(Text),
+	clock: asMeter(Clock),
+	analogclock: asMeter(AnalogClock),
+	bar: asMeter(Bar),
+	button: asMeter(Button),
+	cpu: asMeter(Cpu),
+	spectrum: asMeter(Spectrum),
+	iframe: asMeter(Iframe),
+	zone: asMeter(Zone),
+	spacer: asMeter(Spacer),
+	timer: asMeter(Timer)
 };
 
 /** Back-compat alias used by WidgetHost (`registry[instance.type]`). */
 export const registry = components;
 
-/** Register a plugin widget: its meta (defaults + config schema) + its component. */
-export function registerWidget(meta: WidgetMeta, component: MeterComponent): void {
+/** Register a plugin widget: its meta (defaults + config schema) + its component. Generic over the
+ * component's (narrower) props so a correctly-typed meter registers without casts. */
+export function registerWidget<P extends MeterProps>(
+	meta: WidgetMeta,
+	component: ComponentType<P>
+): void {
 	registerMeta(meta);
-	components[meta.type] = component;
+	components[meta.type] = asMeter(component);
 }
 
-/** Palette items (registered metas that have a component), in registration order. */
-export function paletteItems(): { type: string; label: string }[] {
+/** Palette items (registered metas that have a component), in registration order. `category` is
+ * the palette group header (builtins declare one; plugin widgets default to the plugin name). */
+export function paletteItems(): { type: string; label: string; category?: string }[] {
 	return listMetas()
 		.filter((m) => components[m.type])
-		.map((m) => ({ type: m.type, label: m.label ?? m.type }));
+		.map((m) => ({ type: m.type, label: m.label ?? m.type, category: m.category }));
 }
 
 export { getMeta };
