@@ -6,6 +6,8 @@
 // pure (clampPane / applyDelta) and unit-tested in usePaneSizes.test.ts.
 import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 
+import { readJson, writeJson } from '../../../stores/persist';
+
 export type Edge = 'left' | 'right' | 'tree';
 export type PaneSizes = { railL: number; railR: number; treeW: number };
 
@@ -32,17 +34,13 @@ export function applyDelta(sizes: PaneSizes, edge: Edge, startVal: number, dx: n
 }
 
 function load(): PaneSizes {
-	try {
-		const o = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<PaneSizes> | null;
-		if (!o) return PANE_DEFAULTS;
-		return {
-			railL: clampPane('left', typeof o.railL === 'number' ? o.railL : PANE_DEFAULTS.railL),
-			railR: clampPane('right', typeof o.railR === 'number' ? o.railR : PANE_DEFAULTS.railR),
-			treeW: clampPane('tree', typeof o.treeW === 'number' ? o.treeW : PANE_DEFAULTS.treeW)
-		};
-	} catch {
-		return PANE_DEFAULTS;
-	}
+	const o = readJson(KEY) as Partial<PaneSizes> | null;
+	if (!o) return PANE_DEFAULTS;
+	return {
+		railL: clampPane('left', typeof o.railL === 'number' ? o.railL : PANE_DEFAULTS.railL),
+		railR: clampPane('right', typeof o.railR === 'number' ? o.railR : PANE_DEFAULTS.railR),
+		treeW: clampPane('tree', typeof o.treeW === 'number' ? o.treeW : PANE_DEFAULTS.treeW)
+	};
 }
 
 export type PaneSizing = {
@@ -66,11 +64,7 @@ export function usePaneSizes(studio: boolean): PaneSizing {
 		const onUp = () => {
 			window.removeEventListener('pointermove', onMove);
 			window.removeEventListener('pointerup', onUp);
-			try {
-				localStorage.setItem(KEY, JSON.stringify(sizesRef.current));
-			} catch {
-				/* ignore quota / privacy-mode failures — sizes just won't persist this session */
-			}
+			writeJson(KEY, sizesRef.current);
 		};
 		window.addEventListener('pointermove', onMove);
 		window.addEventListener('pointerup', onUp);

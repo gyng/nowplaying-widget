@@ -1,4 +1,4 @@
-import { createStore } from './createStore';
+import { createPersistedStore } from './persist';
 import { mergeMediaForward, upsertSession } from '../lib/components/NowPlaying/priority';
 
 export type ManagerEventWrapper = unknown;
@@ -118,36 +118,29 @@ export const defaultState: State = {
 	restoreToSavedPosition: false
 };
 
-// Local storage
+// Persistence: only the user-preference subset of State survives restarts (`SerializedState`);
+// live `sessions` are runtime-only and re-seeded over the bridge. Legacy key, predates the
+// 'widgetsack.*' namespace convention.
 const MEDIA_STORE_KEY = '_mediaStore';
-const localMediaStoreSerializedState = localStorage.getItem(MEDIA_STORE_KEY) ?? '';
-let localMediaStoreDeserializedState: SerializedState | Record<string, never>;
 
-try {
+function parseMediaStore(raw: unknown): State {
 	// TODO: Validate deserialised values and do migrations if needed
-	const raw = JSON.parse(localMediaStoreSerializedState);
-	localMediaStoreDeserializedState = {
-		sourcePriority: raw.sourcePriority,
-		ignoreList: raw.ignoreList ?? '',
-		styleOverride: raw.styleOverride,
-		preferredMonitor: raw.preferredMonitor ?? null,
-		savedPosition: raw.savedPosition ?? null,
-		restoreToSavedPosition: raw.restoreToSavedPosition ?? false
+	const o = (raw ?? {}) as Partial<SerializedState>;
+	return {
+		...defaultState,
+		...(o.sourcePriority !== undefined && { sourcePriority: o.sourcePriority }),
+		...(o.ignoreList !== undefined && { ignoreList: o.ignoreList }),
+		...(o.styleOverride !== undefined && { styleOverride: o.styleOverride }),
+		...(o.preferredMonitor !== undefined && { preferredMonitor: o.preferredMonitor }),
+		...(o.savedPosition !== undefined && { savedPosition: o.savedPosition }),
+		...(o.restoreToSavedPosition !== undefined && {
+			restoreToSavedPosition: o.restoreToSavedPosition
+		})
 	};
-} catch (err) {
-	localMediaStoreDeserializedState = {};
-	console.warn(err);
 }
 
-const initialState: State = {
-	...defaultState,
-	...localMediaStoreDeserializedState
-};
-
-export const mediaStore = createStore<State>(initialState);
-
-function persist(value: State): void {
-	const toSerialize: SerializedState = {
+function serializeMediaStore(value: State): SerializedState {
+	return {
 		sourcePriority: value.sourcePriority,
 		ignoreList: value.ignoreList,
 		styleOverride: value.styleOverride,
@@ -155,15 +148,13 @@ function persist(value: State): void {
 		savedPosition: value.savedPosition,
 		restoreToSavedPosition: value.restoreToSavedPosition
 	};
-	localStorage.setItem(MEDIA_STORE_KEY, JSON.stringify(toSerialize));
 }
 
-// Svelte's writable fired its subscriber synchronously on subscribe, so persistence ran at import
-// AND on every change. `createStore` does NOT fire on subscribe, so replicate both halves: persist
-// once now, then on every update. The subscription is module-level (decoupled from React) so it
-// persists even when no component is mounted.
-persist(initialState);
-mediaStore.subscribe(() => persist(mediaStore.getSnapshot()));
+export const mediaStore = createPersistedStore<State>(
+	MEDIA_STORE_KEY,
+	parseMediaStore,
+	serializeMediaStore
+);
 
 export type HandleInitializeOpts = { sessions: Record<number, SessionRecord> };
 export function handleInitialize(opts: HandleInitializeOpts) {
