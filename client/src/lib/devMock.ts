@@ -17,15 +17,17 @@ const MONITOR = {
 	scaleFactor: 1
 };
 
-export function installDevMock(): void {
+export function installDevMock(opts: { layout?: string } = {}): void {
 	// Current window label === 'studio' → App.isStudioWindow() picks the editor role.
 	mockWindows('studio');
 
 	let evtId = 0;
 	mockIPC((cmd, args) => {
 		switch (cmd) {
-			// --- boot: persistence / themes / controls / fonts (empty so the studio opens blank) ---
+			// --- boot: persistence / themes / controls / fonts (empty so the studio opens blank,
+			// unless the caller supplies a canned layout — the screenshot rig does) ---
 			case COMMANDS.loadLayout:
+				return opts.layout ?? null;
 			case COMMANDS.loadControls:
 			case COMMANDS.loadTheme:
 			case COMMANDS.readSack:

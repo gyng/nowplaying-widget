@@ -7,14 +7,18 @@
 import { createRoot } from 'react-dom/client';
 import { installDevMock } from '../src/lib/devMock';
 import { registerSource } from '../src/lib/core/plugin';
-import { freezeClock, seedHub } from './seed';
+import { freezeClock, seedHub, seedMedia } from './seed';
+import { studioShotLayout } from './studioLayout';
 import App from '../src/App';
 import '../src/styles.css';
 
-// Forces the studio role + answers boot commands (load_layout → null, so Canvas keeps its built-in
-// demo seed). Install before the app boots.
-installDevMock();
+// Forces the studio role + serves the showcase layout for load_layout (a full monitor's worth of
+// widgets — the null fallback left the stage nearly empty). Install before the app boots.
+installDevMock({ layout: studioShotLayout() });
 freezeClock();
+// Seed one playing session so the now-playing card shows a real track + cover (async; lands well
+// before the capture's settle waits).
+void seedMedia();
 
 // useStudioInit calls startAllSources(hub) on mount → this source's start(hub) runs and fills the hub
 // with the same deterministic snapshot the gallery uses (the live `system` source has no backend here).
