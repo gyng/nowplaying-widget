@@ -5,6 +5,7 @@
 // Ported verbatim from the Svelte onMount/onDestroy pair (same Tauri event/command strings).
 import { useEffect, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { EVENTS } from '../../bridge/contract';
 import { startAllSources } from '../../core/plugin';
 import type { TelemetryHub } from '../../core/telemetry';
 import {
@@ -62,11 +63,11 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			// from another window. Always applied (not gated by editMode) — a remap should take effect
 			// immediately everywhere.
 			await dep.reloadControls();
-			unlistenControls = await listen('controls_changed', () => d.current.reloadControls());
+			unlistenControls = await listen(EVENTS.controlsChanged, () => d.current.reloadControls());
 
 			// Live-reload external edits to widgets.json (ignored while actively editing). On the
 			// primary main window, also reconcile overlays + own visibility as monitors gain/lose widgets.
-			unlistenLayout = await listen('layout_changed', () => {
+			unlistenLayout = await listen(EVENTS.layoutChanged, () => {
 				if (d.current.editMode()) return;
 				d.current.reloadLayout().then(() => {
 					d.current.syncRects();
@@ -87,7 +88,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 				return;
 			}
 			d.current.setThemeList(themes);
-			unlistenThemes = await listen('themes_changed', () => {
+			unlistenThemes = await listen(EVENTS.themesChanged, () => {
 				d.current.applyTheme();
 				listThemes().then((t) => d.current.setThemeList(t));
 			});
@@ -116,7 +117,7 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			if (!monitorParam()) {
 				await fillPrimaryMonitor();
 				await dep.syncPrimaryOverlays();
-				unlistenStudio = await listen('open_studio', () => openStudio());
+				unlistenStudio = await listen(EVENTS.openStudio, () => openStudio());
 			}
 			if (cancelled) {
 				unlistenControls?.();
@@ -129,7 +130,9 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			// main overlay starts interactive and a secondary starts click-through); here we only seed the
 			// per-widget interactive rects for a passive overlay.
 			d.current.syncRects();
-			unlistenEdit = await listen('toggle_edit', () => d.current.setEdit(!d.current.editMode()));
+			unlistenEdit = await listen(EVENTS.toggleEdit, () =>
+				d.current.setEdit(!d.current.editMode())
+			);
 			if (cancelled) {
 				unlistenControls?.();
 				unlistenLayout?.();

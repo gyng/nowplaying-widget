@@ -5,10 +5,11 @@
 // never returned (see ha-types.ts).
 
 import { invoke } from '@tauri-apps/api/core';
+import { COMMANDS } from '../../bridge/contract';
 import type { HaEntity, HaRegistry, HaStatus, HaTestResult } from './ha-types';
 
 /** Whether HA is configured + its URL + the self-signed opt-in — NEVER the token. */
-export const haConfigStatus = (): Promise<HaStatus> => invoke<HaStatus>('ha_config_status');
+export const haConfigStatus = (): Promise<HaStatus> => invoke<HaStatus>(COMMANDS.haConfigStatus);
 
 /** Persist `plugins/ha.json`. A blank `token` keeps the previously-saved one (write-only field). */
 export const saveHaConfig = (
@@ -16,20 +17,21 @@ export const saveHaConfig = (
 	token: string,
 	insecure: boolean,
 	basePath: string
-): Promise<void> => invoke('save_ha_config', { url, token, insecure, basePath });
+): Promise<void> => invoke(COMMANDS.saveHaConfig, { url, token, insecure, basePath });
 
 /** Start the streaming WS task iff configured (idempotent — a second call while running is a no-op). */
-export const haConnect = (): Promise<void> => invoke('ha_connect');
+export const haConnect = (): Promise<void> => invoke(COMMANDS.haConnect);
 
 /** Stop the streaming WS task (if any). */
-export const haDisconnect = (): Promise<void> => invoke('ha_disconnect');
+export const haDisconnect = (): Promise<void> => invoke(COMMANDS.haDisconnect);
 
 /** The HA entities (REST `/api/states`) for the inspector's sensor dropdown. */
-export const listHaEntities = (): Promise<HaEntity[]> => invoke<HaEntity[]>('list_ha_entities');
+export const listHaEntities = (): Promise<HaEntity[]> =>
+	invoke<HaEntity[]>(COMMANDS.listHaEntities);
 
 /** The HA registries (areas/devices/entities) over a short-lived WS, for the device browser. */
 export const haRegistrySnapshot = (): Promise<HaRegistry> =>
-	invoke<HaRegistry>('ha_registry_snapshot');
+	invoke<HaRegistry>(COMMANDS.haRegistrySnapshot);
 
 /** Validate an UNSAVED url/token/insecure combo via the WS auth handshake (returns HA version). */
 export const haTestConnection = (
@@ -38,11 +40,11 @@ export const haTestConnection = (
 	insecure: boolean,
 	basePath: string
 ): Promise<HaTestResult> =>
-	invoke<HaTestResult>('ha_test_connection', { url, token, insecure, basePath });
+	invoke<HaTestResult>(COMMANDS.haTestConnection, { url, token, insecure, basePath });
 
 /** Call an HA service (REST `POST /api/services/<domain>/<service>`). */
 export const haCallService = (
 	domain: string,
 	service: string,
 	data: Record<string, unknown>
-): Promise<unknown> => invoke('ha_call_service', { domain, service, data });
+): Promise<unknown> => invoke(COMMANDS.haCallService, { domain, service, data });

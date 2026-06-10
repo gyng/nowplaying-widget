@@ -6,6 +6,7 @@ use notify::Watcher;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
+use crate::bridge::{CONTROLS_CHANGED_EVENT, LAYOUT_CHANGED_EVENT, THEMES_CHANGED_EVENT};
 use crate::{log, AppState, SessionRecord};
 
 #[derive(Serialize)]
@@ -561,11 +562,19 @@ pub fn seed_themes(app: &tauri::AppHandle) {
     }
 }
 
-/// Watch `themes/` and emit `themes_changed` so the frontend live-reloads the active theme.
-pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
-    let dir = themes_dir(&app)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
+/// Shared loop behind `watch_themes`/`watch_layout`/`watch_controls`: watch `dir` (non-recursive)
+/// on a dedicated thread for the app's lifetime, and for every filesystem event that passes
+/// `filter`, emit `event_name` then run `on_match` (the layout watcher's main-respawn hook; a
+/// no-op for the others). `label` tags the log lines. Best-effort: logs and returns on watcher
+/// failure, leaving live reload off for that file.
+fn watch_and_emit(
+    app: tauri::AppHandle,
+    dir: PathBuf,
+    label: &'static str,
+    event_name: &'static str,
+    filter: impl Fn(&notify::Event) -> bool + Send + 'static,
+    on_match: impl Fn(&tauri::AppHandle) + Send + 'static,
+) {
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = match notify::recommended_watcher(move |res| {
@@ -573,35 +582,53 @@ pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
         }) {
             Ok(watcher) => watcher,
             Err(err) => {
-                log::error("watch", "themes watcher init failed")
+                log::error("watch", format!("{label} watcher init failed"))
                     .field("error", err)
                     .emit();
                 return;
             }
         };
         if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            log::error("watch", "themes watch failed").field("error", err).emit();
+            log::error("watch", format!("{label} watch failed")).field("error", err).emit();
             return;
         }
+        // Keep `watcher` alive by blocking on the channel for the app's lifetime.
         for res in rx {
             match res {
                 Ok(event) => {
-                    // Only react to `*.css` files (mirrors the layout/controls watchers' filter), so
-                    // the atomic-write `*.css.tmp` sidecar and any non-theme file dropped in the
-                    // folder don't spuriously trigger a reload.
-                    if event
-                        .paths
-                        .iter()
-                        .any(|p| p.extension().and_then(|x| x.to_str()) == Some("css"))
-                    {
-                        let _ = app.emit("themes_changed", ());
+                    if filter(&event) {
+                        let _ = app.emit(event_name, ());
+                        on_match(&app);
                     }
                 }
-                Err(err) => log::warn("watch", "themes watch error").field("error", err).emit(),
+                Err(err) => {
+                    log::warn("watch", format!("{label} watch error")).field("error", err).emit()
+                }
             }
         }
     });
+}
 
+/// Watch `themes/` and emit `themes_changed` so the frontend live-reloads the active theme.
+pub fn watch_themes(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = themes_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Only react to `*.css` files (mirrors the layout/controls watchers' filter), so the
+    // atomic-write `*.css.tmp` sidecar and any non-theme file dropped in the folder don't
+    // spuriously trigger a reload.
+    watch_and_emit(
+        app,
+        dir,
+        "themes",
+        THEMES_CHANGED_EVENT,
+        |event| {
+            event
+                .paths
+                .iter()
+                .any(|p| p.extension().and_then(|x| x.to_str()) == Some("css"))
+        },
+        |_| {},
+    );
     Ok(())
 }
 
@@ -638,53 +665,31 @@ pub fn watch_layout(app: tauri::AppHandle) -> Result<(), String> {
         .ok_or_else(|| "layout path has no parent".to_string())?
         .to_path_buf();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
-    std::thread::spawn(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = match notify::recommended_watcher(move |res| {
-            let _ = tx.send(res);
-        }) {
-            Ok(watcher) => watcher,
-            Err(err) => {
-                log::error("watch", "layout watcher init failed")
-                    .field("error", err)
-                    .emit();
-                return;
-            }
-        };
-        if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            log::error("watch", "layout watch failed").field("error", err).emit();
-            return;
-        }
-        // Keep `watcher` alive by blocking on the channel for the app's lifetime.
-        for res in rx {
-            match res {
-                Ok(event) => {
-                    if event.paths.iter().any(|p| p.file_name() == path.file_name()) {
-                        let _ = app.emit("layout_changed", ());
-                        // Reclaim: `main` is DESTROYED (not hidden) to free its renderer when the primary
-                        // monitor is empty (overlay.ts setMainWindowVisible). While it's gone, no window
-                        // drives overlay reconcile, so an external edit to widgets.json that re-populates
-                        // the primary would never bring the primary overlay back. Respawn `main` (born
-                        // hidden) so its own Canvas init decides: reveal if the primary now has widgets, or
-                        // self-destroy if still empty. Skipped while the studio is open — the studio
-                        // recreates `main` on close, so we avoid spawn/destroy churn during live editing.
-                        // Window creation must run on the main thread.
-                        let app_for_respawn = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if app_for_respawn.get_webview_window("main").is_none()
-                                && app_for_respawn.get_webview_window("studio").is_none()
-                            {
-                                respawn_main_hidden(&app_for_respawn);
-                            }
-                        });
-                    }
+    watch_and_emit(
+        app,
+        dir,
+        "layout",
+        LAYOUT_CHANGED_EVENT,
+        move |event| event.paths.iter().any(|p| p.file_name() == path.file_name()),
+        |app| {
+            // Reclaim: `main` is DESTROYED (not hidden) to free its renderer when the primary
+            // monitor is empty (overlay.ts setMainWindowVisible). While it's gone, no window
+            // drives overlay reconcile, so an external edit to widgets.json that re-populates
+            // the primary would never bring the primary overlay back. Respawn `main` (born
+            // hidden) so its own Canvas init decides: reveal if the primary now has widgets, or
+            // self-destroy if still empty. Skipped while the studio is open — the studio
+            // recreates `main` on close, so we avoid spawn/destroy churn during live editing.
+            // Window creation must run on the main thread.
+            let app_for_respawn = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if app_for_respawn.get_webview_window("main").is_none()
+                    && app_for_respawn.get_webview_window("studio").is_none()
+                {
+                    respawn_main_hidden(&app_for_respawn);
                 }
-                Err(err) => log::warn("watch", "layout watch error").field("error", err).emit(),
-            }
-        }
-    });
-
+            });
+        },
+    );
     Ok(())
 }
 
@@ -697,36 +702,14 @@ pub fn watch_controls(app: tauri::AppHandle) -> Result<(), String> {
         .ok_or_else(|| "controls path has no parent".to_string())?
         .to_path_buf();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
-    std::thread::spawn(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = match notify::recommended_watcher(move |res| {
-            let _ = tx.send(res);
-        }) {
-            Ok(watcher) => watcher,
-            Err(err) => {
-                log::error("watch", "controls watcher init failed")
-                    .field("error", err)
-                    .emit();
-                return;
-            }
-        };
-        if let Err(err) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            log::error("watch", "controls watch failed").field("error", err).emit();
-            return;
-        }
-        for res in rx {
-            match res {
-                Ok(event) => {
-                    if event.paths.iter().any(|p| p.file_name() == path.file_name()) {
-                        let _ = app.emit("controls_changed", ());
-                    }
-                }
-                Err(err) => log::warn("watch", "controls watch error").field("error", err).emit(),
-            }
-        }
-    });
-
+    watch_and_emit(
+        app,
+        dir,
+        "controls",
+        CONTROLS_CHANGED_EVENT,
+        move |event| event.paths.iter().any(|p| p.file_name() == path.file_name()),
+        |_| {},
+    );
     Ok(())
 }
 

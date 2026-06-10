@@ -2,6 +2,7 @@
 // source + settings panel share the command-name strings and tests can mock this module.
 
 import { invoke } from '@tauri-apps/api/core';
+import { COMMANDS } from '../../bridge/contract';
 import type { StocksStatus } from './stocks-types';
 
 export type StocksConfigInput = {
@@ -12,14 +13,14 @@ export type StocksConfigInput = {
 
 /** The (non-secret) config. */
 export const stocksConfigStatus = (): Promise<StocksStatus> =>
-	invoke<StocksStatus>('stocks_config_status');
+	invoke<StocksStatus>(COMMANDS.stocksConfigStatus);
 
 /** Persist `plugins/stocks.json`. */
 export const saveStocksConfig = (cfg: StocksConfigInput): Promise<void> =>
-	invoke('save_stocks_config', { ...cfg });
+	invoke(COMMANDS.saveStocksConfig, { ...cfg });
 
 /** Start the poll task iff configured (idempotent). */
-export const stocksConnect = (): Promise<void> => invoke('stocks_connect');
+export const stocksConnect = (): Promise<void> => invoke(COMMANDS.stocksConnect);
 
 /** Stop the poll task (if any). */
-export const stocksDisconnect = (): Promise<void> => invoke('stocks_disconnect');
+export const stocksDisconnect = (): Promise<void> => invoke(COMMANDS.stocksDisconnect);

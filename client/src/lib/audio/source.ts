@@ -6,6 +6,7 @@
 // the Rust structs in widgetsack/src/audio.rs; the command names must match.
 
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { COMMANDS } from '../bridge/contract';
 
 /** One analysed frame. Mirrors `SpectrumFrame` in `widgetsack/src/audio.rs`. */
 export type SpectrumFrame = { bands: number[]; rms: number; ts_ms: number };
@@ -93,7 +94,7 @@ function ensureChannel(): Channel<SpectrumFrame> {
 		// to drop our channel on the way out. Best-effort: the IPC may not flush before unload.
 		if (typeof window !== 'undefined')
 			window.addEventListener('beforeunload', () => {
-				if (started) void invoke('stop_spectrum').catch(() => undefined);
+				if (started) void invoke(COMMANDS.stopSpectrum).catch(() => undefined);
 			});
 	}
 	return channel;
@@ -105,7 +106,7 @@ function startStream(): void {
 	// Grace the backend a full STALL_MS to produce the first frame before the watchdog retries.
 	lastFrameAt = performance.now();
 	startWatchdog();
-	void invoke('start_spectrum', {
+	void invoke(COMMANDS.startSpectrum, {
 		channel: ch,
 		bands: CAPTURE_BANDS,
 		device: currentDevice,
@@ -125,7 +126,7 @@ function stopStream(): void {
 	latest = null;
 	started = false;
 	stopWatchdog();
-	void invoke('stop_spectrum').catch(() => undefined);
+	void invoke(COMMANDS.stopSpectrum).catch(() => undefined);
 }
 
 /** The process-wide spectrum source for this window. Capture starts on the first `acquire()`, stops

@@ -18,6 +18,7 @@ use crate::event::emit_to_bridge;
 use crate::state::updater;
 
 pub mod audio;
+pub mod bridge;
 pub mod clickthrough;
 pub mod command;
 pub mod control;
@@ -54,7 +55,7 @@ fn open_or_focus_studio(app: &tauri::AppHandle) {
     if app.get_webview_window("main").is_some() {
         // `main` is alive — keep a single source of truth for the studio window config: let its JS
         // build the studio (unchanged path) by emitting the event it listens for.
-        let _ = app.emit("open_studio", ());
+        let _ = app.emit(bridge::OPEN_STUDIO_EVENT, ());
         return;
     }
     if let Err(err) =
@@ -292,7 +293,7 @@ async fn main() -> Result<(), ()> {
                 .menu(&tray_menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "edit" => {
-                        let _ = app.emit("toggle_edit", ());
+                        let _ = app.emit(bridge::TOGGLE_EDIT_EVENT, ());
                     }
                     "designer" => {
                         // Opens (or focuses) the studio. Falls back to building it directly when the
@@ -301,7 +302,7 @@ async fn main() -> Result<(), ()> {
                     }
                     "arrange" => {
                         // Each overlay snaps the windows matching ITS monitor's zone rules.
-                        let _ = app.emit("arrange_zones", ());
+                        let _ = app.emit(bridge::ARRANGE_ZONES_EVENT, ());
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -329,7 +330,7 @@ async fn main() -> Result<(), ()> {
                 app.global_shortcut()
                     .on_shortcut(toggle_edit_shortcut, |app, _shortcut, event| {
                         if event.state() == ShortcutState::Pressed {
-                            let _ = app.emit("toggle_edit", ());
+                            let _ = app.emit(bridge::TOGGLE_EDIT_EVENT, ());
                         }
                     })
             {

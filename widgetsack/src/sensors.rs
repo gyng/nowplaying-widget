@@ -45,8 +45,9 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::log;
 
-/// The `telemetry` event name on the Tauri bridge.
-pub const TELEMETRY_EVENT: &str = "telemetry";
+/// The `telemetry` event name on the Tauri bridge (re-exported so ha/mqtt/stocks keep importing
+/// it from here; the string itself lives in bridge.rs with the rest of the contract).
+pub use crate::bridge::TELEMETRY_EVENT;
 
 /// A single metric value. Mirrors `SensorValue` in `core/telemetry.ts`.
 ///

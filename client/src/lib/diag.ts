@@ -20,9 +20,10 @@ import type { TelemetryHub } from './core/telemetry';
 import { mediaStore } from '../stores/stores';
 import { sumArtBytes } from './components/NowPlaying/priority';
 import { monitorParam } from './overlay';
+import { COMMANDS, EVENTS } from './bridge/contract';
 
-const DIAG_REQUEST = 'diag:request'; // studio → all windows: report your stats
-const DIAG_REPORT = 'diag:report'; // window → studio: a WindowDiag
+const DIAG_REQUEST = EVENTS.diagRequest; // studio → all windows: report your stats
+const DIAG_REPORT = EVENTS.diagReport; // window → studio: a WindowDiag
 
 /** The native (Rust HOST) process's perf snapshot. Mirrors `ProcessDiag` in
  * `widgetsack/src/process_diag.rs`. On Windows the WebView2 renderers are SEPARATE processes (their JS
@@ -45,7 +46,7 @@ export type ProcessDiag = {
  * the command fails, so the panel just omits the row rather than erroring. */
 export async function getProcessDiagnostics(): Promise<ProcessDiag | null> {
 	try {
-		return await invoke<ProcessDiag>('process_diagnostics');
+		return await invoke<ProcessDiag>(COMMANDS.processDiagnostics);
 	} catch {
 		return null;
 	}
@@ -129,7 +130,7 @@ export function listenDiagReports(cb: (report: WindowDiag) => void): Promise<Unl
  *  so a crashed/quiet window still appears). Resolves to [] outside Tauri / on failure. */
 export async function listWindowLabels(): Promise<string[]> {
 	try {
-		return await invoke<string[]>('list_window_labels');
+		return await invoke<string[]>(COMMANDS.listWindowLabels);
 	} catch {
 		return [];
 	}
@@ -139,7 +140,7 @@ export async function listWindowLabels(): Promise<string[]> {
  *  bridge can't. */
 export async function openDevtoolsFor(label: string): Promise<void> {
 	try {
-		await invoke('open_devtools_for', { label });
+		await invoke(COMMANDS.openDevtoolsFor, { label });
 	} catch (err) {
 		console.warn('open_devtools_for failed', label, err);
 	}
@@ -149,7 +150,7 @@ export async function openDevtoolsFor(label: string): Promise<void> {
  *  bring it forward) — so a crashed overlay's click-through can be cleared to reach its "Reload" page. */
 export async function setWindowInteractive(label: string, interactive: boolean): Promise<void> {
 	try {
-		await invoke('set_window_interactive', { label, interactive });
+		await invoke(COMMANDS.setWindowInteractive, { label, interactive });
 	} catch (err) {
 		console.warn('set_window_interactive failed', label, err);
 	}
@@ -159,7 +160,7 @@ export async function setWindowInteractive(label: string, interactive: boolean):
  *  "Out of Memory" page) without relaunching the app. */
 export async function reloadWindow(label: string): Promise<void> {
 	try {
-		await invoke('reload_window', { label });
+		await invoke(COMMANDS.reloadWindow, { label });
 	} catch (err) {
 		console.warn('reload_window failed', label, err);
 	}
@@ -174,7 +175,7 @@ export async function reloadWindow(label: string): Promise<void> {
 /** Append THIS window's diagnostics summary to the backend's rotating log file (best-effort). */
 export async function logDiag(getHub: () => TelemetryHub | null): Promise<void> {
 	try {
-		await invoke('log_diag', { summary: formatDiagTrail(collectLocalDiagnostics(getHub())) });
+		await invoke(COMMANDS.logDiag, { summary: formatDiagTrail(collectLocalDiagnostics(getHub())) });
 	} catch {
 		/* outside Tauri / command unavailable — the trail just doesn't record */
 	}
