@@ -1,7 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import type { Layout as LayoutV1, WidgetInstance } from './layout';
-import { emptyRoot } from './layoutTree';
-import { migrateV1, parseLayoutAny } from './migration';
+import { emptyRoot, type MonitorLayout } from './layoutTree';
+import { migrateMonitorKeys, migrateV1, parseLayoutAny } from './migration';
+
+describe('migrateMonitorKeys', () => {
+	const mon = (): MonitorLayout => ({ root: emptyRoot(), floating: [] });
+
+	it('remaps legacy numeric keys via the mapping, leaving default untouched', () => {
+		const out = migrateMonitorKeys(
+			{ default: mon(), '1': mon(), '2': mon() },
+			{ '1': 'DISPLAY3', '2': 'DISPLAY2' }
+		);
+		expect(out && Object.keys(out).sort()).toEqual(['DISPLAY2', 'DISPLAY3', 'default']);
+	});
+
+	it('returns null when nothing needs remapping (already device-keyed)', () => {
+		expect(migrateMonitorKeys({ default: mon(), DISPLAY3: mon() }, { '1': 'DISPLAY3' })).toBeNull();
+	});
+
+	it('keeps a numeric key with no current monitor so its layout is not orphaned', () => {
+		const out = migrateMonitorKeys({ '1': mon(), '5': mon() }, { '1': 'DISPLAY2' });
+		expect(out && Object.keys(out).sort()).toEqual(['5', 'DISPLAY2']);
+	});
+
+	it('never clobbers an existing device-keyed entry with a remapped legacy one', () => {
+		const keep = mon();
+		const legacy = mon();
+		const out = migrateMonitorKeys({ DISPLAY2: keep, '1': legacy }, { '1': 'DISPLAY2' });
+		expect(out).toBeNull(); // legacy '1' stays put rather than overwriting DISPLAY2
+	});
+});
 
 const widget = (id: string, x: number, y: number, w: number, h: number): WidgetInstance => ({
 	id,

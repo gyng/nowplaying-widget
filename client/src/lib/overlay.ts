@@ -7,7 +7,8 @@ import {
 	getCurrentWindow,
 	primaryMonitor,
 	PhysicalPosition,
-	PhysicalSize
+	PhysicalSize,
+	type Monitor
 } from '@tauri-apps/api/window';
 import { getAllWebviewWindows, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -17,7 +18,7 @@ import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
 import { builtinCss } from './core/builtinThemes';
 import { monitorOptionLabel } from './monitorLabel';
-import { parseLayoutAny } from './core/migration';
+import { migrateMonitorKeys, parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
 import type { OverlayPresentation } from './widgets/canvas/overlayPresentation';
 import { COMMANDS, EVENTS } from './bridge/contract';
@@ -64,14 +65,39 @@ export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
 	emit(EVENTS.overlayLayerStatus, { layer, ok, detail, label: win.label }).catch(() => undefined);
 }
 
+/** A monitor's STABLE layout key: the GDI device tag ('DISPLAY3'), not the `availableMonitors()`
+ * enumeration index — the index reshuffles across reboots/hot-plugs, which put a saved layout on
+ * the wrong physical monitor. Falls back to a position-independent `m<i>` when the platform gives
+ * no device name (plain browser / tests). The primary monitor's key stays 'default' (callers). */
+export function monitorDeviceKey(name: string | null | undefined, index: number): string {
+	const tag = (name ?? '').replace(/^[\\.?]+/, '').trim();
+	return tag || `m${index}`;
+}
+
 /** The set of saved-layout monitor keys that hold at least one widget (so an overlay there would
- * render something). Keys: 'default' (primary) or the monitor index, matching studioMonitorOptions.
- * Empty/missing layouts and a parse error yield an empty set — nothing gets an overlay. */
-async function populatedMonitorKeys(): Promise<Set<string>> {
+ * render something). Keys: 'default' (primary) or the device key, matching studioMonitorOptions.
+ * When `legacyMapping` is given (reconcile path), legacy numeric index keys from pre-device-key
+ * saves are migrated to device keys and the file is rewritten ONCE (raw keys renamed in place —
+ * the value JSON is not round-tripped through the parser). Empty/missing layouts and a parse
+ * error yield an empty set — nothing gets an overlay. */
+async function populatedMonitorKeys(legacyMapping?: Record<string, string>): Promise<Set<string>> {
 	const keys = new Set<string>();
 	try {
 		const raw = await invoke<string | null>(COMMANDS.loadLayout);
 		const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+		if (obj && legacyMapping && typeof obj.monitors === 'object' && obj.monitors !== null) {
+			const migrated = migrateMonitorKeys(obj.monitors as Record<string, unknown>, legacyMapping);
+			if (migrated) {
+				obj.monitors = migrated;
+				await invoke(COMMANDS.saveLayout, { contents: JSON.stringify(obj, null, 2) });
+				console.info(
+					'[overlay] migrated legacy monitor index keys → device keys:',
+					Object.entries(legacyMapping)
+						.map(([a, b]) => `${a}→${b}`)
+						.join(', ')
+				);
+			}
+		}
 		const layout = obj ? parseLayoutAny(obj) : null;
 		if (layout) {
 			for (const [k, mon] of Object.entries(layout.monitors)) {
@@ -662,7 +688,9 @@ export async function studioMonitorOptions(): Promise<
 		// lookup key guards against the friendly name silently vanishing if either source ever differs.
 		const friendly = friendlyByDevice.get(name.toUpperCase()) ?? '';
 		return {
-			key: isPrimary ? 'default' : String(i),
+			// The KEY is the same stable device tag the label shows — keying by enumeration index put
+			// layouts on the wrong physical monitor whenever Windows re-ordered the enumeration.
+			key: isPrimary ? 'default' : monitorDeviceKey(m.name, i),
 			label: monitorOptionLabel({
 				device: name,
 				friendly,
@@ -755,16 +783,26 @@ export async function closeWindow(): Promise<void> {
 }
 
 /** Primary window only: reconcile per-monitor overlays against the saved layout. A NON-primary
- * monitor gets a click-through overlay (carrying its index as `?monitor=<i>`) only if its layout
- * has widgets; an overlay whose monitor became empty is closed. Idempotent — safe to re-run on
- * every layout change. The primary monitor is the main window itself (handled separately). */
+ * monitor gets a click-through overlay (carrying its stable device key as `?monitor=<key>`) only
+ * if its layout has widgets; an overlay whose monitor became empty is closed. Legacy layouts keyed
+ * by enumeration index are migrated to device keys on the way through (one-time file rewrite).
+ * Idempotent — safe to re-run on every layout change. The primary monitor is the main window
+ * itself (handled separately). */
 export async function reconcileOverlays(): Promise<void> {
-	const [monitors, primary, existing, populated] = await Promise.all([
+	const [monitors, primary, existing] = await Promise.all([
 		availableMonitors(),
 		primaryMonitor(),
-		getAllWebviewWindows(),
-		populatedMonitorKeys()
+		getAllWebviewWindows()
 	]);
+	const isPrimaryMon = (m: Monitor): boolean =>
+		!!primary && m.position.x === primary.position.x && m.position.y === primary.position.y;
+	// Old index key → stable device key, from the CURRENT enumeration: positionally correct for a
+	// layout saved by the index-keyed builds, and the basis the keys stay stable on afterwards.
+	const legacyMapping: Record<string, string> = {};
+	monitors.forEach((m, i) => {
+		if (!isPrimaryMon(m)) legacyMapping[String(i)] = monitorDeviceKey(m.name, i);
+	});
+	const populated = await populatedMonitorKeys(legacyMapping);
 	const byLabel = new Map(existing.map((w) => [w.label, w]));
 	// The chosen z-order layer seeds each new overlay's initial flag; the secondary then self-applies
 	// the full layer (incl. wallpaper, which must be invoked from its OWN webview) via its Canvas.
@@ -773,12 +811,21 @@ export async function reconcileOverlays(): Promise<void> {
 	for (let i = 0; i < monitors.length; i++) {
 		const m = monitors[i];
 		// Skip the primary monitor — the main window covers it and renders the `default` key.
-		if (primary && m.position.x === primary.position.x && m.position.y === primary.position.y) {
+		if (isPrimaryMon(m)) {
 			continue;
 		}
-		const label = `overlay-${i}`;
+		const key = monitorDeviceKey(m.name, i);
+		const label = `overlay-${key}`;
 		const have = byLabel.get(label);
-		const want = populated.has(String(i));
+		// Close any pre-device-key window for this slot so an old `overlay-<i>` doesn't linger
+		// alongside its renamed successor after the migration.
+		const legacy = byLabel.get(`overlay-${i}`);
+		if (legacy && legacy.label !== label) {
+			await legacy
+				.close()
+				.catch((err) => console.warn('close legacy overlay failed', legacy.label, err));
+		}
+		const want = populated.has(key);
 		// Close an overlay whose monitor no longer has any widgets.
 		if (!want) {
 			if (have) await have.close().catch((err) => console.warn('close overlay failed', label, err));
@@ -787,7 +834,7 @@ export async function reconcileOverlays(): Promise<void> {
 		if (have) continue; // already open
 
 		const w = new WebviewWindow(label, {
-			url: `/?monitor=${i}`,
+			url: `/?monitor=${encodeURIComponent(key)}`,
 			transparent: true,
 			decorations: false,
 			// No window shadow: on Windows an undecorated window otherwise keeps a thin
