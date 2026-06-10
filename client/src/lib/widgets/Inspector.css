@@ -1,18 +1,18 @@
 .inspector {
 	position: absolute;
-	bottom: 8px;
-	left: 8px;
+	bottom: var(--space-4);
+	left: var(--space-4);
 	width: 240px;
-	padding: 8px;
+	padding: var(--space-4);
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--space-4);
 	background: var(--ui-surface);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
-	border-radius: 4px;
+	border-radius: var(--radius-panel);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 	pointer-events: auto;
 }
 
@@ -39,12 +39,23 @@
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
+	font-size: var(--text-sm);
+}
+
+/* A palette CATEGORY header (Meters / Clocks / Utility / per-plugin) — one step below .hd
+   (dim, not accent) so the widget-type groups don't compete with the Library/Templates sections. */
+.inspector .hd2 {
+	flex: 1 1 100%;
+	color: var(--ui-fg-dim);
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	font-size: var(--text-sm);
 }
 
 .inspector .palette {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 4px;
+	gap: var(--space-2);
 	align-items: center;
 }
 
@@ -54,10 +65,10 @@
 	flex: 1 1 100%;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-	padding: 6px;
+	gap: var(--space-3);
+	padding: var(--space-3);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.25);
-	border-radius: 3px;
+	border-radius: var(--radius-panel);
 }
 
 .inspector .palette .tpl-opts-name {
@@ -68,17 +79,36 @@
 .inspector .palette .tpl-opts-fields {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
-	gap: 4px 6px;
+	gap: var(--space-2) var(--space-3);
 }
 
 .inspector .palette .tpl-opts-fields label {
-	gap: 2px;
-	font-size: 10px;
-	color: var(--dim-fg);
+	gap: var(--space-1);
+	font-size: var(--text-sm);
+	color: var(--ui-fg-dim);
 }
 
 .inspector .palette .tpl-opts-insert {
 	align-self: flex-start;
+}
+
+/* The options card's header row: the template name + the 👁 preview jump. */
+.inspector .palette .tpl-opts-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+/* The "preview this template in the designer" jump — compact next to the insert affordances. */
+.inspector .palette .tpl-preview {
+	padding: var(--space-1) var(--space-2);
+	line-height: 1;
+}
+
+/* Joined to its insert button, like the libitem ✕. */
+.inspector .libitem .tpl-preview {
+	border-left: none;
 }
 
 /* The Add/Library palette as a collapsible disclosure — open when nothing is selected (the primary
@@ -86,13 +116,14 @@
 .inspector details.add-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--space-4);
 }
 
 .inspector details.add-panel > summary {
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
+	font-size: var(--text-sm);
 	cursor: pointer;
 	user-select: none;
 	list-style: revert;
@@ -113,36 +144,36 @@
 .inspector .fields {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--space-3);
 }
 
 .inspector .tokens {
 	border-top: 1px solid var(--ui-border);
-	padding-top: 6px;
+	padding-top: var(--space-3);
 }
 
 .inspector .row {
 	display: grid;
 	grid-template-columns: repeat(4, 1fr);
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .inspector .row2 {
 	display: grid;
 	grid-template-columns: repeat(2, 1fr);
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .inspector label {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: var(--space-1);
 }
 
 .inspector label.check {
 	flex-direction: row;
 	align-items: center;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 /* Dirty (unsaved) field indicator (item 2): accent the label + tint the control. */
@@ -159,7 +190,7 @@
 
 .inspector .actions {
 	display: flex;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .inspector input,
@@ -169,13 +200,20 @@
 	border: 1px solid var(--ui-border);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
 	width: 100%;
 	box-sizing: border-box;
 	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		background var(--motion-fast, 100ms) var(--ease-out, ease-out);
+}
+
+/* One control height across the rail (checkboxes keep their intrinsic box). */
+.inspector input:not([type='checkbox']),
+.inspector textarea,
+.inspector select {
+	min-height: var(--control-h);
 }
 
 /* A crisp mint focus ring (the box-shadow IS the focus affordance, so the default outline is off). */
@@ -196,8 +234,8 @@
 	border: 1px solid var(--ui-border-strong);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 6px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
 	cursor: pointer;
 	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		box-shadow var(--motion-fast, 100ms) var(--ease-out, ease-out);
@@ -236,18 +274,18 @@
 }
 
 .inspector .hint {
-	color: var(--dim-fg);
+	color: var(--ui-fg-dim);
 }
 
 /* Collapsed-by-default "Advanced" disclosure for the raw config-JSON + CSS escape hatches. */
 .inspector details.adv {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: var(--space-3);
 }
 
 .inspector details.adv > summary {
-	color: var(--dim-fg);
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 	user-select: none;
 	list-style: revert;
@@ -271,8 +309,8 @@
 	border: none;
 	background: transparent;
 	color: var(--ui-fg-dim);
-	padding: 0 2px;
-	font-size: 11px;
+	padding: 0 var(--space-1);
+	font-size: var(--text-md);
 	line-height: 1;
 	cursor: pointer;
 }
@@ -282,14 +320,14 @@
 }
 
 .inspector .reset-field:disabled {
-	opacity: 0.3;
+	opacity: var(--disabled-opacity);
 	cursor: default;
 }
 
 /* Per-field help text from the widget's config schema. */
 .inspector .field-help {
-	color: var(--dim-fg);
-	font-size: 10px;
+	color: var(--ui-fg-dim);
+	font-size: var(--text-sm);
 	line-height: 1.3;
 }
 
@@ -325,33 +363,33 @@
 .inspector .libitem .x {
 	border-left: none;
 	color: var(--ui-danger-fg);
-	padding: 2px 4px;
+	padding: var(--space-1) var(--space-2);
 }
 
 /* Macro field (kind:'macro'): an ordered list of action rows (domain / service / data) + add. */
 .inspector .macro-editor {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .inspector .macro-empty {
-	color: var(--dim-fg);
-	font-size: 10px;
+	color: var(--ui-fg-dim);
+	font-size: var(--text-sm);
 }
 
 .inspector .macro-row {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	padding: 4px;
+	gap: var(--space-1);
+	padding: var(--space-2);
 	border: 1px solid var(--ui-border);
-	border-radius: 3px;
+	border-radius: var(--radius-control);
 }
 
 .inspector .macro-row-main {
 	display: flex;
-	gap: 2px;
+	gap: var(--space-1);
 	align-items: center;
 }
 
@@ -363,12 +401,12 @@
 
 .inspector .macro-row-ops {
 	display: flex;
-	gap: 2px;
+	gap: var(--space-1);
 	flex: 0 0 auto;
 }
 
 .inspector .macro-row-ops button {
-	padding: 0 4px;
+	padding: 0 var(--space-2);
 }
 
 .inspector .macro-row-ops .x {
@@ -392,7 +430,7 @@
 /* --- "Data" tab: Form / Data switcher + the JSON/YAML representation of the selected node --- */
 .inspector .detail-tabs {
 	display: flex;
-	gap: 2px;
+	gap: var(--space-1);
 	border-bottom: 1px solid var(--ui-border);
 }
 
@@ -402,8 +440,8 @@
 	border-bottom: 2px solid transparent;
 	color: var(--ui-fg-muted);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 3px 8px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-4);
 	cursor: pointer;
 	/* The active underline slides in + the label brightens when the tab changes. */
 	transition: color var(--motion-fast, 100ms) var(--ease-out, ease-out),
@@ -422,7 +460,7 @@
 .inspector .data-bar {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .inspector .data-bar .data-spacer {

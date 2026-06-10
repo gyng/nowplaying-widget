@@ -1,5 +1,5 @@
-/* The shared <Select> control. Mirrors the studio's native input/select look (dark, monospace, 11px,
-   var(--ui-border) border, accent on hover/focus). The menu is portaled to <body> and fixed-positioned, so these
+/* The shared <Select> control. Mirrors the studio's native input/select look (dark, monospace,
+   var(--text-md), var(--ui-border) border, accent on hover/focus). The menu is portaled to <body> and fixed-positioned, so these
    .np-select-menu styles are intentionally NOT scoped to any panel. */
 
 .np-select {
@@ -11,7 +11,7 @@
 .np-select-trigger {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: var(--space-2);
 	width: 100%;
 	box-sizing: border-box;
 	background: var(--ui-raised);
@@ -19,8 +19,9 @@
 	border-radius: 0;
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
+	min-height: var(--control-h);
 	text-align: left;
 	cursor: pointer;
 }
@@ -42,7 +43,7 @@
 	white-space: nowrap;
 }
 .np-select-ph {
-	color: var(--dim-fg, var(--ui-fg-dim));
+	color: var(--ui-fg-dim);
 }
 
 .np-select-input {
@@ -52,8 +53,8 @@
 	border: none;
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
 }
 .np-select-input:focus {
 	outline: none;
@@ -64,9 +65,9 @@
 	background: transparent;
 	border: none;
 	color: var(--ui-fg-dim);
-	font-size: 9px;
+	font-size: var(--text-xs);
 	line-height: 1;
-	padding: 0 2px;
+	padding: 0 var(--space-1);
 	cursor: pointer;
 }
 .np-select-combo .np-select-caret:hover {
@@ -76,24 +77,24 @@
 .np-select-trigger:disabled,
 .np-select-input:disabled,
 .np-select-caret:disabled {
-	opacity: 0.5;
+	opacity: var(--disabled-opacity);
 	cursor: default;
 }
 
 /* Portaled, fixed-positioned popup (position/top/left/width come from inline style). */
 .np-select-menu {
 	margin: 0;
-	padding: 2px;
+	padding: var(--space-1);
 	list-style: none;
 	background: var(--ui-raised);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
-	border-radius: 3px;
+	border-radius: var(--radius-panel);
 	max-height: 248px;
 	overflow-y: auto;
 	z-index: 50;
 	box-shadow: 0 6px 18px var(--ui-scrim);
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 }
 
 .np-select-option {
@@ -101,9 +102,9 @@
 	/* center (not baseline) so a leading colour swatch lines up with the label text */
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
-	padding: 3px 6px;
-	border-radius: 2px;
+	gap: var(--space-4);
+	padding: var(--space-1) var(--space-3);
+	border-radius: var(--radius-control);
 	color: var(--ui-fg);
 	cursor: pointer;
 }
@@ -123,10 +124,10 @@
 .np-select-opt-hint {
 	flex: 0 0 auto;
 	color: var(--ui-fg-dim);
-	font-size: 10px;
+	font-size: var(--text-sm);
 }
 
 .np-select-empty {
-	padding: 3px 6px;
+	padding: var(--space-1) var(--space-3);
 	color: var(--ui-fg-dim);
 }

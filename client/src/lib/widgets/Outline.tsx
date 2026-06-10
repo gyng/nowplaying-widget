@@ -42,10 +42,31 @@ function Outline({
 
 	const rows = useMemo(() => outlineRows(root), [root]);
 
-	function rowLabel(node: LayoutNode): string {
-		if (isContainer(node)) return `▦ ${node.kind} · ${node.id}`;
-		return `• ${isGroup(node.unit) ? `group ${node.unit.name ?? node.id}` : node.unit.type}`;
+	// Primary text (the structural identity) + a dim hint (what makes THIS row recognizable among
+	// same-type siblings: a user label, the bound sensor, or a group name) — five "sparkline" rows
+	// are indistinguishable without it.
+	function rowParts(node: LayoutNode): { primary: string; hint: string } {
+		if (isContainer(node)) return { primary: `▦ ${node.kind}`, hint: node.id };
+		if (isGroup(node.unit))
+			return { primary: '• group', hint: node.unit.name ?? node.unit.def ?? node.id };
+		const label = node.unit.config?.label;
+		const hint = (typeof label === 'string' && label) || node.unit.sensor || '';
+		return { primary: `• ${node.unit.type}`, hint };
 	}
+
+	const rowLabel = (node: LayoutNode) => {
+		const { primary, hint } = rowParts(node);
+		return (
+			<>
+				{primary}
+				{hint && (
+					<span className="hint" title={hint}>
+						{hint}
+					</span>
+				)}
+			</>
+		);
+	};
 
 	// Drag-and-drop into the tree (no canvas coords): drag a row (or a palette widget from the
 	// inspector) onto a CONTAINER row to nest it there. Containers are the only drop targets;
@@ -224,7 +245,12 @@ function Outline({
 									actBtn('Move in', '⟹', { op: 'indent', id: r.node.id }, { reveal: true })}
 								{!isContainer(r.node) &&
 									actBtn('Float', '⤓', { op: 'float', id: r.node.id }, { reveal: true })}
-								{actBtn('Remove', '✕', { op: 'remove', id: r.node.id }, { danger: true })}
+								{actBtn(
+									'Remove',
+									'✕',
+									{ op: 'remove', id: r.node.id },
+									{ reveal: true, danger: true }
+								)}
 							</span>
 						</div>
 					);
@@ -257,7 +283,12 @@ function Outline({
 									</button>
 									<span className="btns">
 										{actBtn('Dock into root', '⤒', { op: 'dock', id: lf.id }, { reveal: true })}
-										{actBtn('Remove', '✕', { op: 'remove', id: lf.id }, { danger: true })}
+										{actBtn(
+											'Remove',
+											'✕',
+											{ op: 'remove', id: lf.id },
+											{ reveal: true, danger: true }
+										)}
 									</span>
 								</div>
 							);

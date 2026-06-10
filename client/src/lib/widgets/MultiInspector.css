@@ -4,10 +4,10 @@
 .inspector.multi .multi-list {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: var(--space-1);
 	max-height: 160px;
 	overflow: auto;
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .inspector.multi .multi-item {
@@ -16,9 +16,9 @@
 	border: 1px solid transparent;
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 6px;
-	border-radius: 2px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
+	border-radius: var(--radius-control);
 	cursor: pointer;
 }
 
@@ -28,8 +28,8 @@
 }
 
 .inspector.multi .multi-note {
-	color: var(--dim-fg);
-	font-size: 11px;
+	color: var(--ui-fg-dim);
+	font-size: var(--text-md);
 	font-style: italic;
 }
 
@@ -40,14 +40,14 @@
 }
 
 .inspector.multi .multi-delete {
-	margin-top: 8px;
+	margin-top: var(--space-4);
 	background: rgba(var(--ui-danger-rgb), 0.15);
 	border: 1px solid rgba(var(--ui-danger-rgb), 0.5);
 	color: var(--ui-danger-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 4px 8px;
-	border-radius: 3px;
+	font-size: var(--text-md);
+	padding: var(--space-2) var(--space-4);
+	border-radius: var(--radius-control);
 	cursor: pointer;
 }
 

@@ -3,31 +3,31 @@
 .controls-panel .cp-head {
 	display: flex;
 	justify-content: flex-end;
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .controls-panel .cp-resetall {
-	font-size: 11px;
-	padding: 1px 6px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
 }
 
 .controls-panel .cp-group {
-	margin-bottom: 8px;
+	margin-bottom: var(--space-4);
 }
 
 .controls-panel .cp-grouphd {
-	font-size: 10px;
+	color: rgb(var(--ui-accent-rgb));
+	font-size: var(--text-sm);
 	text-transform: uppercase;
-	letter-spacing: 0.06em;
-	opacity: 0.55;
-	margin: 6px 0 2px;
+	letter-spacing: 1px;
+	margin: var(--space-4) 0 var(--space-2);
 }
 
 .controls-panel .cp-row {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 2px 0;
+	gap: var(--space-4);
+	padding: var(--space-1) 0;
 }
 
 .controls-panel .cp-label {
@@ -41,7 +41,7 @@
 .controls-panel .cp-keys {
 	flex: 0 0 auto;
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 	opacity: 0.85;
 }
 
@@ -58,10 +58,10 @@
 .controls-panel .cp-actions {
 	flex: 0 0 auto;
 	display: flex;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .controls-panel .cp-actions button {
-	font-size: 11px;
-	padding: 1px 6px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
 }

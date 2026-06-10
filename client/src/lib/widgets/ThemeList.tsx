@@ -1,8 +1,9 @@
 // The studio's theme picker (Themes section): the synthetic "(default)" reset, then the built-in
-// presets grouped Classic / Light / Dark / Fun, then the user's own themes ("Your themes"). The
-// active row is badged + highlighted. Built-ins are immutable, so they expose only "duplicate to
-// edit" (⎘); user themes get edit (✎) / duplicate (⎘) / delete (✕). A filter box appears once the
-// list is long enough to be worth searching, and matches across every group by label.
+// presets grouped Classic / Light / Dark / Fun, then the user's own themes ("Your themes") — a
+// responsive grid of swatch cards (the grid + card look lives in NavRail.css). The active card is
+// badged + highlighted. Built-ins are immutable, so they expose only "duplicate to edit" (⎘); user
+// themes get edit (✎) / duplicate (⎘) / delete (✕). A filter box appears once the list is long
+// enough to be worth searching, and matches across every group by label.
 import { useState } from 'react';
 import { DEFAULT_SWATCH, type Swatch } from '../core/tokens';
 import ColorSwatch from './ColorSwatch';
@@ -52,8 +53,10 @@ function ThemeRow({
 				onClick={() => onPick(value)}
 			>
 				<ColorSwatch sw={swatch} />
-				<span className="rp-id">{label}</span>
-				{active ? <span className="rp-badge">active</span> : null}
+				<span className="theme-card-foot">
+					<span className="rp-id">{label}</span>
+					{active ? <span className="rp-badge">active</span> : null}
+				</span>
 			</button>
 			{hasActions && (
 				<span className="theme-acts">
