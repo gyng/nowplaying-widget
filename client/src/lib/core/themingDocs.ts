@@ -26,7 +26,24 @@ const CHROME_TOKENS: { name: string; purpose: string }[] = [
 	{ name: '--ui-success-rgb', purpose: 'Success accent channels.' },
 	{ name: '--ui-success-fg', purpose: 'Success text.' },
 	{ name: '--ui-warn-rgb', purpose: 'Warning accent channels.' },
-	{ name: '--ui-warn-fg', purpose: 'Warning text.' }
+	{ name: '--ui-warn-fg', purpose: 'Warning text.' },
+	// Spacing / typography / shape — the studio's density knobs. Same override story as the colour
+	// tokens: set at :root in a theme. Scale: 2/4/6/8/12/16.
+	{ name: '--space-1', purpose: 'Spacing scale: hairline (2px).' },
+	{ name: '--space-2', purpose: 'Spacing scale: tight (4px).' },
+	{ name: '--space-3', purpose: 'Spacing scale: default gap (6px).' },
+	{ name: '--space-4', purpose: 'Spacing scale: section / panel inset (8px).' },
+	{ name: '--space-5', purpose: 'Spacing scale: large (12px).' },
+	{ name: '--space-6', purpose: 'Spacing scale: screen-edge / panel padding (16px).' },
+	{ name: '--text-xs', purpose: 'Type scale: smallest annotations (9px).' },
+	{ name: '--text-sm', purpose: 'Type scale: section headers / hints (10px).' },
+	{ name: '--text-md', purpose: 'Type scale: chrome body (11px).' },
+	{ name: '--text-lg', purpose: 'Type scale: emphasized body / panel text (12px).' },
+	{ name: '--text-xl', purpose: 'Type scale: panel titles (14px).' },
+	{ name: '--radius-control', purpose: 'Corner radius for inputs / buttons / chips (2px).' },
+	{ name: '--radius-panel', purpose: 'Corner radius for panels / cards / menus (4px).' },
+	{ name: '--control-h', purpose: 'Minimum height of rail/bar inputs and selects (22px).' },
+	{ name: '--disabled-opacity', purpose: 'Opacity of disabled controls (0.5).' }
 ];
 
 // One-line human description per token (the prose the value/name alone can't carry). Keyed by token
@@ -144,6 +161,11 @@ The studio chrome — title bar, rails, panels, backgrounds — is themeable too
 light studio. Their dark defaults live in \`client/src/styles.css\`; a theme only sets what it changes.
 Accent / state colours are RGB **channels** (e.g. \`--ui-accent-rgb: 119, 196, 211\`) so both the solid
 \`rgb(var(--ui-accent-rgb))\` and translucent \`rgba(var(--ui-accent-rgb), a)\` forms work.
+
+Beyond colour, the chrome's **density and typography** ride the same system: the \`--space-*\` scale,
+\`--text-*\` type ramp, \`--radius-*\` shapes, \`--control-h\`, and \`--disabled-opacity\` below are plain
+\`:root\` custom properties — a theme can compact the studio (\`--space-3: 4px; --text-md: 10px\`) or
+relax it the same way it recolours it.
 `;
 
 const BUILTIN_SECTION = `## Built-in themes

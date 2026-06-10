@@ -134,7 +134,7 @@ import { usePaneSizes } from './canvas/usePaneSizes';
 import { RAIL_ORDER, type SectionId } from './canvas/studioSections';
 import { BUILTIN_THEMES, builtinGroups, builtinName } from '../core/builtinThemes';
 import { useThemes } from './canvas/useThemes';
-import { useSacks } from './canvas/useSacks';
+import { sackSummary, useSacks } from './canvas/useSacks';
 import { useSavedLayouts } from './canvas/useSavedLayouts';
 import { useBackground } from './canvas/useBackground';
 import { useDefEditor } from './canvas/useDefEditor';
@@ -1146,7 +1146,7 @@ export default function Canvas({ studio = false }: Props) {
 	dirtyRef.current = dirty;
 
 	// --- sacks (item 10): export the studio's shareable state, import + merge one back ---
-	const { sackNames, exportSack, importSack } = useSacks({
+	const { sackInfos, exportSack, importSack } = useSacks({
 		studio,
 		navSection,
 		editingDefId,
@@ -2403,8 +2403,11 @@ export default function Canvas({ studio = false }: Props) {
 										onChange={setTheme}
 										aria-label="Theme"
 									/>
+									{/* "Monitor", not "Display": Settings has a Display PAGE (monitor info), and the two
+									    sharing a name made this read as a duplicate — this switcher picks WHICH monitor's
+									    layout the studio edits. */}
 									<span className="lbl" data-tauri-drag-region>
-										Display
+										Monitor
 									</span>
 									<Select
 										className="sb-select"
@@ -2806,22 +2809,27 @@ export default function Canvas({ studio = false }: Props) {
 									<div className="rail-panel">
 										<div className="rp-hd">Sacks</div>
 										<div className="rp-stub">
-											Bundle this monitor’s widget library + theme + tokens to share or reuse.
+											A sack bundles your reusable widgets, the active theme’s CSS, and your token
+											overrides into one shareable file — <code>sacks/&lt;name&gt;.sack.json</code>{' '}
+											in the app config folder. Send the file to share your setup; importing merges
+											(it never overwrites your own widgets or themes).
 										</div>
 										<button type="button" onClick={exportSack}>
 											⤓ Export current…
 										</button>
 										<div className="rp-hd">Import</div>
-										{sackNames.length ? (
+										{sackInfos.length ? (
 											<div className="rp-list">
-												{sackNames.map((n) => (
+												{sackInfos.map((s) => (
 													<button
-														key={n}
+														key={s.name}
 														type="button"
+														className="sack-item"
 														title="Merge this sack's widgets + theme into the studio"
-														onClick={() => importSack(n)}
+														onClick={() => importSack(s.name)}
 													>
-														⤒ {n}
+														<span className="sack-name">⤒ {s.name}</span>
+														<span className="sack-sub">{sackSummary(s)}</span>
 													</button>
 												))}
 											</div>
