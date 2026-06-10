@@ -64,6 +64,11 @@
 	gap: var(--space-2);
 	border-radius: var(--radius-control);
 	padding: var(--space-1);
+	/* Reserve the hover-revealed action buttons' 24px height at rest (+ the row's own padding) —
+	   with every button hidden (display:none reveal), the row would otherwise collapse to the
+	   label height and grow back on hover, shifting the whole tree below the cursor. */
+	min-height: calc(24px + 2 * var(--space-1));
+	box-sizing: border-box;
 }
 
 /* Tree connector lines (├ └ │) joining each node to its parent and siblings, so nesting — e.g. a
