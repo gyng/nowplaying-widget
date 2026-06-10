@@ -1,10 +1,10 @@
-# widgetsack
+# <img src="branding/icon-transparent.png" alt="" width="40" align="top"> widgetsack
 
 <p align="center">
-  <img src="docs/img/demo.png" alt="widgetsack demo layout: clock, CPU/GPU gauges, memory/VRAM bars, up/down network graphs, an audio spectrum, a now-playing card, a stock ticker, an analog clock, and Home Assistant climate/light controls" width="720">
+  <img src="docs/img/demo.png" alt="widgetsack demo layout: clock, CPU/GPU gauges, a countdown timer, memory/VRAM bars, up/down network graphs, an audio spectrum, a now-playing card, a stock ticker, an analog clock, and Home Assistant temperature/climate/light tiles" width="900">
 </p>
 
-[**👉 .msi download for the latest release**](https://github.com/gyng/nowplaying-widget/releases/latest)
+[**👉 installer download for the latest release**](https://github.com/gyng/widgetsack/releases/latest)
 
 A themable desktop widget overlay for Windows.
 
@@ -51,7 +51,8 @@ docs regenerate from the code with `npm run gen:docs`.
 
 widgetsack is a web-first take on what a widget suite does — system meters, clocks, now-playing, and a transparent always-on-top overlay — with a few differences:
 
-- **Sensor + meter, not `.ini`:** the same measure→meter idea (a sensor feeds a meter), but you
+- **Higher memory usage**: as this is a web and browser-based overlay each monitor with active widgets will take a minimum of 100MB of RAM and 40MB of VRAM
+- **Sensor + meter instead of `.ini`:** the same measure→meter idea (a sensor feeds a meter), but you
   wire it in a visual **studio** instead of hand-editing config files. Layout is CSS flexbox and
   styling is plain per-widget CSS + design tokens.
 - **Built-in skins as templates:** the bundled templates recreate classic skin layouts and drop in
@@ -62,7 +63,7 @@ widgetsack is a web-first take on what a widget suite does — system meters, cl
 
 ## Usage
 
-Download the installer msi from the [latest release](https://github.com/gyng/nowplaying-widget/releases/latest).
+Download the installer from the [latest release](https://github.com/gyng/widgetsack/releases/latest).
 
 The overlay starts passive (click-through). To arrange widgets:
 
@@ -116,5 +117,5 @@ for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 
 <p align="center">
-  <img src="branding/icon.png" alt="widgetsack logo — a maneki-neko holding a money sack and a little CRT" width="168" height="168">
+  <img src="branding/icon-transparent.png" alt="widgetsack logo — a maneki-neko holding a money sack and a little CRT" width="168" height="168">
 </p>
