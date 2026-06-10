@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { monitorOptionLabel } from './monitorLabel';
+import { compareMonitorOptions, monitorOptionLabel } from './monitorLabel';
+
+describe('compareMonitorOptions', () => {
+	it('puts the primary first, then natural device order (DISPLAY2 before DISPLAY10)', () => {
+		const opts = [
+			{ key: 'DISPLAY10', name: 'DISPLAY10' },
+			{ key: 'DISPLAY2', name: 'DISPLAY2' },
+			{ key: 'default', name: 'DISPLAY3' },
+			{ key: 'DISPLAY1', name: 'DISPLAY1' }
+		];
+		expect(opts.sort(compareMonitorOptions).map((o) => o.key)).toEqual([
+			'default',
+			'DISPLAY1',
+			'DISPLAY2',
+			'DISPLAY10'
+		]);
+	});
+});
 
 describe('monitorOptionLabel', () => {
 	it('appends the friendly name after the device tag (and the primary marker) when known', () => {

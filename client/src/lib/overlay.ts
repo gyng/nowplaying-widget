@@ -17,7 +17,7 @@ import type { Rect } from './core/layout';
 import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
 import { builtinCss } from './core/builtinThemes';
-import { monitorOptionLabel } from './monitorLabel';
+import { compareMonitorOptions, monitorOptionLabel } from './monitorLabel';
 import { migrateMonitorKeys, parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
 import type { OverlayPresentation } from './widgets/canvas/overlayPresentation';
@@ -671,7 +671,7 @@ export async function studioMonitorOptions(): Promise<
 		primaryMonitor(),
 		displayNamesByDevice()
 	]);
-	return all.map((m, i) => {
+	const options = all.map((m, i) => {
 		const isPrimary =
 			!!primary && m.position.x === primary.position.x && m.position.y === primary.position.y;
 		// Logical dimensions (physical / DPI scale) so the studio preview matches the overlay's
@@ -705,6 +705,9 @@ export async function studioMonitorOptions(): Promise<
 			h
 		};
 	});
+	// Primary first, then natural device order — the raw enumeration order is arbitrary and can
+	// differ between sessions, which made the dropdown shuffle.
+	return options.sort(compareMonitorOptions);
 }
 
 /** Friendly monitor names from the Win32 backend (`list_display_names`), keyed by the stripped GDI
