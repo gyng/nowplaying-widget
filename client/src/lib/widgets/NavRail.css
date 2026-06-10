@@ -764,6 +764,21 @@
 	color: var(--ui-danger-fg);
 }
 
+/* Sack rows (the Sacks section's Import list): name + a dim contents summary ("5 widgets ·
+   theme "Nord" · 3 token overrides") so a sack reads as more than a bare filename. */
+.canvas .rail-panel .sack-item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-1);
+	text-align: left;
+}
+
+.canvas .rail-panel .sack-item .sack-sub {
+	color: var(--ui-fg-dim);
+	font-size: var(--text-sm);
+}
+
 /* Sensor source groups (the Sensors section): a collapsible header (caret + source name + count)
    above that source's responsive sensor grid. The header overrides the chunky generic button look. */
 .canvas .rail-panel .rp-group {

@@ -45,6 +45,11 @@ light studio. Their dark defaults live in `client/src/styles.css`; a theme only 
 Accent / state colours are RGB **channels** (e.g. `--ui-accent-rgb: 119, 196, 211`) so both the solid
 `rgb(var(--ui-accent-rgb))` and translucent `rgba(var(--ui-accent-rgb), a)` forms work.
 
+Beyond colour, the chrome's **density and typography** ride the same system: the `--space-*` scale,
+`--text-*` type ramp, `--radius-*` shapes, `--control-h`, and `--disabled-opacity` below are plain
+`:root` custom properties — a theme can compact the studio (`--space-3: 4px; --text-md: 10px`) or
+relax it the same way it recolours it.
+
 | token | purpose |
 | --- | --- |
 | `--ui-bg` | Base window + opaque panel background. |
@@ -65,6 +70,21 @@ Accent / state colours are RGB **channels** (e.g. `--ui-accent-rgb: 119, 196, 21
 | `--ui-success-fg` | Success text. |
 | `--ui-warn-rgb` | Warning accent channels. |
 | `--ui-warn-fg` | Warning text. |
+| `--space-1` | Spacing scale: hairline (2px). |
+| `--space-2` | Spacing scale: tight (4px). |
+| `--space-3` | Spacing scale: default gap (6px). |
+| `--space-4` | Spacing scale: section / panel inset (8px). |
+| `--space-5` | Spacing scale: large (12px). |
+| `--space-6` | Spacing scale: screen-edge / panel padding (16px). |
+| `--text-xs` | Type scale: smallest annotations (9px). |
+| `--text-sm` | Type scale: section headers / hints (10px). |
+| `--text-md` | Type scale: chrome body (11px). |
+| `--text-lg` | Type scale: emphasized body / panel text (12px). |
+| `--text-xl` | Type scale: panel titles (14px). |
+| `--radius-control` | Corner radius for inputs / buttons / chips (2px). |
+| `--radius-panel` | Corner radius for panels / cards / menus (4px). |
+| `--control-h` | Minimum height of rail/bar inputs and selects (22px). |
+| `--disabled-opacity` | Opacity of disabled controls (0.5). |
 
 ## Built-in themes
 

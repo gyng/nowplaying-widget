@@ -31,9 +31,27 @@ type Deps = {
 	themes: Pick<Themes, 'themeLabel' | 'setThemeList' | 'adoptTheme'>;
 };
 
+export type SackInfo = {
+	name: string;
+	/** Reusable widget defs inside; null = the file exists but didn't parse as a sack. */
+	widgets: number | null;
+	theme: string | null;
+	tokens: number;
+};
+
+/** One dim summary line for a sack row — what you'd get by importing it. Pure (tested). */
+export function sackSummary(info: SackInfo): string {
+	if (info.widgets === null) return 'unreadable — not a sack?';
+	const parts: string[] = [];
+	if (info.widgets) parts.push(`${info.widgets} widget${info.widgets === 1 ? '' : 's'}`);
+	if (info.theme) parts.push(`theme “${info.theme}”`);
+	if (info.tokens) parts.push(`${info.tokens} token override${info.tokens === 1 ? '' : 's'}`);
+	return parts.length ? parts.join(' · ') : 'empty';
+}
+
 export type Sacks = {
-	/** The saved sacks (names), loaded when the Sacks section is open. */
-	sackNames: string[];
+	/** The saved sacks (name + contents summary), loaded when the Sacks section is open. */
+	sackInfos: SackInfo[];
 	exportSack: () => Promise<void>;
 	importSack: (name: string) => Promise<void>;
 };
@@ -49,7 +67,28 @@ export function useSacks({
 	themes
 }: Deps): Sacks {
 	const { themeLabel, setThemeList, adoptTheme } = themes;
-	const [sackNames, setSackNames] = useState<string[]>([]);
+	const [sackInfos, setSackInfos] = useState<SackInfo[]>([]);
+
+	// Names + a peek inside each (count of defs, theme name, override count) so the Import list can
+	// say what a sack contains instead of a bare filename. Sacks are small local JSON; reading each
+	// on section-open is cheap. A file that doesn't parse still lists (widgets: null → "unreadable").
+	const refreshSacks = useCallback(async () => {
+		const names = await listSacks();
+		const infos = await Promise.all(
+			names.map(async (name): Promise<SackInfo> => {
+				const raw = await readSack(name);
+				const sack = raw ? unpackSack(raw) : null;
+				if (!sack) return { name, widgets: null, theme: null, tokens: 0 };
+				return {
+					name,
+					widgets: sack.library?.defs.length ?? 0,
+					theme: sack.theme?.name ?? null,
+					tokens: sack.tokens ? Object.keys(sack.tokens).length : 0
+				};
+			})
+		);
+		setSackInfos(infos);
+	}, []);
 
 	const exportSack = useCallback(async () => {
 		if (editingDefId != null) {
@@ -70,9 +109,9 @@ export function useSacks({
 			tokens: tokenOverrides
 		});
 		const path = await writeSack(name, JSON.stringify(sack, null, '\t'));
-		setSackNames(await listSacks());
+		await refreshSacks();
 		if (path) window.alert(`Saved sack:\n${path}`);
-	}, [editingDefId, selectedTheme, themeLabel, library, tokenOverrides]);
+	}, [editingDefId, selectedTheme, themeLabel, library, tokenOverrides, refreshSacks]);
 
 	const importSack = useCallback(
 		async (name: string) => {
@@ -127,10 +166,10 @@ export function useSacks({
 		[editingDefId, commitOp, setThemeList, adoptTheme]
 	);
 
-	// Load the saved sack names when the Sacks section opens.
+	// Load the saved sacks (+ their summaries) when the Sacks section opens.
 	useEffect(() => {
-		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
-	}, [studio, navSection]);
+		if (studio && navSection === 'sacks') void refreshSacks();
+	}, [studio, navSection, refreshSacks]);
 
-	return { sackNames, exportSack, importSack };
+	return { sackInfos, exportSack, importSack };
 }
