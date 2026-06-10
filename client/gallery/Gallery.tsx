@@ -5,12 +5,13 @@
 // for the per-widget metadata used to generate the docs pages.
 
 import { useEffect } from 'react';
-// Side-effect imports: register the plugin widgets (HA, now-playing, MQTT, stocks/Ticker) so they
-// appear in the gallery, exactly as Canvas.tsx does in the app. Must run before paletteItems().
-import '../src/lib/widgets/plugins/home-assistant';
-import '../src/lib/widgets/plugins/now-playing';
-import '../src/lib/widgets/plugins/mqtt';
-import '../src/lib/widgets/plugins/stocks';
+// Register the plugin widgets (HA, now-playing, MQTT, stocks/Ticker — deliberately not the AI
+// Provider) so they appear in the gallery, exactly as Canvas.tsx does in the app via
+// registerBuiltinPlugins(). Must run before paletteItems().
+import { registerHomeAssistantPlugin } from '../src/lib/widgets/plugins/home-assistant';
+import { registerNowPlayingPlugin } from '../src/lib/widgets/plugins/now-playing';
+import { registerMqttPlugin } from '../src/lib/widgets/plugins/mqtt';
+import { registerStocksPlugin } from '../src/lib/widgets/plugins/stocks';
 import { TelemetryHubContext } from '../src/lib/widgets/telemetryContext';
 import { SpectrumContext } from '../src/lib/widgets/spectrumContext';
 import WidgetHost from '../src/lib/widgets/WidgetHost';
@@ -23,6 +24,11 @@ import type { WidgetInstance } from '../src/lib/core/layout';
 import type { TelemetryHub } from '../src/lib/core/telemetry';
 import { fakeSpectrum, makeHub } from './seed';
 import './gallery.css';
+
+registerHomeAssistantPlugin();
+registerNowPlayingPlugin();
+registerMqttPlugin();
+registerStocksPlugin();
 
 const hub: TelemetryHub = makeHub();
 

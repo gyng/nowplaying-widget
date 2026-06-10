@@ -3,7 +3,8 @@
 // write-only (a blank save keeps the saved one). Below the form sit two consumers that prove the
 // provider is usable across the app:
 //   - the natural-language LAYOUT ASSISTANT (builds a prompt from the widget/sensor catalog + the live
-//     tree, asks the model for edit ops, applies them to the editor via layoutAssistantBridge), and
+//     tree, asks the model for edit ops, applies them to the editor via the plugin's StudioApi slot,
+//     llm-studio.ts), and
 //   - a quick streaming CHAT tester (useLlmChat).
 import { useEffect, useRef, useState } from 'react';
 import { useTelemetryHub } from '../telemetryContext';
@@ -16,11 +17,8 @@ import {
 	type ChatMessage
 } from '../../core/llm';
 import { listMetas } from '../../core/widget';
-import {
-	applyLayoutAssistant,
-	layoutAssistantMonitor,
-	layoutAssistantReady
-} from '../layoutAssistantBridge';
+import { applyLlmStudioOps, llmStudioMonitor, llmStudioReady } from './llm-studio';
+import { ingestLlmStatus } from './llm-status';
 import { useLlmChat } from '../../llm/useLlmChat';
 import { ttsAvailable } from '../../tts';
 import { speakSmart } from './llm-tts';
@@ -145,7 +143,9 @@ export default function LlmSettings() {
 		try {
 			await saveLlmConfig(configBody());
 			setApiKey(''); // back to write-only
-			setStatus(await llmConfigStatus()); // refresh per-provider key badges + hasKey
+			const next = await llmConfigStatus(); // refresh per-provider key badges + hasKey
+			setStatus(next);
+			ingestLlmStatus(hub, next); // keep the Plugins-list dot live without a restart
 			setSaved(true);
 		} catch (err) {
 			setTest({ kind: 'err', msg: `Save failed: ${String(err)}` });
@@ -466,11 +466,11 @@ function LayoutAssistant({ sensorIds }: { sensorIds: () => string[] }) {
 	const onGenerate = async () => {
 		const instruction = prompt.trim();
 		if (!instruction) return;
-		if (!layoutAssistantReady()) {
+		if (!llmStudioReady()) {
 			setMsg('Open the studio canvas first — the assistant edits the live layout.');
 			return;
 		}
-		const monitor = layoutAssistantMonitor();
+		const monitor = llmStudioMonitor();
 		if (!monitor) {
 			setMsg('No layout to edit yet.');
 			return;
@@ -490,7 +490,7 @@ function LayoutAssistant({ sensorIds }: { sensorIds: () => string[] }) {
 				setMsg('The model did not return valid layout ops. Try rephrasing.');
 				return;
 			}
-			const res = applyLayoutAssistant(parsed.ops);
+			const res = applyLlmStudioOps(parsed.ops);
 			const tail = res.errors.length ? ` (${res.errors.join('; ')})` : '';
 			setMsg(
 				`${parsed.summary || 'Done'} — ${res.applied} change${res.applied === 1 ? '' : 's'}${tail}`
