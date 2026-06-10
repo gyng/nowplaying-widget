@@ -31,3 +31,79 @@
 	letter-spacing: 1px;
 	text-anchor: middle;
 }
+
+/* Linear composition (style: linear, or pips with a row/column direction) — HTML flex, so the
+   text parts need `color` on top of the SVG `fill` rules above (which they still inherit the
+   font-family/size from). Same data-part hooks, same tokens. */
+.np-gauge-linear {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	overflow: hidden;
+}
+
+.np-gauge-linear .value {
+	color: var(--np-fg, #fff);
+	font-size: 18px;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.np-gauge-linear .unit {
+	color: var(--np-muted, rgba(255, 255, 255, 0.6));
+}
+
+.np-gauge-linear .label {
+	color: var(--np-label, rgb(218, 237, 226));
+	white-space: nowrap;
+}
+
+/* The continuous thin bar; the fill's width/height percentage is inline (it is data). */
+.np-gauge-linear .linear-track {
+	flex: 1 1 auto;
+	display: flex;
+	height: 5px;
+	border-radius: 2.5px;
+	overflow: hidden;
+}
+
+/* rtl / btt anchor the fill at the far end of the track's flex flow. */
+.np-gauge-linear[data-dir='rtl'] .linear-track,
+.np-gauge-linear[data-dir='btt'] .linear-track {
+	justify-content: flex-end;
+}
+
+/* The segmented (pips) strip stretches to the row so the rects read as LED blocks. */
+.np-gauge-linear .strip {
+	flex: 1 1 auto;
+	align-self: stretch;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* Vertical (btt/ttb): value/label stack at the top, the bar fills the remaining height. */
+.np-gauge-linear[data-dir='btt'],
+.np-gauge-linear[data-dir='ttb'] {
+	flex-direction: column;
+}
+
+.np-gauge-linear[data-dir='btt'] .linear-track,
+.np-gauge-linear[data-dir='ttb'] .linear-track {
+	flex-direction: column;
+	width: 5px;
+	height: auto;
+	align-self: center;
+}
+
+.np-gauge-linear[data-dir='btt'] .strip,
+.np-gauge-linear[data-dir='ttb'] .strip {
+	align-self: center;
+	width: 50%;
+}
+
+.np-gauge-linear .linear-text {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+}

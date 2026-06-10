@@ -38,7 +38,7 @@ A **WidgetInstance** (`leaf.unit`):
 
 ![Gauge widget](img/widgets/gauge.png)
 
-Circular arc gauge for one scalar sensor (default 0–100%).
+Gauge for one scalar sensor (default 0–100%): arc ring, full circle, linear bar, pips or needle dial.
 
 - **Sensor:** binds a `scalar` sensor (default `cpu.total`)
 - **Default size:** 110×110
@@ -51,6 +51,10 @@ Circular arc gauge for one scalar sensor (default 0–100%).
 | `max` | number | 100 |  | value mapped to a full gauge |
 | `color` | color |  |  |  |
 | `track` | color |  |  | color of the unfilled arc |
+| `style` | select | "arc" | `arc`, `circle`, `linear`, `pips`, `needle` | arc ring (default), closed circle, linear bar, discrete pips, or analog needle dial |
+| `direction` | select | "arc" | `arc`, `ltr`, `rtl`, `btt`, `ttb` | pips + linear styles only: arc keeps pips on the ring; ltr/rtl/btt/ttb lay the bar or pip row along an axis |
+| `pips` | number | 10 | min 3, max 40, step 1 | pips style only: number of segments |
+| `sweep` | number | 270 | min 90, max 360, step 15 | arc/pips/needle styles: arc span in degrees (180 = semicircle); the gap stays centred at the bottom |
 | `value` | expr |  | → number | overrides the sensor, e.g. round(mem.used, 0) or cpu.total / 2 |
 | `minExpr` | expr |  | → number (sets `min`) |  |
 | `maxExpr` | expr |  | → number (sets `max`) |  |
