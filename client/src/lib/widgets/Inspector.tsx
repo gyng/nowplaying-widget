@@ -26,13 +26,32 @@ import CssEditor from './CssEditor';
 import BoxField from './BoxField';
 import Select, { type SelectOption } from './Select';
 import { TEMPLATES, resolveTemplateOptions, type Template } from '../core/templates';
-import { exprRefs, templateRefs } from '../core/template';
+import { exprRefs, templateRefs } from '../core/textTemplate';
 import type { LayoutOp } from './ops';
 import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
 import { containerAlignControls, LEAF_H_OPTIONS, LEAF_V_OPTIONS } from './canvas/alignControls';
 import TokenFields from './TokenFields';
 import ConditionEditor from './ConditionEditor';
 import './Inspector.css';
+
+// Group palette entries by `category` in first-seen order, uncategorized last under "Other".
+// Pure (exported for tests): order within a group is registration order, same as before grouping.
+export type PaletteEntry = { type: string; label: string; category?: string };
+export function groupPalette(items: PaletteEntry[]): { category: string; items: PaletteEntry[] }[] {
+	const groups = new Map<string, PaletteEntry[]>();
+	for (const it of items) {
+		const key = it.category ?? 'Other';
+		const list = groups.get(key);
+		if (list) list.push(it);
+		else groups.set(key, [it]);
+	}
+	const ordered = Array.from(groups.entries()).map(([category, list]) => ({
+		category,
+		items: list
+	}));
+	// "Other" sinks to the end regardless of when the first uncategorized entry appeared.
+	return ordered.sort((a, b) => Number(a.category === 'Other') - Number(b.category === 'Other'));
+}
 
 type Props = {
 	widget?: WidgetInstance | null;
@@ -57,7 +76,7 @@ type Props = {
 	widgetValign?: AlignV; // the selected leaf's vertical placement within its box (default 'fill')
 	// In the studio this docks as the full-height right rail (vs a floating box on an overlay).
 	docked?: boolean;
-	widgetTypes?: { type: string; label: string }[]; // palette (8a)
+	widgetTypes?: { type: string; label: string; category?: string }[]; // palette (8a)
 	configFields?: ConfigField[]; // typed config schema for the selected widget (8a)
 	sensors?: string[];
 	// Optional id → display metadata, so HA (and other) sensor ids show a friendly label + unit in
@@ -72,6 +91,10 @@ type Props = {
 	// def is in use and explains the block, matching the Widget-designer list) instead of the reducer's
 	// silent no-op. Falls back to a plain `deleteDef` op when not provided (e.g. the overlay).
 	onDeleteDef?: (defId: string, name: string) => void;
+	// Jump to the widget designer's read-only preview of a built-in template (the 👁 buttons in the
+	// Templates palette). Supplied by the studio Canvas (useDefEditor.previewTemplate); absent on an
+	// overlay, where there is no designer to jump to.
+	onPreviewTemplate?: (templateId: string) => void;
 	// The full selected node (Leaf or Container), for the "Data" tab's JSON/YAML representation — a
 	// structured, agent-friendly view that can be edited and applied back via the `replaceNode` op.
 	node?: LayoutNode | null;
@@ -172,37 +195,63 @@ function ExprHint({
 // Whether a basis means "grow/stretch along the parent's main axis" (an `fr` length).
 const isFrBasis = (b?: Length): boolean => typeof b === 'object' && b !== null && 'fr' in b;
 
-// A template that exposes insert-time options (e.g. the clock cluster's language / 12-24h / separator):
-// a name + a select per option + an Insert button. Holds the chosen options locally and passes them up
-// on insert; templates without options render as a plain button instead (see the palette below).
+// A small "jump to the designer's read-only preview" affordance next to a template entry. The
+// preview itself is the existing previewTemplate path (useDefEditor → the design canvas); this is
+// just the door to it from the Add palette.
+function TemplatePreviewButton({ t, onPreview }: { t: Template; onPreview: (id: string) => void }) {
+	return (
+		<button
+			type="button"
+			className="tpl-preview"
+			title={`Preview ${t.name} in the widget designer (read-only)`}
+			aria-label={`Preview ${t.name} in the widget designer`}
+			onClick={() => onPreview(t.id)}
+		>
+			👁
+		</button>
+	);
+}
+
+// A template that exposes insert-time options (e.g. the clock cluster's languages / time format):
+// a name + a select per param + an Insert button. The selects render from the template's ParamSpecs
+// — the SAME spec a def cloned from the template keeps as instance params — holding the chosen
+// values locally and passing them up on insert. Templates without params render as a plain button
+// instead (see the palette below).
 function TemplateOptionsForm({
 	t,
-	onInsert
+	onInsert,
+	onPreview
 }: {
 	t: Template;
 	onInsert: (options: Record<string, string>) => void;
+	onPreview?: (templateId: string) => void;
 }) {
 	const [opts, setOpts] = useState<Record<string, string>>(() => resolveTemplateOptions(t));
 	return (
 		<div className="tpl-opts">
-			<span className="tpl-opts-name">{t.name}</span>
+			<span className="tpl-opts-head">
+				<span className="tpl-opts-name">{t.name}</span>
+				{onPreview && <TemplatePreviewButton t={t} onPreview={onPreview} />}
+			</span>
 			<div className="tpl-opts-fields">
-				{(t.options ?? []).map((o) => (
-					<label key={o.key}>
-						{o.label}
-						<Select
-							value={opts[o.key]}
-							options={o.choices}
-							onChange={(v) => setOpts((p) => ({ ...p, [o.key]: v }))}
-							aria-label={`${t.name} — ${o.label}`}
-						/>
-					</label>
-				))}
+				{(t.params ?? [])
+					.filter((p) => p.choices)
+					.map((p) => (
+						<label key={p.key}>
+							{p.label ?? p.key}
+							<Select
+								value={opts[p.key]}
+								options={p.choices ?? []}
+								onChange={(v) => setOpts((prev) => ({ ...prev, [p.key]: v }))}
+								aria-label={`${t.name} — ${p.label ?? p.key}`}
+							/>
+						</label>
+					))}
 			</div>
 			<button
 				type="button"
 				className="tpl-opts-insert"
-				title={`${t.description} — insert onto the canvas`}
+				title={`${t.description} — inserts a standalone copy onto the canvas (not linked to the library)`}
 				onClick={() => onInsert(opts)}
 			>
 				＋ Insert
@@ -238,6 +287,7 @@ export default function Inspector({
 	microphones = [],
 	onOp,
 	onDeleteDef,
+	onPreviewTemplate,
 	node = null,
 	onCopy
 }: Props) {
@@ -564,26 +614,31 @@ export default function Inspector({
 				onToggle={(e) => setAddOpen(e.currentTarget.open)}
 			>
 				<summary>＋ Add widget · {addDest}</summary>
-				<div className="palette">
-					{widgetTypes.map((w) => (
-						<button
-							key={w.type}
-							type="button"
-							draggable
-							title={
-								container
-									? `Add "${w.label}" into the selected ${container.kind} — or drag it onto the canvas / a container in the Outline to place it elsewhere`
-									: `Add "${w.label}" as a floating widget — or drag it onto the canvas / a container in the Outline`
-							}
-							onClick={() => op({ op: 'addWidget', widgetType: w.type })}
-							onDragStart={(e: ReactDragEvent) =>
-								e.dataTransfer?.setData('text/x-widget-type', w.type)
-							}
-						>
-							{w.label}
-						</button>
-					))}
-				</div>
+				{/* Grouped by meta.category in first-seen order (uncategorized falls into "Other") —
+				    ~20 ungrouped same-weight chips made find-by-scan fail. */}
+				{groupPalette(widgetTypes).map((g) => (
+					<div key={g.category} className="palette">
+						<span className="hd2">{g.category}</span>
+						{g.items.map((w) => (
+							<button
+								key={w.type}
+								type="button"
+								draggable
+								title={
+									container
+										? `Add "${w.label}" into the selected ${container.kind} — or drag it onto the canvas / a container in the Outline to place it elsewhere`
+										: `Add "${w.label}" as a floating widget — or drag it onto the canvas / a container in the Outline`
+								}
+								onClick={() => op({ op: 'addWidget', widgetType: w.type })}
+								onDragStart={(e: ReactDragEvent) =>
+									e.dataTransfer?.setData('text/x-widget-type', w.type)
+								}
+							>
+								{w.label}
+							</button>
+						))}
+					</div>
+				))}
 
 				{defs.length ? (
 					<div className="palette">
@@ -613,24 +668,30 @@ export default function Inspector({
 					</div>
 				) : null}
 
+				{/* Inserting from here drops a STANDALONE inline copy (no library def) — the designer
+				    rail's ⎘ is the path that clones a template into an editable library widget. The
+				    titles say which is which; 👁 jumps to the designer's read-only preview. */}
 				<div className="palette">
 					<span className="hd">Templates</span>
 					{TEMPLATES.map((t) =>
-						t.options ? (
+						t.params?.length ? (
 							<TemplateOptionsForm
 								key={t.id}
 								t={t}
 								onInsert={(options) => op({ op: 'insertTemplate', templateId: t.id, options })}
+								onPreview={onPreviewTemplate}
 							/>
 						) : (
-							<button
-								key={t.id}
-								type="button"
-								title={`${t.description} — insert onto the canvas`}
-								onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
-							>
-								{t.name}
-							</button>
+							<span key={t.id} className="libitem">
+								<button
+									type="button"
+									title={`${t.description} — inserts a standalone copy onto the canvas (not linked to the library)`}
+									onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
+								>
+									{t.name}
+								</button>
+								{onPreviewTemplate && <TemplatePreviewButton t={t} onPreview={onPreviewTemplate} />}
+							</span>
 						)
 					)}
 				</div>
@@ -1268,12 +1329,23 @@ export default function Inspector({
 												.filter(Boolean)
 												.join(' ')}
 										>
-											{p.key}
-											{p.target ? <>&nbsp;→ {p.target}</> : null}
-											<input
-												value={`${groupUnit.params?.[p.key] ?? ''}`}
-												onInput={(e) => setParam(p.key, e.currentTarget.value)}
-											/>
+											{p.label ?? p.key}
+											{!p.choices && p.target ? <>&nbsp;→ {p.target}</> : null}
+											{p.choices ? (
+												// A select param (e.g. a template clone's 12/24-hour): unset falls
+												// back to the spec default, which is what the baked tree shows.
+												<Select
+													value={`${groupUnit.params?.[p.key] ?? p.default ?? ''}`}
+													options={p.choices}
+													onChange={(v) => setParam(p.key, v)}
+													aria-label={`param ${p.label ?? p.key}`}
+												/>
+											) : (
+												<input
+													value={`${groupUnit.params?.[p.key] ?? ''}`}
+													onInput={(e) => setParam(p.key, e.currentTarget.value)}
+												/>
+											)}
 										</label>
 									))}
 								</>
@@ -1336,22 +1408,39 @@ export default function Inspector({
 
 			{/* Per-widget theme overrides: tokens scoped to JUST the selected widget/group (cascade in
 			    core/style.ts → [data-w]/[data-group]). Global theme + tokens live in the Themes section.
-			    Hidden when only a container / nothing is selected (containers have no token scope). */}
-			{widget || groupUnit ? (
-				<div className="fields tokens">
-					<span className="hd">Override theme for this widget</span>
-					<TokenFields
-						values={widget?.tokens ?? groupUnit?.tokens ?? {}}
-						baseValues={(widget ? baseWidget?.tokens : baseGroup?.tokens) ?? null}
-						labelClassName="full"
-						onSet={(key, value) =>
-							op({ op: 'setWidgetToken', id: widget?.id ?? groupUnit?.id ?? '', key, value })
-						}
-						onClear={() => op({ op: 'clearWidgetTokens', id: widget?.id ?? groupUnit?.id ?? '' })}
-						clearTitle="Remove this widget's token overrides (fall back to the theme)"
-					/>
-				</div>
-			) : null}
+			    Hidden when only a container / nothing is selected (containers have no token scope).
+			    Collapsed by default (overriding is the rare action; expanded it buried the widget's own
+			    config) — but keyed per selection and pre-opened when THIS widget already has overrides,
+			    so an override in effect is never invisible. The summary count says so even when shut. */}
+			{widget || groupUnit
+				? (() => {
+						const tokenValues = widget?.tokens ?? groupUnit?.tokens ?? {};
+						const overrideCount = Object.keys(tokenValues).length;
+						return (
+							<details
+								className="fields tokens adv"
+								key={widget?.id ?? groupUnit?.id}
+								open={overrideCount > 0}
+							>
+								<summary className="hd">
+									Override theme for this widget{overrideCount > 0 ? ` · ${overrideCount} set` : ''}
+								</summary>
+								<TokenFields
+									values={tokenValues}
+									baseValues={(widget ? baseWidget?.tokens : baseGroup?.tokens) ?? null}
+									labelClassName="full"
+									onSet={(key, value) =>
+										op({ op: 'setWidgetToken', id: widget?.id ?? groupUnit?.id ?? '', key, value })
+									}
+									onClear={() =>
+										op({ op: 'clearWidgetTokens', id: widget?.id ?? groupUnit?.id ?? '' })
+									}
+									clearTitle="Remove this widget's token overrides (fall back to the theme)"
+								/>
+							</details>
+						);
+				  })()
+				: null}
 		</div>
 	);
 }

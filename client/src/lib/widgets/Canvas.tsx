@@ -12,22 +12,18 @@ import {
 	useLayoutEffect,
 	useMemo,
 	useRef,
-	useState,
-	type KeyboardEvent as ReactKeyboardEvent,
-	type PointerEvent as ReactPointerEvent
+	useState
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import { COMMANDS, EVENTS } from '../bridge/contract';
 import { createTelemetryHub } from '../core/telemetry';
 import { sourceCatalogEntries, sourceCatalogIds } from '../core/plugin';
-import { listPlugins, pluginSensorNames } from './plugin';
+import { actionHandlerFor, listPlugins, pluginSensorNames } from './plugin';
+import type { StudioApi } from './plugin';
 import '../telemetry/source'; // side-effect: registers the built-in `system` source
-import './plugins/home-assistant'; // side-effect: registers the Home Assistant plugin
-import './plugins/now-playing'; // side-effect: registers the Now Playing plugin (+ its widget)
-import './plugins/mqtt'; // side-effect: registers the MQTT plugin
-import './plugins/stocks'; // side-effect: registers the Stocks plugin (+ the Ticker widget)
-import './plugins/llm'; // side-effect: registers the AI Provider plugin (+ the Assistant widget)
+import { registerBuiltinPlugins } from './plugins';
 import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
 import {
 	emptyRoot,
@@ -44,6 +40,7 @@ import {
 	type WidgetDef
 } from '../core/layoutTree';
 import { parseLayoutAny } from '../core/migration';
+import { demoSeed } from '../core/templates';
 import {
 	collectContainerRects,
 	collectGridPlaceholders,
@@ -51,24 +48,11 @@ import {
 	collectSplitters,
 	gridCellRects,
 	type Renderable,
-	resizeSplit,
-	resolveGroup,
-	type Splitter
+	resolveGroup
 } from '../core/solve';
 import { assembleStyles } from '../core/style';
-import {
-	DEFAULT_SWATCH,
-	extractFontFamilies,
-	parseTokens,
-	swatchFromTokens,
-	tokensToCss,
-	type Swatch
-} from '../core/tokens';
-import { scanCssThreats, threatSummary } from '../core/cssThreats';
-import { BACKGROUND_FITS, BACKGROUND_KINDS, isMediaKind } from '../core/background';
-import type { BackgroundKind, BackgroundSpec } from '../core/layoutTree';
+import { DEFAULT_SWATCH, extractFontFamilies, tokensToCss } from '../core/tokens';
 import BackgroundLayer from './BackgroundLayer';
-import { TEMPLATES } from '../core/templates';
 import {
 	dropTarget,
 	findNode,
@@ -86,7 +70,7 @@ import { collectConditions } from './canvas/conditionVisibility';
 import { useConditionHidden } from './canvas/useConditionHidden';
 import GroupFrame from './GroupFrame';
 import { useMeasuredRects } from './canvas/useMeasuredRects';
-import { useOverlayPrefs, type OverlayLayer } from './canvas/overlayPrefs';
+import { useOverlayPrefs } from './canvas/overlayPrefs';
 import { overlayPresentation, isWholeWindowInteractive } from './canvas/overlayPresentation';
 import { screenRectToLayout } from '../core/measureMath';
 import { collectSensorRefs, sensorActivity } from '../core/sensorActivity';
@@ -100,8 +84,7 @@ import { paletteItems } from './registry';
 import type { LayoutOp } from './ops';
 import { snapRectToPeers } from '../core/align';
 import { sensorCatalog } from '../core/sensors';
-import { getMeta, listMetas } from '../core/widget';
-import { widgetReferenceMarkdown } from '../core/widgetDocs';
+import { getMeta } from '../core/widget';
 import { normalizeMacro, runMacro, type MacroAction } from '../core/macro';
 import CssEditor from './CssEditor';
 import {
@@ -109,21 +92,6 @@ import {
 	ensureFont,
 	isAutostartEnabled,
 	setAutostart,
-	listThemes,
-	loadThemeCss,
-	resolveThemeCss,
-	saveThemeCss,
-	deleteThemeCss,
-	listWallpapers,
-	wallpaperAssetUrl,
-	openWallpapersDir,
-	listSacks,
-	readSack,
-	listLayouts,
-	readLayout,
-	saveLayoutAs,
-	deleteLayout,
-	writeSack,
 	monitorParam,
 	monitorWorkArea,
 	openDevtools,
@@ -135,8 +103,7 @@ import {
 	recreateMain,
 	setMainWindowVisible,
 	syncInteractiveRects,
-	applyOverlayPresentation,
-	rescueWindows
+	applyOverlayPresentation
 } from '../overlay';
 import { TelemetryHubContext } from './telemetryContext';
 import { listMicrophones } from '../stt';
@@ -145,12 +112,10 @@ import {
 	lookup,
 	setSolvedForFloat,
 	editHelpers,
-	defInUse,
 	bulkPatchConfig,
 	bulkSetBasis
 } from './canvas/useEditorModel';
 import { usePersistence } from './canvas/usePersistence';
-import { setLayoutAssistantApi } from './layoutAssistantBridge';
 import { applyAssistantOps } from '../core/llm';
 import { decideDesignerLeave } from './canvas/designerLeave';
 import { useStageSize } from './canvas/useStageSize';
@@ -167,19 +132,24 @@ import { buildDebugInfo } from './canvas/debugInfo';
 import { commonConfigFields, commonBasisMode } from './canvas/multiSelect';
 import { usePaneSizes } from './canvas/usePaneSizes';
 import { RAIL_ORDER, type SectionId } from './canvas/studioSections';
-import {
-	BUILTIN_THEMES,
-	builtinGroups,
-	builtinById,
-	builtinIdOf,
-	builtinName
-} from '../core/builtinThemes';
-import { mergeLibrary, packSack, unpackSack } from '../core/sack';
-import { packLayout, unpackLayout } from '../core/savedLayout';
+import { BUILTIN_THEMES, builtinGroups, builtinName } from '../core/builtinThemes';
+import { useThemes } from './canvas/useThemes';
+import { useSacks } from './canvas/useSacks';
+import { useSavedLayouts } from './canvas/useSavedLayouts';
+import { useBackground } from './canvas/useBackground';
+import { useDefEditor } from './canvas/useDefEditor';
+import { useSplitters } from './canvas/useSplitters';
 import { useStudioInit } from './canvas/useStudioInit';
 import type { EditorState, Extra, MonitorOption } from './canvas/types';
+import type { SettingsTab } from './StudioSettingsPanel';
 import mascotUrl from '../../assets/mascot.png';
 import './Canvas.css';
+
+// Register the built-in plugins (HA, Now Playing, MQTT, Stocks, AI Provider) before the first
+// render. Idempotent + error-isolated: a plugin that throws during registration is recorded
+// (pluginLoadErrors) and shown as "failed to load" in the Plugins list instead of taking
+// Canvas down (it used to be five bare side-effect imports).
+registerBuiltinPlugins();
 
 // Lazy-loaded editor panels: each lives in its OWN chunk (loaded on demand) instead of the eager
 // bundle. The PASSIVE overlay (not in edit mode) renders none of these, so it never loads them — that
@@ -191,13 +161,15 @@ import './Canvas.css';
 const Inspector = lazy(() => import('./Inspector'));
 const ThemePreview = lazy(() => import('./ThemePreview'));
 const TokenFields = lazy(() => import('./TokenFields'));
-const ControlsPanel = lazy(() => import('./ControlsPanel'));
 const Outline = lazy(() => import('./Outline'));
 const NavRail = lazy(() => import('./NavRail'));
 const Select = lazy(() => import('./Select'));
 const SensorList = lazy(() => import('./SensorList'));
 const ThemeList = lazy(() => import('./ThemeList'));
-const DiagnosticsPanel = lazy(() => import('./DiagnosticsPanel'));
+const StudioSettingsPanel = lazy(() => import('./StudioSettingsPanel'));
+const BackgroundPanel = lazy(() => import('./BackgroundPanel'));
+const PluginsPanel = lazy(() => import('./PluginsPanel'));
+const DesignerListPanel = lazy(() => import('./DesignerListPanel'));
 const MultiInspector = lazy(() => import('./MultiInspector'));
 
 type Props = { studio?: boolean };
@@ -214,131 +186,18 @@ const INTERACTIVE_SELECTOR =
 const PANEL_SEL =
 	'.outline, .inspector, .studio-bar, .powerbar, .theme-editor, .ctx, .nav-rail, .rail-panel, .designer-list, .designer-empty';
 
-// Settings subsections — a side list (mirrors the Plugins list+detail split) so the pane shows one
-// focused topic at a time (progressive disclosure / chunking) instead of one long scroll, and each
-// subsection carries a title + one-line purpose for orientation. Ordered safe → informational →
-// destructive; 'danger' is set apart and coloured (error prevention).
-const SETTINGS_TABS = [
-	{ id: 'display', label: 'Display' },
-	{ id: 'overlay', label: 'Overlay' },
-	{ id: 'startup', label: 'Startup' },
-	{ id: 'controls', label: 'Controls' },
-	{ id: 'diagnostics', label: 'Diagnostics' },
-	{ id: 'about', label: 'About' },
-	{ id: 'danger', label: 'Danger zone' }
-] as const;
-type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
-
-// The demo seed (primary monitor only): a row of per-core CPU sparklines + a System-skin cluster.
-function buildDemoWidgets(): WidgetInstance[] {
-	const cores: WidgetInstance[] = Array.from({ length: 4 }, (_, i) => ({
-		id: `core-${i}`,
-		type: 'sparkline',
-		sensor: `cpu.core.${i}`,
-		rect: { x: 16 + i * 40, y: 280, w: 36, h: 26 },
-		config: { min: 0, max: 100 }
-	}));
-	return [
-		{
-			id: 'clock',
-			type: 'clock',
-			rect: { x: 16, y: 16, w: 160, h: 40 },
-			config: { format: 'HH:mm:ss' }
-		},
-		{
-			id: 'date',
-			type: 'clock',
-			rect: { x: 16, y: 58, w: 180, h: 22 },
-			config: { format: 'dddd D MMMM', color: 'rgb(218, 237, 226)' }
-		},
-		{
-			id: 'swap-bar',
-			type: 'bar',
-			sensor: 'swap.used',
-			rect: { x: 16, y: 100, w: 150, h: 16 },
-			config: { min: 0, max: 100, label: 'SWAP' }
-		},
-		{
-			id: 'cpu-1',
-			type: 'gauge',
-			sensor: 'cpu.total',
-			rect: { x: 170, y: 16, w: 110, h: 110 },
-			config: { label: 'CPU', unit: '%', min: 0, max: 100 }
-		},
-		{
-			id: 'ram-1',
-			type: 'gauge',
-			sensor: 'mem.used',
-			rect: { x: 170, y: 140, w: 110, h: 110 },
-			config: { label: 'RAM', unit: '%', min: 0, max: 100 }
-		},
-		{
-			id: 'gpu-1',
-			type: 'gauge',
-			sensor: 'gpu.util',
-			rect: { x: 170, y: 262, w: 110, h: 100 },
-			config: { label: 'GPU', unit: '%', min: 0, max: 100 }
-		},
-		{
-			id: 'vram-bar',
-			type: 'bar',
-			sensor: 'gpu.vram',
-			rect: { x: 16, y: 124, w: 140, h: 12 },
-			config: { min: 0, max: 100, label: 'VRAM', color: 'rgb(119, 196, 211)' }
-		},
-		{
-			id: 'net-down-txt',
-			type: 'text',
-			sensor: 'net.down',
-			rect: { x: 16, y: 206, w: 90, h: 18 },
-			config: { format: 'rate', label: '↓', color: 'rgb(218, 237, 226)' }
-		},
-		{
-			id: 'net-up-txt',
-			type: 'text',
-			sensor: 'net.up',
-			rect: { x: 96, y: 206, w: 90, h: 18 },
-			config: { format: 'rate', label: '↑', color: 'rgb(119, 196, 211)' }
-		},
-		{
-			id: 'net-down',
-			type: 'sparkline',
-			sensor: 'net.down',
-			rect: { x: 16, y: 228, w: 140, h: 30 },
-			config: { color: 'rgb(218, 237, 226)' }
-		},
-		{
-			id: 'btn-1',
-			type: 'button',
-			rect: { x: 170, y: 372, w: 90, h: 44 },
-			config: { label: 'tap' },
-			interactive: true
-		},
-		...cores
-	];
-}
-
-// Dispatch ONE control action (the side-effecting Tauri call; AGENTS.md §6). Media transport goes to
-// `media_control`; everything else is a Home Assistant service call, targeting the action's explicit
-// `data.entity_id` (macros on an unbound button supply it) or, falling back, the widget's bound
-// `ha.<entity>` sensor. Throws on invoke failure so a macro run can record the failed step; single
-// callers wrap it. Resolves to a no-op when there's no HA entity to target.
+// Dispatch ONE control action: a thin lookup into the plugin action-handler registry (the
+// side-effecting Tauri calls live in the plugins' command adapters, AGENTS.md §5/§6). The
+// Now Playing plugin claims `media`; Home Assistant claims the `*` catch-all (any other
+// {domain, service} is an HA service call, with the `ha.<entity>` sensor fallback). Re-throws
+// handler failures so a macro run can record the failed step; single callers wrap it.
 async function dispatchControl(sensor: string | undefined, action: MacroAction): Promise<void> {
-	const { domain, service, data } = action;
-	if (domain === 'media') {
-		await invoke('media_control', {
-			action: service,
-			source: (data?.source as string) ?? null,
-			value: (data?.value as number) ?? null
-		});
+	const handler = actionHandlerFor(action.domain);
+	if (!handler) {
+		console.warn(`no action handler registered for control domain "${action.domain}"`, action);
 		return;
 	}
-	const entity_id =
-		(data?.entity_id as string | undefined) ??
-		(sensor && sensor.startsWith('ha.') ? sensor.slice('ha.'.length) : undefined);
-	if (!entity_id) return;
-	// Merge the action's control data (e.g. brightness, temperature) with the resolved entity.
-	await invoke('ha_call_service', { domain, service, data: { entity_id, ...data } });
+	await handler(action, { sensor });
 }
 
 export default function Canvas({ studio = false }: Props) {
@@ -368,11 +227,10 @@ export default function Canvas({ studio = false }: Props) {
 	);
 	const [monitorOptions, setMonitorOptions] = useState<MonitorOption[]>([]);
 
-	// The seed floating layer (demo on the primary, empty on secondaries). Computed once.
-	const seedFloating = useMemo<Leaf[]>(
-		() => (monitorParam() ? [] : buildDemoWidgets()).map((w) => leaf(w)),
-		[]
-	);
+	// The seed floating layer (demo on the primary, empty on secondaries). Computed once. The demo is
+	// the actual system/network/nowplaying TEMPLATES instantiated (core/templates.demoSeed) — the
+	// default skin has one source of truth instead of a hand-built copy that drifts.
+	const seedFloating = useMemo<Leaf[]>(() => (monitorParam() ? [] : demoSeed()), []);
 
 	const model = useEditorModel(studio, seedFloating);
 	const { state, dispatch, handleOp, commitOp, mutateNoSave } = model;
@@ -393,13 +251,15 @@ export default function Canvas({ studio = false }: Props) {
 		saveSeq
 	} = state;
 
-	// Bridge the (props-less) AI Provider settings panel to the editor so its layout assistant can
-	// apply model-proposed ops as one undo step (mirrors setSolvedForFloat). Studio role only; the
-	// result is computed PURELY from the current monitor before committing, so it never depends on the
-	// reducer running synchronously. Re-registers whenever the monitor changes so it stays current.
+	// Hand every plugin's `studio` capability the editor surface (StudioApi) so a plugin (e.g. the
+	// AI Provider's layout assistant) can read the live monitor and apply model-proposed ops as one
+	// undo step (mirrors setSolvedForFloat). Studio role only; the result is computed PURELY from
+	// the current monitor before committing, so it never depends on the reducer running
+	// synchronously. Re-runs (after the previous cleanups) whenever the monitor changes so the api
+	// stays current; a throwing hook is logged and skipped, never fatal.
 	useEffect(() => {
 		if (!studio) return;
-		setLayoutAssistantApi({
+		const api: StudioApi = {
 			monitor: () => monitor,
 			apply: (ops) => {
 				const r = applyAssistantOps(monitor, ops, (type) => `${type}-${editHelpers.rand()}`);
@@ -409,16 +269,43 @@ export default function Canvas({ studio = false }: Props) {
 				}));
 				return { applied: r.applied, addedIds: r.addedIds, errors: r.errors };
 			}
-		});
-		return () => setLayoutAssistantApi(null);
-	}, [studio, monitor, commitOp]);
+		};
+		const cleanups: (() => void)[] = [];
+		for (const p of pluginList) {
+			if (!p.studio) continue;
+			try {
+				const cleanup = p.studio(api);
+				if (cleanup) cleanups.push(cleanup);
+			} catch (err) {
+				console.warn(`plugin "${p.id}" studio hook failed`, err);
+			}
+		}
+		return () => cleanups.forEach((c) => c());
+	}, [studio, monitor, commitOp, pluginList]);
 
-	// Theme css + list (the CSS is a side-effect of selectedTheme; held in component state).
-	const [themeCss, setThemeCss] = useState('');
-	const [themeList, setThemeList] = useState<string[]>([]);
-	// Per-USER-theme {bg,accent,fg} swatch for the picker + app-bar dropdown (built-ins carry their own).
-	// Parsed from each theme's CSS by the effect below; absent until then → a neutral swatch chip.
-	const [userThemeSwatches, setUserThemeSwatches] = useState<Record<string, Swatch>>({});
+	// Theme state + actions (CSS resolution, themes/ file I/O, the editor dialog) — canvas/useThemes.
+	const {
+		themeCss,
+		themeList,
+		setThemeList,
+		userThemeSwatches,
+		themeRef: stateThemeRef,
+		applyTheme,
+		themeLabel,
+		adoptTheme,
+		setTheme,
+		themeEditorOpen,
+		setThemeEditorOpen,
+		themeDraft,
+		setThemeDraft,
+		themeDraftName,
+		setThemeDraftName,
+		themeNameRef,
+		openThemeEditor,
+		saveThemeEditor,
+		duplicateTheme,
+		deleteTheme
+	} = useThemes({ studio, selectedTheme, dispatch, commitOp });
 
 	// Edit mode (tray "Edit layout" / Ctrl+E). Entering disables click-through.
 	const [editMode, setEditMode] = useState(false);
@@ -476,16 +363,6 @@ export default function Canvas({ studio = false }: Props) {
 			.then(setAppVersion)
 			.catch(() => undefined);
 	}, [studio]);
-	const selectedPlugin = useMemo(
-		() => pluginList.find((p) => p.id === selectedPluginId) ?? null,
-		[pluginList, selectedPluginId]
-	);
-	// Capitalized so it can be used as a JSX element when the plugin ships a settings panel.
-	const SelectedPluginSettings = selectedPlugin?.settings ?? null;
-	// The saved sacks (names), loaded when the Sacks section is open.
-	const [sackNames, setSackNames] = useState<string[]>([]);
-	// The saved layout profiles (names), loaded when the Saved-layouts section is open.
-	const [layoutNames, setLayoutNames] = useState<string[]>([]);
 
 	const persistence = usePersistence(state, myMonitor);
 	const { persistToDisk, writeBaseline, schedulePreviewWrite, clearPreviewWrite } = persistence;
@@ -631,113 +508,13 @@ export default function Canvas({ studio = false }: Props) {
 		() => (studio ? collectSplitters(monitor, combinedSolved) : []),
 		[studio, monitor, combinedSolved]
 	);
-	// Splitter drag: capture the pair's start sizes/weights, resize live (no-commit) on move, commit on
-	// release. Computing from the captured start + cumulative delta avoids drift as the layout reflows.
-	const splitDrag = useRef<{
-		axis: 'row' | 'col';
-		containerId: string;
-		aId: string;
-		bId: string;
-		track?: Splitter['track'];
-		frA: number;
-		frB: number;
-		mainA: number;
-		mainB: number;
-		startX: number;
-		startY: number;
-		last: { frA: number; frB: number };
-	} | null>(null);
-	// Commit a resized boundary. A GRID-track splitter writes the two tracks' colFr/rowFr weights on
-	// the grid; a row/col splitter writes the two children's basis fr. Same fr math for both.
-	const setSplit = useCallback(
-		(
-			sp: { containerId: string; aId: string; bId: string; track?: Splitter['track'] },
-			fr: { frA: number; frB: number },
-			commit: boolean
-		) => {
-			const run = commit ? commitOp : mutateNoSave;
-			if (sp.track) {
-				const tr = sp.track;
-				run((s) =>
-					editHelpers.setGridTracks(s, sp.containerId, tr.which, [
-						{ index: tr.a, fr: fr.frA },
-						{ index: tr.b, fr: fr.frB }
-					])
-				);
-			} else {
-				run((s) =>
-					editHelpers.setNodeBases(s, [
-						{ id: sp.aId, basis: { fr: fr.frA } },
-						{ id: sp.bId, basis: { fr: fr.frB } }
-					])
-				);
-			}
-		},
-		[commitOp, mutateNoSave]
-	);
-	const onSplitDown = useCallback((e: ReactPointerEvent, sp: Splitter) => {
-		if (e.button !== 0) return;
-		e.preventDefault();
-		e.stopPropagation();
-		splitDrag.current = {
-			axis: sp.axis,
-			containerId: sp.containerId,
-			aId: sp.aId,
-			bId: sp.bId,
-			track: sp.track,
-			frA: sp.frA,
-			frB: sp.frB,
-			mainA: sp.mainA,
-			mainB: sp.mainB,
-			startX: e.clientX,
-			startY: e.clientY,
-			last: { frA: sp.frA, frB: sp.frB }
-		};
-		e.currentTarget.setPointerCapture(e.pointerId);
-	}, []);
-	const onSplitMove = useCallback(
-		(e: ReactPointerEvent) => {
-			const d = splitDrag.current;
-			if (!d) return;
-			const deltaMain =
-				(d.axis === 'row' ? e.clientX - d.startX : e.clientY - d.startY) / (zoom || 1);
-			d.last = resizeSplit(d.mainA, d.mainB, d.frA, d.frB, deltaMain);
-			setSplit(d, d.last, false);
-		},
-		[zoom, setSplit]
-	);
-	const onSplitUp = useCallback(
-		(e: ReactPointerEvent) => {
-			const d = splitDrag.current;
-			if (!d) return;
-			splitDrag.current = null;
-			e.currentTarget.releasePointerCapture?.(e.pointerId);
-			setSplit(d, d.last, true);
-		},
-		[setSplit]
-	);
-	// Double-click a splitter → even just that pair (preserve their combined fr).
-	const onSplitReset = useCallback(
-		(sp: Splitter) => {
-			const half = Number(((sp.frA + sp.frB) / 2).toFixed(3));
-			setSplit(sp, { frA: half, frB: half }, true);
-		},
-		[setSplit]
-	);
-	// Keyboard alternative to the drag (WCAG 2.5.7): arrow keys nudge the proportion, Shift = bigger
-	// step. The splitter is focusable (role=separator), so this is the no-pointer path to resizing.
-	const onSplitKey = useCallback(
-		(e: ReactKeyboardEvent, sp: Splitter) => {
-			const step = e.shiftKey ? 24 : 8;
-			let d = 0;
-			if (sp.axis === 'row') d = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
-			else d = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-			if (!d) return;
-			e.preventDefault();
-			setSplit(sp, resizeSplit(sp.mainA, sp.mainB, sp.frA, sp.frB, d), true);
-		},
-		[setSplit]
-	);
+	// Splitter drag/keyboard/reset: live resize between adjacent fr children (or grid tracks),
+	// committed on release — canvas/useSplitters.
+	const { onSplitDown, onSplitMove, onSplitUp, onSplitReset, onSplitKey } = useSplitters({
+		zoom,
+		commitOp,
+		mutateNoSave
+	});
 	// Look up a flow primitive's renderable (for selectId / group + def hooks) when FlowNode hands us
 	// a leaf by its namespaced id.
 	const renderablesById = useMemo(() => new Map(renderables.map((r) => [r.id, r])), [renderables]);
@@ -774,7 +551,7 @@ export default function Canvas({ studio = false }: Props) {
 	useEffect(() => {
 		if (!studio) return;
 		const un = listen<{ layer: string; ok: boolean; detail: string; label: string }>(
-			'overlay_layer_status',
+			EVENTS.overlayLayerStatus,
 			(e) => {
 				const { layer, ok, detail, label } = e.payload;
 				setLayerStatus(`${label}: ${layer} — ${ok ? 'ok' : 'FAILED'} (${detail})`);
@@ -822,54 +599,12 @@ export default function Canvas({ studio = false }: Props) {
 	}, [styleCss]);
 
 	// --- background (wallpaper) layer ---------------------------------------------------------------
-	// An image/video background's `src` is a wallpapers/ filename; resolve it to an asset URL (async,
-	// cached by name). Color/web kinds use `src` verbatim. The overlay only shows a background when it
-	// sits BELOW windows (a full-bleed in top-overlay mode would cover the user's apps); the studio
-	// always previews it.
-	const bg = monitor.background;
-	const bgMediaName = bg && isMediaKind(bg.kind) ? bg.src : undefined;
-	const [wallpaperUrls, setWallpaperUrls] = useState<Record<string, string>>({});
-	useEffect(() => {
-		if (!bgMediaName || wallpaperUrls[bgMediaName]) return;
-		let cancelled = false;
-		wallpaperAssetUrl(bgMediaName).then((url) => {
-			if (!cancelled && url) setWallpaperUrls((m) => ({ ...m, [bgMediaName]: url }));
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [bgMediaName, wallpaperUrls]);
-	const resolveWallpaper = useCallback(
-		(name: string) => wallpaperUrls[name] ?? '',
-		[wallpaperUrls]
-	);
+	// The spec lives on the monitor; the asset-URL cache, file list and patch helpers live in
+	// canvas/useBackground. The overlay only shows a background when it sits BELOW windows (a
+	// full-bleed in top-overlay mode would cover the user's apps); the studio always previews it.
+	const { bg, resolveWallpaper, wallpaperFiles, refreshWallpapers, patchBg, setBgKind, clearBg } =
+		useBackground({ studio, navSection, monitor, handleOp });
 	const showBackground = studio || overlayPrefs.overlayLayer !== 'top';
-
-	// The wallpapers/ folder contents (the Background section's image/video picker). Refreshed when
-	// the section opens — so a file dropped into the folder appears after a re-open or ↻.
-	const [wallpaperFiles, setWallpaperFiles] = useState<string[]>([]);
-	const refreshWallpapers = useCallback(() => {
-		listWallpapers().then(setWallpaperFiles);
-	}, []);
-	useEffect(() => {
-		if (studio && navSection === 'background') refreshWallpapers();
-	}, [studio, navSection, refreshWallpapers]);
-	// Merge a patch into the current background spec (creating a default 'color' base if none yet), or
-	// switch kind (which resets `src`, since a colour, a filename and a URL aren't interchangeable).
-	const patchBg = useCallback(
-		(patch: Partial<BackgroundSpec>) => {
-			const base: BackgroundSpec = bg ?? { kind: 'color' };
-			handleOp({ op: 'setBackground', spec: { ...base, ...patch } });
-		},
-		[bg, handleOp]
-	);
-	const setBgKind = useCallback(
-		(kind: BackgroundKind) => {
-			handleOp({ op: 'setBackground', spec: { kind, src: bg?.kind === kind ? bg.src : '' } });
-		},
-		[bg, handleOp]
-	);
-	const clearBg = useCallback(() => handleOp({ op: 'setBackground', spec: undefined }), [handleOp]);
 
 	// --- selection-derived state ---
 	const selectedNode = useMemo(
@@ -960,7 +695,7 @@ export default function Canvas({ studio = false }: Props) {
 	const [audioOutputs, setAudioOutputs] = useState<{ id: string; name: string }[]>([]);
 	useEffect(() => {
 		if (!studio) return;
-		invoke<{ id: string; name: string }[]>('list_audio_outputs')
+		invoke<{ id: string; name: string }[]>(COMMANDS.listAudioOutputs)
 			.then(setAudioOutputs)
 			.catch(() => undefined);
 	}, [studio]);
@@ -1099,21 +834,6 @@ export default function Canvas({ studio = false }: Props) {
 		if (!studio && measuredDom.size > 0) syncRects();
 	}, [studio, measuredDom, syncRects]);
 
-	// --- theme ---
-	const applyTheme = useCallback(async () => {
-		setThemeCss(await resolveThemeCss(stateThemeRef.current));
-	}, []);
-	// Display label for a selection string: a built-in shows its catalog name, '' is the default reset,
-	// and a user theme is its bare filename. Also the basis for fork/export filenames (strip builtin:).
-	const themeLabel = useCallback((name: string): string => {
-		const id = builtinIdOf(name);
-		if (id) return builtinById(id)?.name ?? id;
-		return name || '(default)';
-	}, []);
-	// applyTheme reads the latest selectedTheme via a ref (it's called from listeners + after sets).
-	const stateThemeRef = useRef(selectedTheme);
-	stateThemeRef.current = selectedTheme;
-
 	// --- the save chokepoint bridge (saveLayout): the reducer bumps saveSeq on each commit; here we
 	// run the studio/overlay branch. Cross-monitor extras are queued in the reducer's pendingExtras
 	// (set by moveNodeToMonitor before the commit), so the studio preview write omits them. ---
@@ -1139,7 +859,7 @@ export default function Canvas({ studio = false }: Props) {
 		const patch: Partial<EditorState> = {};
 		let nextTheme: string | null = null;
 		try {
-			const raw = await invoke<string | null>('load_layout');
+			const raw = await invoke<string | null>(COMMANDS.loadLayout);
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 			const saved = obj ? parseLayoutAny(obj) : null;
 			const mon = saved?.monitors[myMon];
@@ -1167,14 +887,11 @@ export default function Canvas({ studio = false }: Props) {
 		// visibility from the post-load monitor — deterministic, like Svelte's synchronous `monitor = mon`.
 		if (patch.monitor) monitorRef.current = patch.monitor;
 		// Apply the theme css for the new selectedTheme (side-effect), then re-baseline + reset history.
-		if (nextTheme !== null) {
-			stateThemeRef.current = nextTheme;
-			setThemeCss(await resolveThemeCss(nextTheme));
-		}
+		if (nextTheme !== null) await adoptTheme(nextTheme);
 		dispatch({ type: 'resetHistory' });
 		dispatch({ type: 'setBaseline' });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [dispatch]);
+	}, [dispatch, adoptTheme]);
 	// myMonitor latest, for reloadLayout/persist reading inside listeners.
 	const myMonitorRef = useRef(myMonitor);
 	myMonitorRef.current = myMonitor;
@@ -1199,10 +916,12 @@ export default function Canvas({ studio = false }: Props) {
 			import('./NavRail'),
 			import('./ThemePreview'),
 			import('./TokenFields'),
-			import('./ControlsPanel'),
 			import('./SensorList'),
 			import('./ThemeList'),
-			import('./DiagnosticsPanel'),
+			import('./StudioSettingsPanel'),
+			import('./BackgroundPanel'),
+			import('./PluginsPanel'),
+			import('./DesignerListPanel'),
 			import('./MultiInspector'),
 			import('./Select')
 		]).catch(() => undefined);
@@ -1426,262 +1145,26 @@ export default function Canvas({ studio = false }: Props) {
 	const dirtyRef = useRef(dirty);
 	dirtyRef.current = dirty;
 
-	// --- theme actions ---
-	const setTheme = useCallback(
-		(name: string) => {
-			dispatch({ type: 'setTheme', name });
-			stateThemeRef.current = name;
-			resolveThemeCss(name).then(setThemeCss);
-			// saveLayout(): theme-only change → commit (history no-op, triggers a write).
-			commitOp(() => ({}));
-		},
-		[dispatch, commitOp]
-	);
-
-	// Theme editor (item 5). A real (focus-managed) dialog: autofocus on open, focus-return on close,
-	// Esc-to-close handled locally (useKeyboard suppresses registry controls while a field is focused).
-	const [themeEditorOpen, setThemeEditorOpen] = useState(false);
-	const [themeDraft, setThemeDraft] = useState('');
-	const [themeDraftName, setThemeDraftName] = useState('');
-	// The theme whose CSS we opened in the editor ('' = a brand-new theme). Used to tell an in-place
-	// save (no surprise) from a save that would clobber a DIFFERENT existing theme (confirm first).
-	const [themeOpenedName, setThemeOpenedName] = useState('');
-	const themeNameRef = useRef<HTMLInputElement | null>(null);
-	const themeTriggerRef = useRef<HTMLElement | null>(null);
-	const themeOpenPrev = useRef(false);
-	useEffect(() => {
-		if (themeEditorOpen && !themeOpenPrev.current) themeNameRef.current?.focus();
-		else if (!themeEditorOpen && themeOpenPrev.current) themeTriggerRef.current?.focus?.();
-		themeOpenPrev.current = themeEditorOpen;
-	}, [themeEditorOpen]);
-	// Open the editor on a SPECIFIC theme (the per-row ✎) or, with no name, the active theme (the
-	// toolbar button) — '' falls through to a starter scaffold for a new theme.
-	const openThemeEditor = useCallback(
-		async (name?: string) => {
-			themeTriggerRef.current = document.activeElement as HTMLElement;
-			const target = name ?? selectedTheme;
-			const builtinId = builtinIdOf(target);
-			if (builtinId) {
-				// Built-ins are immutable: opening one in the editor FORKS it into a new user theme. Seed the
-				// draft from the preset's CSS under its name, and treat it as brand-new (no in-place save).
-				setThemeOpenedName('');
-				setThemeDraftName(builtinById(builtinId)?.name ?? builtinId);
-				setThemeDraft(await resolveThemeCss(target));
-			} else {
-				setThemeOpenedName(target || '');
-				setThemeDraftName(target || 'custom');
-				setThemeDraft(
-					target
-						? await loadThemeCss(target)
-						: ':root {\n\t--np-accent: #77c4d3;\n\t--np-fg: #ffffff;\n}\n'
-				);
-			}
-			setThemeEditorOpen(true);
-		},
-		[selectedTheme]
-	);
-	const saveThemeEditor = useCallback(async () => {
-		const name = themeDraftName.trim();
-		if (!name) return;
-		// Guard a destructive overwrite: saving under a name that already exists AND isn't the theme we
-		// opened in place. (Re-saving the theme you're editing under its own name is expected.)
-		if (name !== themeOpenedName && themeList.includes(name)) {
-			if (!window.confirm(`Overwrite the existing theme "${name}"?`)) return;
-		}
-		await saveThemeCss(name, themeDraft);
-		setThemeList(await listThemes());
-		dispatch({ type: 'setTheme', name });
-		stateThemeRef.current = name;
-		setThemeCss(await loadThemeCss(name));
-		commitOp(() => ({})); // saveLayout()
-		setThemeEditorOpen(false);
-	}, [themeDraftName, themeDraft, themeOpenedName, themeList, dispatch, commitOp]);
-	// Duplicate a theme to a free "<name>-copy" stem and open the copy for editing.
-	const duplicateTheme = useCallback(
-		async (name: string) => {
-			const existing = new Set(themeList);
-			// A built-in duplicates under its catalog name (e.g. "Nord-copy"), not "builtin:nord-copy".
-			const base = `${themeLabel(name).replace(/^\(default\)$/, 'theme')}-copy`;
-			let candidate = base;
-			let i = 2;
-			while (existing.has(candidate)) candidate = `${base}${i++}`;
-			await saveThemeCss(candidate, await resolveThemeCss(name));
-			setThemeList(await listThemes());
-			await openThemeEditor(candidate);
-		},
-		[themeList, themeLabel, openThemeEditor]
-	);
-	// Delete a theme's file (after a confirm). If it was the active theme, fall back to (default) so
-	// the picker + overlays don't dangle on a now-missing name.
-	const deleteTheme = useCallback(
-		async (name: string) => {
-			if (!window.confirm(`Delete the theme "${name}"? This removes themes/${name}.css.`)) return;
-			await deleteThemeCss(name);
-			setThemeList(await listThemes());
-			if (stateThemeRef.current === name) {
-				dispatch({ type: 'setTheme', name: '' });
-				stateThemeRef.current = '';
-				setThemeCss('');
-				commitOp(() => ({}));
-			}
-		},
-		[dispatch, commitOp]
-	);
-
 	// --- sacks (item 10): export the studio's shareable state, import + merge one back ---
-	const exportSack = useCallback(async () => {
-		if (editingDefId != null) {
-			// Mid def-edit the in-progress def isn't folded back into `library` yet — exporting now would
-			// pack the stale pre-edit version. Make the user finish first (matches importSack's guard).
-			window.alert('Finish editing the current widget (Done) before exporting a sack.');
-			return;
-		}
-		const name = window.prompt('Export a sack (name):', themeLabel(selectedTheme) || 'my-sack');
-		if (!name) return;
-		// Re-read the theme CSS at export time so a not-yet-loaded `themeCss` can't silently drop it. A
-		// built-in is baked into the sack under its catalog name (the `builtin:` id never leaves the app).
-		const css = selectedTheme ? await resolveThemeCss(selectedTheme) : '';
-		const sack = packSack({
-			name,
-			library,
-			theme: selectedTheme ? { name: themeLabel(selectedTheme), css } : undefined,
-			tokens: tokenOverrides
-		});
-		const path = await writeSack(name, JSON.stringify(sack, null, '\t'));
-		setSackNames(await listSacks());
-		if (path) window.alert(`Saved sack:\n${path}`);
-	}, [editingDefId, selectedTheme, themeLabel, library, tokenOverrides]);
-
-	const importSack = useCallback(
-		async (name: string) => {
-			if (editingDefId != null) {
-				window.alert('Finish editing the current widget (Done) before importing a sack.');
-				return;
-			}
-			const raw = await readSack(name);
-			const sack = raw ? unpackSack(raw) : null;
-			if (!sack) {
-				window.alert('Could not read that sack.');
-				return;
-			}
-			// A sack is shared content: its theme CSS is injected verbatim into the studio + overlays, so
-			// scan it for constructs that reach OUTSIDE the app (remote url()/@import that phone home) or
-			// hijack the viewport, and make the user confirm before trusting a stranger's theme.
-			if (sack.theme?.css) {
-				const threats = scanCssThreats(sack.theme.css);
-				if (threats.length) {
-					const ok = window.confirm(
-						`This sack's theme contains ${threatSummary(threats)}. Imported theme CSS runs with ` +
-							`full access to the studio. Import anyway?`
-					);
-					if (!ok) return;
-				}
-			}
-			// Theme first: resolve a name collision so an import never clobbers an existing user theme.
-			let themeName: string | null = null;
-			if (sack.theme) {
-				const existing = await listThemes();
-				themeName = existing.includes(sack.theme.name)
-					? `${sack.theme.name}-imported`
-					: sack.theme.name;
-				await saveThemeCss(themeName, sack.theme.css);
-				setThemeList(await listThemes());
-			}
-			// One commit applies the persisted parts: merged library + token overrides + selected theme.
-			commitOp((s) => {
-				const patch: Partial<EditorState> = {};
-				if (sack.library?.defs.length) {
-					patch.library = mergeLibrary(s.library, sack.library.defs).library;
-				}
-				if (sack.tokens && Object.keys(sack.tokens).length) {
-					patch.tokenOverrides = { ...s.tokenOverrides, ...sack.tokens };
-				}
-				if (themeName) patch.selectedTheme = themeName;
-				return patch;
-			});
-			// Live-apply the theme CSS (the commit set selectedTheme; mirror it for the live styles).
-			if (themeName) {
-				stateThemeRef.current = themeName;
-				setThemeCss(await loadThemeCss(themeName));
-			}
-		},
-		[editingDefId, commitOp]
-	);
-
-	// Load the saved sack names when the Sacks section opens.
-	useEffect(() => {
-		if (studio && navSection === 'sacks') listSacks().then(setSackNames);
-	}, [studio, navSection]);
-
-	// Parse a {bg,accent,fg} swatch for each USER theme (built-ins carry their own) — load each theme's
-	// CSS once and extract its tokens. Runs whenever the theme list changes (NOT gated on the Themes
-	// section) so BOTH the panel picker AND the app-bar dropdown have swatches. Cancels on list change.
-	useEffect(() => {
-		if (!studio) return;
-		let cancelled = false;
-		Promise.all(
-			themeList.map(async (n) => [n, swatchFromTokens(parseTokens(await loadThemeCss(n)))] as const)
-		).then((entries) => {
-			if (!cancelled) setUserThemeSwatches(Object.fromEntries(entries));
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [studio, themeList]);
+	const { sackNames, exportSack, importSack } = useSacks({
+		studio,
+		navSection,
+		editingDefId,
+		selectedTheme,
+		library,
+		tokenOverrides,
+		commitOp,
+		themes: { themeLabel, setThemeList, adoptTheme }
+	});
 
 	// --- saved layouts: name the current monitor's arrangement, load it back, delete (named slots) ---
-	// Load the saved layout names when the Saved-layouts section opens.
-	useEffect(() => {
-		if (studio && navSection === 'saved-layouts') listLayouts().then(setLayoutNames);
-	}, [studio, navSection]);
-
-	const saveCurrentLayout = useCallback(async () => {
-		if (editingDefId != null) {
-			// Mid def-edit `monitor` is the def scratch, not the real layout — finish first (like sacks).
-			window.alert('Finish editing the current widget (Done) before saving the layout.');
-			return;
-		}
-		const name = window.prompt("Save this monitor's layout as (name):", '')?.trim();
-		if (!name) return;
-		const existing = await listLayouts();
-		if (existing.includes(name) && !window.confirm(`Overwrite the saved layout "${name}"?`)) return;
-		const json = JSON.stringify(packLayout(monitorRef.current, name), null, '\t');
-		const path = await saveLayoutAs(name, json);
-		setLayoutNames(await listLayouts());
-		if (!path) {
-			window.alert(
-				'Could not save the layout. Names allow letters, numbers, spaces, _ and - (≤64).'
-			);
-		}
-	}, [editingDefId]);
-
-	const loadSavedLayout = useCallback(
-		async (name: string) => {
-			if (editingDefId != null) {
-				window.alert('Finish editing the current widget (Done) before loading a layout.');
-				return;
-			}
-			const raw = await readLayout(name);
-			const mon = raw ? unpackLayout(raw) : null;
-			if (!mon) {
-				window.alert('Could not read that layout.');
-				return;
-			}
-			if (!window.confirm(`Replace this monitor's layout with "${name}"?  (Undo restores it.)`)) {
-				return;
-			}
-			// One undoable commit replaces the current monitor; the persistence hook then writes it to
-			// widgets.json for this monitor. Selection is cleared (the old ids are gone).
-			commitOp(() => ({ monitor: mon, selectedId: null, selectedIds: [] }));
-		},
-		[editingDefId, commitOp]
-	);
-
-	const deleteSavedLayout = useCallback(async (name: string) => {
-		if (!window.confirm(`Delete the saved layout "${name}"?`)) return;
-		await deleteLayout(name);
-		setLayoutNames(await listLayouts());
-	}, []);
+	const { layoutNames, saveCurrentLayout, loadSavedLayout, deleteSavedLayout } = useSavedLayouts({
+		studio,
+		navSection,
+		editingDefId,
+		monitorRef,
+		commitOp
+	});
 
 	// Entering a def edit (from anywhere) switches to the Widget designer section, where its
 	// widget-sized design canvas is revealed.
@@ -1735,18 +1218,25 @@ export default function Canvas({ studio = false }: Props) {
 	}, [studio, monitorOptions, switchMonitor]);
 
 	// --- def editor entry points (studio bar) ---
-	// Create a brand-new empty def + a floating instance, then enter the def editor (one dispatch).
-	// All "open a widget in the designer" paths fold any open def first (endDefEdit) so the reducer's
-	// re-entry guard never blocks switching widgets from the list while one is already open.
-	const editingDefIdRef = useRef(editingDefId);
-	editingDefIdRef.current = editingDefId;
+	// The wrappers (fold-open-def + new/open/clone/preview/rename/delete) live in canvas/useDefEditor;
+	// previewing stays mirrored here too for the canvas-level handlers (context menu / drag / keys).
 	const previewingRef = useRef(previewing);
 	previewingRef.current = previewing;
-	const foldOpenDef = useCallback(() => {
-		// A read-only preview is discarded (endPreview); a real def edit is folded back (endDefEdit).
-		if (previewingRef.current) dispatch({ type: 'endPreview' });
-		else if (editingDefIdRef.current != null) dispatch({ type: 'endDefEdit' });
-	}, [dispatch]);
+	// The live-state mirror (read synchronously by moveNodeToMonitor + the def editor's in-use check).
+	const stateRef = useRef(state);
+	stateRef.current = state;
+	const {
+		foldOpenDef,
+		startNewWidget,
+		openExistingDef,
+		cloneDefToEdit,
+		newFromTemplate,
+		previewTemplate,
+		clonePreview,
+		closePreview,
+		renameWidget,
+		deleteWidget
+	} = useDefEditor({ editingDefId, previewing, stateRef, dispatch, handleOp });
 	// Pick a studio section from the nav rail. While a widget def is open the rail used to be a dead
 	// modal (clicks no-opped, which reads as broken); instead a click now leaves the designer. An
 	// edited def asks first (Done saves it); a read-only/unedited def leaves silently. foldOpenDef does
@@ -1765,69 +1255,6 @@ export default function Canvas({ studio = false }: Props) {
 		},
 		[designing, previewing, defDirty, editingDefName, foldOpenDef]
 	);
-	const startNewWidget = useCallback(() => {
-		foldOpenDef();
-		dispatch({ type: 'newWidget' });
-	}, [foldOpenDef, dispatch]);
-	const openExistingDef = useCallback(
-		(defId: string) => {
-			if (!defId) return;
-			foldOpenDef();
-			dispatch({ type: 'enterDefEdit', defId });
-		},
-		[foldOpenDef, dispatch]
-	);
-	const cloneDefToEdit = useCallback(
-		(defId: string) => {
-			foldOpenDef();
-			dispatch({ type: 'cloneDef', defId });
-		},
-		[foldOpenDef, dispatch]
-	);
-	const newFromTemplate = useCallback(
-		(templateId: string) => {
-			foldOpenDef();
-			dispatch({ type: 'newFromTemplate', templateId });
-		},
-		[foldOpenDef, dispatch]
-	);
-	// Clicking a template only PREVIEWS it (read-only); the Clone button (or the banner) clones it.
-	const previewTemplate = useCallback(
-		(templateId: string) => {
-			foldOpenDef();
-			dispatch({ type: 'previewTemplate', templateId });
-		},
-		[foldOpenDef, dispatch]
-	);
-	const clonePreview = useCallback(() => dispatch({ type: 'clonePreview' }), [dispatch]);
-	const closePreview = useCallback(() => dispatch({ type: 'endPreview' }), [dispatch]);
-	// Rename a library widget (prompt). Works on any def, including the one being designed — the name
-	// lives in the library, so renaming mid-edit just updates it (the banner reflects it live).
-	const renameWidget = useCallback(
-		(defId: string, current: string) => {
-			const name = window.prompt('Rename widget:', current);
-			if (name && name.trim()) handleOp({ op: 'renameDef', defId, name: name.trim() });
-		},
-		[handleOp]
-	);
-	// Delete a library widget from the list. A def placed on a layout can't be deleted (it would
-	// orphan instances) — tell the user instead of silently no-op'ing. If it's the one being
-	// designed, fold the def edit first so deleteDef isn't blocked.
-	const deleteWidget = useCallback(
-		(defId: string, name: string) => {
-			if (defInUse(stateRef.current, defId)) {
-				window.alert(
-					`“${name}” is placed on a layout — remove those instances before deleting it.`
-				);
-				return;
-			}
-			if (!window.confirm(`Delete widget “${name}” from your library?`)) return;
-			if (defId === editingDefIdRef.current) foldOpenDef();
-			handleOp({ op: 'deleteDef', defId });
-		},
-		[foldOpenDef, handleOp]
-	);
-
 	// =========================================================================================
 	// Drag / drop (WidgetHost callbacks). These are transient — onChange mutates without saving;
 	// onCommit/onDrop commit (saveLayout). The drop-indicator / hint / guides are local UI state.
@@ -2422,8 +1849,6 @@ export default function Canvas({ studio = false }: Props) {
 		},
 		[commitOp]
 	);
-	const stateRef = useRef(state);
-	stateRef.current = state;
 
 	const mMoveToMonitor = useCallback(
 		(key: string) => {
@@ -2483,7 +1908,7 @@ export default function Canvas({ studio = false }: Props) {
 			// Escape: close an open menu first; otherwise clear the selection (the control's `when`
 			// already gates this to "a menu is open OR something is selected").
 			'studio.closeMenu': () => (menuRef.current !== null ? closeMenu() : clearSelection()),
-			'global.toggleEdit': () => emit('toggle_edit'), // broadcast: every monitor's overlay toggles
+			'global.toggleEdit': () => emit(EVENTS.toggleEdit), // broadcast: every monitor's overlay toggles
 			'studio.save': commitSave,
 			'studio.undo': undo,
 			'studio.redo': redo,
@@ -2993,14 +2418,13 @@ export default function Canvas({ studio = false }: Props) {
 									>
 										{dirty ? '● Save' : '✓ Saved'}
 									</button>
-									<button
-										type="button"
-										title="Discard unsaved changes"
-										disabled={!dirty}
-										onClick={cancelEdits}
-									>
-										Cancel
-									</button>
+									{/* Only rendered while there's something to discard — a permanently visible
+									    disabled Cancel is title-bar noise that reads as a broken control. */}
+									{dirty && (
+										<button type="button" title="Discard unsaved changes" onClick={cancelEdits}>
+											Cancel
+										</button>
+									)}
 									{/* Window controls (the borderless window's min / maximize-restore / close). Pushed to
 									    the far right (margin-left:auto); the gap before them is a drag region. */}
 									<div className="win-controls">
@@ -3277,121 +2701,21 @@ export default function Canvas({ studio = false }: Props) {
 									/>
 								)}
 								{navSection === 'widget-designer' && (
-									<div className="designer-list">
-										<button type="button" className="dl-new" onClick={startNewWidget}>
-											＋ New widget
-										</button>
-										<button
-											type="button"
-											className="dl-ref"
-											title="Copy a Markdown reference of every widget type + its config schema — for handing to an AI assistant"
-											onClick={async () => {
-												const md = widgetReferenceMarkdown(listMetas());
-												const ok = await copyToClipboard(md);
-												if (!ok) console.log(md);
-												window.alert(
-													ok
-														? 'Widget reference (Markdown) copied — paste it to the assistant.'
-														: 'Copy failed; the reference was logged to the devtools console.'
-												);
-											}}
-										>
-											⧉ Copy widget reference
-										</button>
-										<div className="rp-hd">Widgets</div>
-										{library?.defs.length ? (
-											<div className="dl-items">
-												{library.defs.map((d) => (
-													<div
-														key={d.id}
-														className={['dl-item', d.id === editingDefId && 'cur']
-															.filter(Boolean)
-															.join(' ')}
-													>
-														<button
-															type="button"
-															className="dl-label"
-															title="Edit this widget"
-															onClick={() => openExistingDef(d.id)}
-														>
-															{d.name}
-														</button>
-														<button
-															type="button"
-															className="dl-icon"
-															title="Rename widget"
-															onClick={() => renameWidget(d.id, d.name)}
-														>
-															✎
-														</button>
-														<button
-															type="button"
-															className="dl-icon"
-															title="Clone to a new widget"
-															onClick={() => cloneDefToEdit(d.id)}
-														>
-															⎘
-														</button>
-														<button
-															type="button"
-															className="dl-icon dl-del"
-															title="Delete widget"
-															onClick={() => deleteWidget(d.id, d.name)}
-														>
-															✕
-														</button>
-													</div>
-												))}
-											</div>
-										) : (
-											<div className="rp-stub">No widgets yet — ＋ New, or clone a template.</div>
-										)}
-										<div className="rp-hd">Templates</div>
-										<div className="dl-items">
-											{TEMPLATES.map((t) => (
-												<div
-													key={t.id}
-													className={['dl-item', previewDef?.name === t.name && 'cur']
-														.filter(Boolean)
-														.join(' ')}
-												>
-													<button
-														type="button"
-														className="dl-label"
-														title={`${t.description} — click to preview (read-only)`}
-														onClick={() => previewTemplate(t.id)}
-													>
-														{t.name}
-													</button>
-													<button
-														type="button"
-														className="dl-icon"
-														title="Clone into a new editable widget"
-														onClick={() => newFromTemplate(t.id)}
-													>
-														⎘
-													</button>
-												</div>
-											))}
-										</div>
-									</div>
-								)}
-								{navSection === 'widget-designer' && !designing && (
-									<div className="designer-empty">
-										<div className="de-title">Widget designer</div>
-										<div className="de-hint">
-											Build a reusable <strong>widget type</strong> — its inner layout, sensors, and
-											styling — once, then drop copies of it onto any monitor.
-											<br />
-											<br />
-											Pick a widget on the left to edit, clone a template, or ＋&nbsp;New widget to
-											start from scratch.
-											<br />
-											<br />
-											Just placing a meter (CPU, clock, …) on your desktop? That’s the{' '}
-											<strong>Layouts</strong> section — pick a spot, then use the “Add” palette.
-										</div>
-									</div>
+									<DesignerListPanel
+										library={library}
+										editingDefId={editingDefId}
+										previewName={previewDef?.name ?? null}
+										designing={designing}
+										actions={{
+											startNewWidget,
+											openExistingDef,
+											renameWidget,
+											cloneDefToEdit,
+											deleteWidget,
+											previewTemplate,
+											newFromTemplate
+										}}
+									/>
 								)}
 								{navSection === 'sensors' && !designing && (
 									<div className="rail-panel">
@@ -3406,81 +2730,12 @@ export default function Canvas({ studio = false }: Props) {
 									</div>
 								)}
 								{navSection === 'plugins' && !designing && (
-									<div className="rail-panel plugins-panel">
-										<div className="pl-list">
-											<div className="rp-hd">Plugins</div>
-											{pluginList.length ? (
-												pluginList.map((p) => (
-													<button
-														key={p.id}
-														type="button"
-														className={['pl-item', p.id === selectedPluginId && 'cur']
-															.filter(Boolean)
-															.join(' ')}
-														onClick={() => setSelectedPluginId(p.id)}
-													>
-														{p.name}
-													</button>
-												))
-											) : (
-												<div className="rp-stub">No plugins registered.</div>
-											)}
-										</div>
-										<div className="pl-detail">
-											{!selectedPlugin ? (
-												<div className="rp-stub">Select a plugin to view its settings.</div>
-											) : (
-												<>
-													<div className="pl-title">{selectedPlugin.name}</div>
-													{selectedPlugin.description && (
-														<div className="pl-desc">{selectedPlugin.description}</div>
-													)}
-													{SelectedPluginSettings ? (
-														<SelectedPluginSettings />
-													) : (
-														<>
-															{!!selectedPlugin.sources?.length && (
-																<>
-																	<div className="rp-hd">Sources</div>
-																	{selectedPlugin.sources.map((s) => {
-																		const ids = s.catalog?.() ?? [];
-																		return (
-																			<div key={s.id} className="pl-source">
-																				<div className="rp-row">
-																					<span>{s.id}</span>
-																					<span className="dim">{ids.length} sensors</span>
-																				</div>
-																				{ids.length > 0 && <SensorList hub={hub} ids={ids} />}
-																			</div>
-																		);
-																	})}
-																</>
-															)}
-															{!!selectedPlugin.widgets?.length && (
-																<>
-																	<div className="rp-hd">Widget types</div>
-																	<div className="rp-list">
-																		{selectedPlugin.widgets.map((w) => (
-																			<div key={w.meta.type} className="rp-row">
-																				<span>{w.meta.label ?? w.meta.type}</span>
-																				<span className="dim">{w.meta.type}</span>
-																			</div>
-																		))}
-																	</div>
-																</>
-															)}
-															{!selectedPlugin.sources?.length &&
-																!selectedPlugin.widgets?.length && (
-																	<div className="rp-stub">
-																		This plugin has no configurable settings.
-																	</div>
-																)}
-														</>
-													)}
-												</>
-											)}
-										</div>
-									</div>
+									<PluginsPanel
+										hub={hub}
+										plugins={pluginList}
+										selectedId={selectedPluginId}
+										onSelect={setSelectedPluginId}
+									/>
 								)}
 								{navSection === 'themes' && !designing && (
 									<div className="rail-panel">
@@ -3531,171 +2786,14 @@ export default function Canvas({ studio = false }: Props) {
 									</div>
 								)}
 								{navSection === 'background' && !designing && (
-									<div className="rail-panel bg-panel">
-										<div className="rp-hd">Background</div>
-										<div className="rp-stub">
-											A full-screen effect behind this monitor’s widgets. It shows on the desktop
-											when the overlay sits below windows (Settings → overlay layer); the studio
-											always previews it.
-										</div>
-
-										<label className="bg-field">
-											<span>Type</span>
-											<select
-												value={bg?.kind ?? 'none'}
-												onChange={(e) => {
-													const v = e.currentTarget.value;
-													if (v === 'none') clearBg();
-													else setBgKind(v as BackgroundKind);
-												}}
-											>
-												<option value="none">None</option>
-												{BACKGROUND_KINDS.map((k) => (
-													<option key={k} value={k}>
-														{k}
-													</option>
-												))}
-											</select>
-										</label>
-
-										{bg?.kind === 'color' && (
-											<label className="bg-field">
-												<span>Colour</span>
-												<input
-													type="color"
-													value={/^#[0-9a-fA-F]{6}$/.test(bg.src ?? '') ? bg.src : '#0b0b0e'}
-													onChange={(e) => patchBg({ src: e.currentTarget.value })}
-												/>
-											</label>
-										)}
-
-										{bg?.kind === 'web' && (
-											<label className="bg-field">
-												<span>URL</span>
-												<input
-													type="text"
-													defaultValue={bg.src ?? ''}
-													key={bg.src ?? ''}
-													placeholder="https://…  (a web / WebGL wallpaper)"
-													onBlur={(e) => patchBg({ src: e.currentTarget.value.trim() })}
-												/>
-											</label>
-										)}
-
-										{bg && isMediaKind(bg.kind) && (
-											<>
-												<div className="bg-files-hd">
-													<span className="rp-sub">Files in wallpapers/</span>
-													<span className="bg-files-ops">
-														<button
-															type="button"
-															title="Refresh the list"
-															onClick={refreshWallpapers}
-														>
-															↻
-														</button>
-														<button
-															type="button"
-															title="Open the wallpapers folder — drop image/video files in here"
-															onClick={() => openWallpapersDir()}
-														>
-															⊞ Folder
-														</button>
-													</span>
-												</div>
-												{wallpaperFiles.length ? (
-													<div className="bg-files">
-														{wallpaperFiles.map((f) => (
-															<button
-																key={f}
-																type="button"
-																className={['bg-file', bg.src === f && 'cur']
-																	.filter(Boolean)
-																	.join(' ')}
-																title={f}
-																onClick={() => patchBg({ src: f })}
-															>
-																{f}
-															</button>
-														))}
-													</div>
-												) : (
-													<div className="rp-stub">
-														No files yet — click ⊞ Folder and drop an image or video in.
-													</div>
-												)}
-											</>
-										)}
-
-										{bg && isMediaKind(bg.kind) && (
-											<label className="bg-field">
-												<span>Fit</span>
-												<select
-													value={bg.fit ?? 'cover'}
-													onChange={(e) =>
-														patchBg({ fit: e.currentTarget.value as BackgroundSpec['fit'] })
-													}
-												>
-													{BACKGROUND_FITS.map((f) => (
-														<option key={f} value={f}>
-															{f}
-														</option>
-													))}
-												</select>
-											</label>
-										)}
-
-										{bg?.kind === 'video' && (
-											<div className="bg-checks">
-												<label className="bg-check">
-													<input
-														type="checkbox"
-														checked={bg.mute ?? true}
-														onChange={(e) => patchBg({ mute: e.currentTarget.checked })}
-													/>
-													muted
-												</label>
-												<label className="bg-check">
-													<input
-														type="checkbox"
-														checked={bg.loop ?? true}
-														onChange={(e) => patchBg({ loop: e.currentTarget.checked })}
-													/>
-													loop
-												</label>
-											</div>
-										)}
-
-										{bg && (
-											<>
-												<label className="bg-field bg-range">
-													<span>Opacity {Math.round((bg.opacity ?? 1) * 100)}%</span>
-													<input
-														type="range"
-														min={0}
-														max={1}
-														step={0.05}
-														value={bg.opacity ?? 1}
-														onChange={(e) => patchBg({ opacity: Number(e.currentTarget.value) })}
-													/>
-												</label>
-												<label className="bg-field bg-range">
-													<span>Dim {Math.round((bg.dim ?? 0) * 100)}%</span>
-													<input
-														type="range"
-														min={0}
-														max={1}
-														step={0.05}
-														value={bg.dim ?? 0}
-														onChange={(e) => patchBg({ dim: Number(e.currentTarget.value) })}
-													/>
-												</label>
-												<button type="button" className="bg-clear" onClick={clearBg}>
-													Remove background
-												</button>
-											</>
-										)}
-									</div>
+									<BackgroundPanel
+										bg={bg}
+										wallpaperFiles={wallpaperFiles}
+										refreshWallpapers={refreshWallpapers}
+										patchBg={patchBg}
+										setBgKind={setBgKind}
+										clearBg={clearBg}
+									/>
 								)}
 								{navSection === 'sacks' && !designing && (
 									<div className="rail-panel">
@@ -3764,231 +2862,28 @@ export default function Canvas({ studio = false }: Props) {
 									</div>
 								)}
 								{navSection === 'settings' && !designing && (
-									<div className="rail-panel plugins-panel settings-panel">
-										<div className="pl-list">
-											<div className="rp-hd">Settings</div>
-											{SETTINGS_TABS.map((t) => (
-												<button
-													key={t.id}
-													type="button"
-													className={[
-														'pl-item',
-														t.id === settingsTab && 'cur',
-														t.id === 'danger' && 'set-danger'
-													]
-														.filter(Boolean)
-														.join(' ')}
-													onClick={() => setSettingsTab(t.id)}
-												>
-													{t.label}
-												</button>
-											))}
-										</div>
-										<div className="pl-detail">
-											{settingsTab === 'display' && (
-												<>
-													<div className="pl-title">Display</div>
-													<div className="pl-desc">
-														The monitor this layout drives — each monitor keeps its own layout.
-													</div>
-													<div className="rp-hd">
-														{monName || '—'} · {monSize.w}×{monSize.h}
-													</div>
-													<div className="rp-list">
-														<div className="rp-row">
-															<span>work area</span>
-															<span className="dim">
-																{Math.round(workArea.w)}×{Math.round(workArea.h)}
-															</span>
-														</div>
-													</div>
-													{monitorOptions.length > 1 && (
-														<div className="rp-stub">
-															Move a widget to another monitor by right-clicking it → “Move to”.
-														</div>
-													)}
-													<div className="rp-hd">View</div>
-													<button type="button" onClick={fit}>
-														⤢ Fit to screen ({Math.round(zoom * 100)}%)
-													</button>
-												</>
-											)}
-											{settingsTab === 'overlay' && (
-												<>
-													<div className="pl-title">Overlay</div>
-													<div className="pl-desc">
-														How the transparent overlay sits on the desktop (z-order + taskbar).
-													</div>
-													<label className="rp-row" style={{ cursor: 'pointer' }}>
-														<span>respect taskbar (work area)</span>
-														<input
-															type="checkbox"
-															checked={overlayPrefs.respectWorkArea}
-															onChange={(e) =>
-																setOverlayPrefs({ respectWorkArea: e.currentTarget.checked })
-															}
-														/>
-													</label>
-													<label style={{ display: 'block', marginTop: 8 }}>
-														<span>window layer</span>
-														<select
-															value={overlayPrefs.overlayLayer}
-															onChange={(e) =>
-																setOverlayPrefs({
-																	overlayLayer: e.currentTarget.value as OverlayLayer
-																})
-															}
-														>
-															<option value="bottom">Below windows (default)</option>
-															<option value="top">Always on top</option>
-															<option value="wallpaper">
-																Wallpaper layer (WorkerW · experimental)
-															</option>
-														</select>
-													</label>
-													<div className="pl-desc">
-														“Below windows” sits behind apps (above desktop icons; Show Desktop
-														hides it). “Wallpaper layer” parents the overlay to the desktop so it
-														renders behind the icons — experimental, Windows-only, takes effect on
-														the live overlay.
-													</div>
-													<div className="pl-desc" style={{ marginTop: 6 }}>
-														Overlay status:{' '}
-														<code>
-															{layerStatus || '(waiting for the overlay to apply a layer…)'}
-														</code>
-													</div>
-													<div className="rp-hd" style={{ marginTop: 12 }}>
-														Debug
-													</div>
-													<label className="rp-row" style={{ cursor: 'pointer' }}>
-														<span>windowed mode</span>
-														<input
-															type="checkbox"
-															checked={overlayPrefs.debugWindowed}
-															onChange={(e) =>
-																setOverlayPrefs({ debugWindowed: e.currentTarget.checked })
-															}
-														/>
-													</label>
-													<div className="pl-desc">
-														Render overlays as ordinary decorated, interactive, alt-tab-able windows
-														(opaque, taskbar-present, not click-through), so a crashing or
-														misbehaving overlay is visible, clickable (its “Reload” page), and
-														inspectable — the borderless click-through overlay otherwise hides all
-														of that. Takes effect on the live overlay.
-													</div>
-													<div className="pl-desc" style={{ marginTop: 6 }}>
-														Stuck behind a click-through window? Press <code>Ctrl+Alt+Shift+E</code>{' '}
-														anytime — the rescue hotkey forces every window interactive (works even
-														if its webview crashed).
-													</div>
-												</>
-											)}
-											{settingsTab === 'startup' && (
-												<>
-													<div className="pl-title">Startup</div>
-													<div className="pl-desc">What happens when you sign in to Windows.</div>
-													<label className="rp-row" style={{ cursor: 'pointer' }}>
-														<span>launch at login</span>
-														<input
-															type="checkbox"
-															checked={autostart}
-															onChange={(e) => toggleAutostart(e.currentTarget.checked)}
-														/>
-													</label>
-												</>
-											)}
-											{settingsTab === 'controls' && (
-												<>
-													<div className="pl-title">Controls</div>
-													<div className="pl-desc">
-														Rebind the keyboard shortcuts that drive the studio and overlays.
-													</div>
-													<ControlsPanel
-														overrides={overrides}
-														onRebind={(id, trigger) =>
-															controls.setOverride(id, { triggers: [trigger] })
-														}
-														onReset={controls.resetOverride}
-														onResetAll={controls.resetAll}
-													/>
-												</>
-											)}
-											{settingsTab === 'diagnostics' && (
-												<>
-													<div className="pl-title">Diagnostics</div>
-													<div className="pl-desc">
-														Inspect the studio and overlays — JS heap, retained media, per-widget
-														DOM weight, and devtools.
-													</div>
-													<button type="button" onClick={openDevtools}>
-														⌗ Inspect this window (devtools)
-													</button>
-													<button
-														type="button"
-														onClick={() => void rescueWindows()}
-														title="Make every window interactive and bring it forward — recovers a click-through or crashed overlay you can't click (same as the Ctrl+Alt+Shift+E hotkey)."
-													>
-														⛑ Rescue all windows
-													</button>
-													<DiagnosticsPanel />
-												</>
-											)}
-											{settingsTab === 'about' && (
-												<>
-													<div className="about-hd">
-														<img
-															className="about-mascot"
-															src={mascotUrl}
-															alt="widgetsack mascot: a beckoning cat carrying a sack and a little CRT"
-															width={88}
-															height={88}
-														/>
-														<div className="pl-title">widgetsack</div>
-													</div>
-													<div className="pl-desc">
-														A themeable desktop widget overlay for Windows — system meters, clocks,
-														the now-playing track, and Home Assistant controls, arranged here in the
-														studio.
-													</div>
-													<div className="rp-list">
-														<div className="rp-row">
-															<span>version</span>
-															<span className="dim">{appVersion ?? '…'}</span>
-														</div>
-														<div className="rp-row">
-															<span>license</span>
-															<span className="dim">MIT OR Apache-2.0</span>
-														</div>
-													</div>
-													<div className="rp-hd">Source</div>
-													<div className="rp-row">
-														<span className="set-repo">github.com/gyng/nowplaying-widget</span>
-														<button
-															type="button"
-															onClick={() => {
-																void copyToClipboard('https://github.com/gyng/nowplaying-widget');
-															}}
-														>
-															copy
-														</button>
-													</div>
-												</>
-											)}
-											{settingsTab === 'danger' && (
-												<>
-													<div className="pl-title set-danger-title">Danger zone</div>
-													<div className="pl-desc">
-														Destructive actions for this monitor’s layout. There is no undo.
-													</div>
-													<button type="button" className="rp-danger" onClick={clearMonitor}>
-														✕ Clear this monitor
-													</button>
-												</>
-											)}
-										</div>
-									</div>
+									<StudioSettingsPanel
+										tab={settingsTab}
+										onTab={setSettingsTab}
+										display={{
+											monName,
+											monSize,
+											workArea,
+											multiMonitor: monitorOptions.length > 1,
+											zoom,
+											fit
+										}}
+										overlay={{ prefs: overlayPrefs, setPrefs: setOverlayPrefs, layerStatus }}
+										startup={{ autostart, toggleAutostart }}
+										controls={{
+											overrides,
+											onRebind: (id, trigger) => controls.setOverride(id, { triggers: [trigger] }),
+											onReset: controls.resetOverride,
+											onResetAll: controls.resetAll
+										}}
+										appVersion={appVersion}
+										clearMonitor={clearMonitor}
+									/>
 								)}
 							</>
 						) : (
@@ -4042,6 +2937,7 @@ export default function Canvas({ studio = false }: Props) {
 									docked={studio}
 									onOp={handleOp}
 									onDeleteDef={studio ? deleteWidget : undefined}
+									onPreviewTemplate={studio ? previewTemplate : undefined}
 									node={selectedNode}
 									onCopy={(t) => copyToClipboard(t)}
 								/>
