@@ -83,6 +83,11 @@ async function main() {
 	});
 	await studioPage.waitForSelector('.canvas.studio .studio-bar', { timeout: 20000 });
 	await studioPage.evaluate(() => document.fonts.ready);
+	// Select the needle gauge so the shot shows a REAL Inspector (sensor/config/style fields)
+	// instead of the empty "select a widget" stub. Click the widget on the stage like a user would.
+	await studioPage.click('[data-w="sg-g-needle"]', { timeout: 5000 }).catch(() => {
+		console.warn('  studio.png: showcase widget not found — capturing unselected');
+	});
 	await studioPage.waitForTimeout(400);
 	await studioPage.screenshot({ path: path.join(outDir, 'studio.png') });
 	console.log('  studio.png');
