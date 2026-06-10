@@ -32,7 +32,7 @@ use crate::log;
 
 /// Streamed tokens ride their OWN event (not `telemetry`) because a chat transcript is a growing
 /// whole-value, not a per-id sensor sample. The frontend `lib/llm/source.ts` listens here.
-const LLM_DELTA_EVENT: &str = "llm_delta";
+use crate::bridge::LLM_DELTA_EVENT;
 
 fn default_provider() -> String {
     "openai".to_string()

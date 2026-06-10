@@ -10,10 +10,13 @@ vi.mock('./stocks-commands', () => ({
 }));
 vi.mock('../../overlay', () => ({ copyToClipboard: () => Promise.resolve(true) }));
 
-import './stocks'; // side-effect: registers the plugin + the ticker widget meta + stocks source
+import { registerStocksPlugin } from './stocks';
 import { listPlugins } from '../plugin';
 import { sourceCatalogEntries } from '../../core/plugin';
 import { configCompleteness, getMeta } from '../../core/widget';
+
+// Registers the plugin + the ticker widget meta + the stocks source (was an import side-effect).
+registerStocksPlugin();
 
 describe('stocks plugin', () => {
 	it('registers as a plugin with a settings panel + a stocks source', () => {

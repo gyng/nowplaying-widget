@@ -20,6 +20,7 @@ import { monitorOptionLabel } from './monitorLabel';
 import { parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
 import type { OverlayPresentation } from './widgets/canvas/overlayPresentation';
+import { COMMANDS, EVENTS } from './bridge/contract';
 
 /** Apply the overlay z-order layer to THIS window: 'top' = always-on-top (default), 'bottom' =
  *  always-on-bottom (below app windows), 'wallpaper' = parented to the desktop WorkerW (on the
@@ -37,11 +38,11 @@ export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
 			await win.setAlwaysOnBottom(false);
 			// The Rust command returns a human-readable status (e.g. "parented to WorkerW 0x…") so the
 			// studio can show whether the wallpaper attach actually succeeded.
-			detail = await invoke<string>('set_overlay_wallpaper', { enabled: true });
+			detail = await invoke<string>(COMMANDS.setOverlayWallpaper, { enabled: true });
 		} else {
 			// Un-parent from any WorkerW first, then set the normal z-order. Idempotent when the
 			// window was never parented (Rust SetParent to the desktop is a no-op there).
-			await invoke('set_overlay_wallpaper', { enabled: false }).catch(() => undefined);
+			await invoke(COMMANDS.setOverlayWallpaper, { enabled: false }).catch(() => undefined);
 			if (layer === 'bottom') {
 				await win.setAlwaysOnTop(false);
 				await win.setAlwaysOnBottom(true);
@@ -60,7 +61,7 @@ export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
 	// Surface the result: log to this window's console + broadcast so the studio Settings can show it
 	// (cross-window verification — "is the wallpaper/below mode actually applied on the overlay?").
 	console.info(`[overlay] layer '${layer}' on ${win.label}: ${ok ? 'OK' : 'FAILED'} — ${detail}`);
-	emit('overlay_layer_status', { layer, ok, detail, label: win.label }).catch(() => undefined);
+	emit(EVENTS.overlayLayerStatus, { layer, ok, detail, label: win.label }).catch(() => undefined);
 }
 
 /** The set of saved-layout monitor keys that hold at least one widget (so an overlay there would
@@ -69,7 +70,7 @@ export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
 async function populatedMonitorKeys(): Promise<Set<string>> {
 	const keys = new Set<string>();
 	try {
-		const raw = await invoke<string | null>('load_layout');
+		const raw = await invoke<string | null>(COMMANDS.loadLayout);
 		const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 		const layout = obj ? parseLayoutAny(obj) : null;
 		if (layout) {
@@ -150,7 +151,9 @@ export function monitorParam(): string | null {
  * (Phase 5b). Backend returns physical px; we rebase to the monitor origin + descale. */
 export async function monitorWorkArea(): Promise<Rect | null> {
 	try {
-		const wa = await invoke<{ x: number; y: number; w: number; h: number }>('current_work_area');
+		const wa = await invoke<{ x: number; y: number; w: number; h: number }>(
+			COMMANDS.currentWorkArea
+		);
 		const monitor = await currentMonitor();
 		if (!monitor) return null;
 		const s = monitor.scaleFactor;
@@ -234,7 +237,7 @@ export async function applyOverlayPresentation(
 		if (p.opaque) {
 			// Windowed-debug: a normal decorated, interactive, alt-tab-able window. Un-parent from any
 			// WorkerW and clear topmost/bottom so it behaves like an ordinary window you can move/close.
-			await invoke('set_overlay_wallpaper', { enabled: false }).catch(() => undefined);
+			await invoke(COMMANDS.setOverlayWallpaper, { enabled: false }).catch(() => undefined);
 			await win.setAlwaysOnTop(false);
 			await win.setAlwaysOnBottom(false);
 		} else {
@@ -255,7 +258,7 @@ export async function applyOverlayPresentation(
  *  the studio's manual counterpart to the Ctrl+Alt+Shift+E rescue hotkey. */
 export async function rescueWindows(): Promise<void> {
 	try {
-		await invoke('rescue_windows');
+		await invoke(COMMANDS.rescueWindows);
 	} catch (err) {
 		console.warn('rescue_windows failed', err);
 	}
@@ -265,7 +268,7 @@ export async function rescueWindows(): Promise<void> {
  * the JSON via core/controls.ts `parseControlOverrides`; this is just the Tauri I/O edge. */
 export async function loadControls(): Promise<string | null> {
 	try {
-		return await invoke<string | null>('load_controls');
+		return await invoke<string | null>(COMMANDS.loadControls);
 	} catch (err) {
 		console.warn('load_controls failed', err);
 		return null;
@@ -275,7 +278,7 @@ export async function loadControls(): Promise<string | null> {
 /** Persist the control remaps JSON (`{ version, overrides }`). */
 export async function saveControls(contents: string): Promise<void> {
 	try {
-		await invoke('save_controls', { contents });
+		await invoke(COMMANDS.saveControls, { contents });
 	} catch (err) {
 		console.warn('save_controls failed', err);
 	}
@@ -287,7 +290,7 @@ export async function saveControls(contents: string): Promise<void> {
  * DragSnapLayer parses it (core/migration.ts) to find `zone` widgets. Same file the layout uses. */
 export async function loadLayoutRaw(): Promise<string | null> {
 	try {
-		return await invoke<string | null>('load_layout');
+		return await invoke<string | null>(COMMANDS.loadLayout);
 	} catch (err) {
 		console.warn('load_layout failed', err);
 		return null;
@@ -298,7 +301,7 @@ export async function loadLayoutRaw(): Promise<string | null> {
  * the backend; returns [] off-Windows or on failure so the caller never throws. */
 export async function listWindows(): Promise<WindowDescriptor[]> {
 	try {
-		return await invoke<WindowDescriptor[]>('list_windows');
+		return await invoke<WindowDescriptor[]>(COMMANDS.listWindows);
 	} catch (err) {
 		console.warn('list_windows failed', err);
 		return [];
@@ -310,7 +313,7 @@ export async function listWindows(): Promise<WindowDescriptor[]> {
  * surfaced for an in-UI notice rather than thrown. Studio-only on the backend. */
 export async function snapWindow(hwnd: number, rect: Rect): Promise<boolean> {
 	try {
-		await invoke('snap_window', { hwnd, rect });
+		await invoke(COMMANDS.snapWindow, { hwnd, rect });
 		return true;
 	} catch (err) {
 		console.warn('snap_window failed', err);
@@ -323,7 +326,7 @@ export async function snapWindow(hwnd: number, rect: Rect): Promise<boolean> {
  * not-armed origin off-Windows / on failure so the poll loop never throws. */
 export async function pointerProbe(): Promise<{ x: number; y: number; shift: boolean }> {
 	try {
-		return await invoke<{ x: number; y: number; shift: boolean }>('pointer_probe');
+		return await invoke<{ x: number; y: number; shift: boolean }>(COMMANDS.pointerProbe);
 	} catch (err) {
 		console.warn('pointer_probe failed', err);
 		return { x: 0, y: 0, shift: false };
@@ -333,7 +336,7 @@ export async function pointerProbe(): Promise<{ x: number; y: number; shift: boo
 /** Theme names available in the config dir's `themes/` folder (Phase 7c). */
 export async function listThemes(): Promise<string[]> {
 	try {
-		return await invoke<string[]>('list_themes');
+		return await invoke<string[]>(COMMANDS.listThemes);
 	} catch (err) {
 		console.warn('list_themes failed', err);
 		return [];
@@ -344,7 +347,7 @@ export async function listThemes(): Promise<string[]> {
 export async function loadThemeCss(name: string): Promise<string> {
 	if (!name) return '';
 	try {
-		return (await invoke<string | null>('load_theme', { name })) ?? '';
+		return (await invoke<string | null>(COMMANDS.loadTheme, { name })) ?? '';
 	} catch (err) {
 		console.warn('load_theme failed', err);
 		return '';
@@ -363,7 +366,7 @@ export async function resolveThemeCss(name: string): Promise<string> {
 /** Write theme `name` (a bare stem) → `themes/<name>.css`. Used by the studio theme editor. */
 export async function saveThemeCss(name: string, contents: string): Promise<void> {
 	try {
-		await invoke('save_theme', { name, contents });
+		await invoke(COMMANDS.saveTheme, { name, contents });
 	} catch (err) {
 		console.warn('save_theme failed', err);
 	}
@@ -372,7 +375,7 @@ export async function saveThemeCss(name: string, contents: string): Promise<void
 /** Delete theme `name` → removes `themes/<name>.css` (idempotent). Used by the studio theme list. */
 export async function deleteThemeCss(name: string): Promise<void> {
 	try {
-		await invoke('delete_theme', { name });
+		await invoke(COMMANDS.deleteTheme, { name });
 	} catch (err) {
 		console.warn('delete_theme failed', err);
 	}
@@ -383,7 +386,7 @@ export async function deleteThemeCss(name: string): Promise<void> {
 /** The media filenames available in the app-config `wallpapers/` folder (the Background picker). */
 export async function listWallpapers(): Promise<string[]> {
 	try {
-		return await invoke<string[]>('list_wallpapers');
+		return await invoke<string[]>(COMMANDS.listWallpapers);
 	} catch (err) {
 		console.warn('list_wallpapers failed', err);
 		return [];
@@ -393,7 +396,7 @@ export async function listWallpapers(): Promise<string[]> {
 /** Resolve a wallpaper filename to an asset URL the webview can render (image/video `src`). */
 export async function wallpaperAssetUrl(name: string): Promise<string> {
 	try {
-		const path = await invoke<string>('wallpaper_path', { name });
+		const path = await invoke<string>(COMMANDS.wallpaperPath, { name });
 		return convertFileSrc(path);
 	} catch (err) {
 		console.warn('wallpaper_path failed', err);
@@ -404,7 +407,7 @@ export async function wallpaperAssetUrl(name: string): Promise<string> {
 /** Open the `wallpapers/` folder in Explorer so the user can drop media files in. */
 export async function openWallpapersDir(): Promise<void> {
 	try {
-		await invoke('open_wallpapers_dir');
+		await invoke(COMMANDS.openWallpapersDir);
 	} catch (err) {
 		console.warn('open_wallpapers_dir failed', err);
 	}
@@ -415,7 +418,7 @@ export async function openWallpapersDir(): Promise<void> {
 /** The names of saved sacks (file stems of `sacks/*.sack.json`). */
 export async function listSacks(): Promise<string[]> {
 	try {
-		return await invoke<string[]>('list_sacks');
+		return await invoke<string[]>(COMMANDS.listSacks);
 	} catch (err) {
 		console.warn('list_sacks failed', err);
 		return [];
@@ -425,7 +428,7 @@ export async function listSacks(): Promise<string[]> {
 /** The raw JSON of sack `name`, or null if it doesn't exist / fails to read. */
 export async function readSack(name: string): Promise<string | null> {
 	try {
-		return await invoke<string | null>('read_sack', { name });
+		return await invoke<string | null>(COMMANDS.readSack, { name });
 	} catch (err) {
 		console.warn('read_sack failed', err);
 		return null;
@@ -435,7 +438,7 @@ export async function readSack(name: string): Promise<string | null> {
 /** Write sack `name` with the given JSON; returns the absolute path written (or null on failure). */
 export async function writeSack(name: string, contents: string): Promise<string | null> {
 	try {
-		return await invoke<string>('write_sack', { name, contents });
+		return await invoke<string>(COMMANDS.writeSack, { name, contents });
 	} catch (err) {
 		console.warn('write_sack failed', err);
 		return null;
@@ -445,7 +448,7 @@ export async function writeSack(name: string, contents: string): Promise<string 
 /** The names of saved layout profiles (file stems of `layouts/*.layout.json`). */
 export async function listLayouts(): Promise<string[]> {
 	try {
-		return await invoke<string[]>('list_layouts');
+		return await invoke<string[]>(COMMANDS.listLayouts);
 	} catch (err) {
 		console.warn('list_layouts failed', err);
 		return [];
@@ -455,7 +458,7 @@ export async function listLayouts(): Promise<string[]> {
 /** The raw JSON of saved layout `name`, or null if it doesn't exist / fails to read. */
 export async function readLayout(name: string): Promise<string | null> {
 	try {
-		return await invoke<string | null>('read_layout', { name });
+		return await invoke<string | null>(COMMANDS.readLayout, { name });
 	} catch (err) {
 		console.warn('read_layout failed', err);
 		return null;
@@ -465,7 +468,7 @@ export async function readLayout(name: string): Promise<string | null> {
 /** Save the current monitor's layout as profile `name`; returns the path written (or null). */
 export async function saveLayoutAs(name: string, contents: string): Promise<string | null> {
 	try {
-		return await invoke<string>('save_layout_as', { name, contents });
+		return await invoke<string>(COMMANDS.saveLayoutAs, { name, contents });
 	} catch (err) {
 		console.warn('save_layout_as failed', err);
 		return null;
@@ -475,7 +478,7 @@ export async function saveLayoutAs(name: string, contents: string): Promise<stri
 /** Delete saved layout `name` (idempotent). Returns true on success. */
 export async function deleteLayout(name: string): Promise<boolean> {
 	try {
-		await invoke('delete_layout', { name });
+		await invoke(COMMANDS.deleteLayout, { name });
 		return true;
 	} catch (err) {
 		console.warn('delete_layout failed', err);
@@ -487,7 +490,7 @@ export async function deleteLayout(name: string): Promise<boolean> {
  * since the JS API doesn't expose it; relies on the `devtools` Cargo feature. */
 export async function openDevtools(): Promise<void> {
 	try {
-		await invoke('open_devtools');
+		await invoke(COMMANDS.openDevtools);
 	} catch (err) {
 		console.warn('open_devtools failed', err);
 	}
@@ -501,7 +504,7 @@ export async function openDevtools(): Promise<void> {
 /** Whether the app is registered to launch at login. */
 export async function isAutostartEnabled(): Promise<boolean> {
 	try {
-		return await invoke<boolean>('plugin:autostart|is_enabled');
+		return await invoke<boolean>(COMMANDS.autostartIsEnabled);
 	} catch (err) {
 		console.warn('autostart is_enabled failed', err);
 		return false;
@@ -511,7 +514,7 @@ export async function isAutostartEnabled(): Promise<boolean> {
 /** Enable/disable launch at login; returns the resulting (re-read) state. */
 export async function setAutostart(enabled: boolean): Promise<boolean> {
 	try {
-		await invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable');
+		await invoke(enabled ? COMMANDS.autostartEnable : COMMANDS.autostartDisable);
 	} catch (err) {
 		console.warn('autostart toggle failed', err);
 	}
@@ -531,7 +534,7 @@ export async function ensureFont(family: string): Promise<void> {
 	ensuredFonts.add(family);
 	try {
 		const want = normFont(family);
-		const fonts = await invoke<SystemFont[]>('system_fonts');
+		const fonts = await invoke<SystemFont[]>(COMMANDS.systemFonts);
 		const match = fonts.find((f) => normFont(f.name) === want || normFont(f.fontName) === want);
 		if (!match) {
 			console.warn(`ensureFont: "${family}" not found among installed fonts`);
@@ -682,7 +685,8 @@ export async function studioMonitorOptions(): Promise<
  * device tag alone. */
 async function displayNamesByDevice(): Promise<Map<string, string>> {
 	try {
-		const list = (await invoke<{ gdi: string; friendly: string }[]>('list_display_names')) ?? [];
+		const list =
+			(await invoke<{ gdi: string; friendly: string }[]>(COMMANDS.listDisplayNames)) ?? [];
 		return new Map(
 			list.map((d) => [d.gdi.replace(/^[\\.?]+/, '').toUpperCase(), (d.friendly ?? '').trim()])
 		);
@@ -848,7 +852,7 @@ export async function syncInteractiveRects(
 	const win = getCurrentWindow();
 	const label = win.label;
 	if (wholeWindowInteractive) {
-		await invoke('set_interactive_rects', { label, rects: [] });
+		await invoke(COMMANDS.setInteractiveRects, { label, rects: [] });
 		return;
 	}
 	const [scale, pos] = await Promise.all([win.scaleFactor(), win.outerPosition()]);
@@ -860,5 +864,5 @@ export async function syncInteractiveRects(
 			w: i.rect.w * scale,
 			h: i.rect.h * scale
 		}));
-	await invoke('set_interactive_rects', { label, rects });
+	await invoke(COMMANDS.setInteractiveRects, { label, rects });
 }

@@ -9,7 +9,7 @@
 .css-editor-loading {
 	min-height: 46px;
 	border: 1px solid var(--ui-border);
-	border-radius: 3px;
+	border-radius: var(--radius-control);
 	background: var(--ui-raised);
 }
 

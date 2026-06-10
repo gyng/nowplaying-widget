@@ -1,5 +1,5 @@
 // React glue between a widget's expr config fields and the sandboxed engine. Given a widget's expr
-// fields + its config, it parses the formulas (pure, core/template), subscribes to ONLY the sensors
+// fields + its config, it parses the formulas (pure, core/textTemplate), subscribes to ONLY the sensors
 // they reference (useSensors), evaluates them in the QuickJS sandbox when ready, and returns a map of
 // meter-prop overrides. WidgetHost spreads these over the meter's props (AGENTS.md §6: the container
 // owns the wiring; meters stay presentational). The WASM engine is loaded lazily — only when a widget
@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { TelemetryHub } from '../core/telemetry';
 import type { ExprField } from '../core/widget';
-import { exprRefs, parseTemplate, renderTemplate, templateRefs } from '../core/template';
+import { exprRefs, parseTemplate, renderTemplate, templateRefs } from '../core/textTemplate';
 import { useSensors } from '../widgets/useSensors';
 import { evalExpr, initFormulaEngine, isFormulaEngineReady, onFormulaEngineReady } from './engine';
 

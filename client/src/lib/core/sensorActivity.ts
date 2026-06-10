@@ -19,7 +19,7 @@ import {
 	type WidgetInstance
 } from './layoutTree';
 import { exprFieldsOf, getMeta } from './widget';
-import { exprRefs, templateRefs } from './template';
+import { exprRefs, templateRefs } from './textTemplate';
 
 // ---- demand-gating classification (mirrors widgetsack/src/sensors.rs) -----------------------------
 

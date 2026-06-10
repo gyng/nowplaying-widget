@@ -309,10 +309,10 @@ unsafe extern "system" fn win_event_proc(
         EVENT_SYSTEM_MOVESIZESTART => {
             // Dragging a snapped window out of its zone pops it back to its pre-snap size first.
             unsafe { restore_on_drag_out(hwnd) };
-            let _ = app.emit("win_drag_start", payload);
+            let _ = app.emit(crate::bridge::WIN_DRAG_START_EVENT, payload);
         }
         EVENT_SYSTEM_MOVESIZEEND => {
-            let _ = app.emit("win_drag_end", payload);
+            let _ = app.emit(crate::bridge::WIN_DRAG_END_EVENT, payload);
         }
         _ => {}
     }

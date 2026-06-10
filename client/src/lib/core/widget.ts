@@ -1,8 +1,8 @@
 // The standard widget API (Phase 8a). A widget TYPE is described by a framework-agnostic
-// `WidgetMeta` (defaults + config schema + how it binds to a sensor); the Svelte component
-// is attached in the widgets layer (registry.ts) so a React port reuses the metas verbatim.
+// `WidgetMeta` (defaults + config schema + how it binds to a sensor); the React component
+// is attached in the widgets layer (registry.tsx), keeping the metas framework-agnostic.
 // Built-in meters register their metas here on load, so `createWidget` is pure + testable
-// without the UI layer. Plugins add more via `registerMeta` (see widgets/registry.ts
+// without the UI layer. Plugins add more via `registerMeta` (see widgets/registry.tsx
 // `registerWidget`). Co-located vitest tests in widget.test.ts.
 
 import type { WidgetInstance } from './layout';
@@ -36,7 +36,7 @@ export type ConfigField =
 	// A formula field (Phase: expressions). `result` is what the evaluated value coerces to — 'number'
 	// for a numeric prop, 'text' for a string template. The evaluated value overrides the meter prop
 	// named `target` (defaults to `key`), winning over the bound sensor + static config. See
-	// lib/formula/* (sandboxed QuickJS) and lib/core/template.ts.
+	// lib/formula/* (sandboxed QuickJS) and lib/core/textTemplate.ts.
 	| ({
 			key: string;
 			label: string;
@@ -55,6 +55,9 @@ export type WidgetMeta = {
 	type: string;
 	binds?: SensorKind; // what sensor kind it reads ('none' = self-sourcing)
 	label?: string; // palette name
+	// Palette group header — without it the Add palette is a wall of ~20 same-weight chips.
+	// Plugin widgets default to the plugin's name at registration (widgets/plugin.ts).
+	category?: string;
 	description?: string; // one-line "what it is / what it's for" (palette tooltip + generated docs)
 	defaultSensor?: string;
 	defaultSize?: { w: number; h: number };
@@ -62,6 +65,11 @@ export type WidgetMeta = {
 	defaultCss?: string; // seeded into a new instance's editable `css` (the default LOOK lives here,
 	// not in the component, so it's fully restylable). The component ships structure only.
 	configFields?: ConfigField[];
+	// Config-driven multi-sensor binding: derive the NAMED sensor ids this type reads from an
+	// instance's config (pure — data in, data out). The wiring layer (WidgetHost) subscribes to each
+	// id and passes the meter a `sensors` prop (name → live SensorState), so multi-sensor meters
+	// stay props-only (AGENTS.md §6) — e.g. the stock ticker maps `stocks.<symbol>.*` per field.
+	sensors?: (config: Record<string, unknown>) => Record<string, string>;
 	// CSS-flow sizing hint. An 'intrinsic' meter has a natural CONTENT size (text — clock/text), so a
 	// `basis:'content'` leaf shrink-wraps to its rendered content (e.g. a date "4" + month "JUNE" each
 	// fit their text and sit adjacent). FILL meters (gauge/sparkline/analogclock: width:100% with no
@@ -185,6 +193,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Circular arc gauge for one scalar sensor (default 0–100%).',
 		binds: 'scalar',
 		label: 'Gauge',
+		category: 'Meters',
 		defaultSensor: 'cpu.total',
 		defaultSize: { w: 110, h: 110 },
 		defaultConfig: { label: 'CPU', unit: '%', min: 0, max: 100 },
@@ -207,6 +216,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Linear progress bar for one scalar sensor; horizontal or vertical.',
 		binds: 'scalar',
 		label: 'Bar',
+		category: 'Meters',
 		defaultSensor: 'mem.used',
 		defaultSize: { w: 140, h: 16 },
 		defaultConfig: { min: 0, max: 100, label: 'MEM' },
@@ -235,6 +245,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Compact line / area / histogram of a sensor history (a time series).',
 		binds: 'series',
 		label: 'Sparkline',
+		category: 'Meters',
 		defaultSensor: 'cpu.total',
 		defaultSize: { w: 140, h: 30 },
 		defaultConfig: { seconds: 60, barGap: 0.2, axis: true },
@@ -269,6 +280,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'A single value as formatted text (percent / rate / bytes / duration / integer) with an optional label.',
 		binds: 'scalar',
 		label: 'Text',
+		category: 'Meters',
 		intrinsic: true, // text meter → basis:'content' shrink-wraps to the rendered value
 		defaultSensor: 'net.down',
 		defaultSize: { w: 100, h: 18 },
@@ -289,6 +301,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Date / time clock using a date-fns format pattern (self-sourcing).',
 		binds: 'none',
 		label: 'Clock',
+		category: 'Clocks',
 		intrinsic: true, // text meter → basis:'content' shrink-wraps to the rendered string
 		defaultSize: { w: 160, h: 40 },
 		defaultConfig: { format: 'HH:mm:ss' },
@@ -311,6 +324,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Analog clock face with hour / minute / second hands (self-sourcing).',
 		binds: 'none',
 		label: 'Analog Clock',
+		category: 'Clocks',
 		defaultSize: { w: 120, h: 120 },
 		// Defaults to the minimal Enigma "Icon" look: ring + 3 hands, no ticks/numerals/cap, 1s tick.
 		defaultConfig: {
@@ -345,6 +359,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'Pressable button that runs a macro of {domain, service, data} calls (HA services or media transport).',
 		binds: 'none',
 		label: 'Button',
+		category: 'Utility',
 		defaultSize: { w: 90, h: 44 },
 		defaultConfig: { label: 'tap', actions: [] },
 		interactive: true,
@@ -365,6 +380,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		description: 'Self-sourcing CPU widget: a per-core sparkline grid or one combined gauge.',
 		binds: 'none',
 		label: 'CPU',
+		category: 'Meters',
 		defaultSize: { w: 160, h: 90 },
 		defaultConfig: { mode: 'cores', cols: 8, seconds: 30 },
 		configFields: [
@@ -404,6 +420,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'Self-sourcing audio spectrum (WASAPI loopback FFT): frequency bars or a scrolling spectrogram.',
 		binds: 'none',
 		label: 'Spectrum',
+		category: 'Meters',
 		defaultSize: { w: 220, h: 90 },
 		defaultConfig: { mode: 'bars', bars: 48, gap: 0.15, device: '', scale: 'log', pips: false },
 		configFields: [
@@ -455,6 +472,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'Embedded web page (self-hosted dashboards); optional click-through interactivity.',
 		binds: 'none',
 		label: 'Web Frame',
+		category: 'Utility',
 		defaultSize: { w: 320, h: 240 },
 		interactive: true,
 		defaultConfig: {
@@ -521,6 +539,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'A landing zone: drag a window over it (hold Shift) to snap it here; optional match rule auto-arranges windows. Invisible on the live overlay; shown only while editing.',
 		binds: 'none',
 		label: 'Zone',
+		category: 'Utility',
 		defaultSize: { w: 600, h: 400 },
 		defaultConfig: { matchExe: '', matchClass: '', matchTitle: '' },
 		configFields: [
@@ -541,6 +560,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			'An invisible spacer: empty whitespace that occupies layout space to push other widgets apart. Shown only as a faint outline while editing.',
 		binds: 'none',
 		label: 'Spacer',
+		category: 'Utility',
 		defaultSize: { w: 60, h: 40 }
 	},
 	{
@@ -552,6 +572,7 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		binds: 'none',
 		interactive: true,
 		label: 'Timer',
+		category: 'Clocks',
 		defaultSize: { w: 160, h: 96 },
 		defaultConfig: {
 			mode: 'countdown',

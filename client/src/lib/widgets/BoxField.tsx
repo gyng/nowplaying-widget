@@ -80,11 +80,13 @@ export default function BoxField({ label, value, max, onChange, dirty }: Props) 
 			>
 				{showLocked ? '🔒' : '🔓'}
 			</button>
+			{/* step=2 keeps the steppers on the canvas spacing scale (2/4/6/8/16); typed values are free. */}
 			{showLocked ? (
 				<input
 					type="number"
 					min="0"
 					max={max}
+					step="2"
 					aria-label={`${label} all sides`}
 					value={sides.t}
 					onInput={(e) => {
@@ -99,6 +101,7 @@ export default function BoxField({ label, value, max, onChange, dirty }: Props) 
 						type="number"
 						min="0"
 						max={max}
+						step="2"
 						aria-label={`${label} ${SIDE_LABEL[k]}`}
 						title={SIDE_LABEL[k]}
 						value={sides[k]}

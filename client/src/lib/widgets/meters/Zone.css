@@ -5,9 +5,9 @@
 	width: 100%;
 	height: 100%;
 	box-sizing: border-box;
-	border: 2px dashed rgba(119, 196, 211, 0.7);
+	border: 2px dashed color-mix(in srgb, var(--np-accent) 70%, transparent);
 	border-radius: 6px;
-	background: rgba(119, 196, 211, 0.06);
+	background: color-mix(in srgb, var(--np-accent) 6%, transparent);
 	display: flex;
 	align-items: flex-start;
 	justify-content: flex-start;
@@ -20,7 +20,7 @@
 	padding: 1px 6px;
 	margin: 4px;
 	border-radius: 4px;
-	background: rgba(119, 196, 211, 0.18);
+	background: color-mix(in srgb, var(--np-accent) 18%, transparent);
 	color: rgba(230, 245, 248, 0.95);
 	white-space: nowrap;
 	max-width: calc(100% - 8px);

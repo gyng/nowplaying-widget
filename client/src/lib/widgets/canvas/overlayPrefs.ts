@@ -5,6 +5,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { readJson, writeJson } from '../../../stores/persist';
+
 const KEY = 'widgetsack.overlay.prefs';
 
 // The overlay's window z-order:
@@ -36,21 +38,13 @@ export const OVERLAY_PREF_DEFAULTS: OverlayPrefs = {
 };
 
 export function readOverlayPrefs(): OverlayPrefs {
-	try {
-		const raw = localStorage.getItem(KEY);
-		if (!raw) return OVERLAY_PREF_DEFAULTS;
-		return { ...OVERLAY_PREF_DEFAULTS, ...(JSON.parse(raw) as Partial<OverlayPrefs>) };
-	} catch {
-		return OVERLAY_PREF_DEFAULTS;
-	}
+	const raw = readJson(KEY);
+	if (!raw) return OVERLAY_PREF_DEFAULTS;
+	return { ...OVERLAY_PREF_DEFAULTS, ...(raw as Partial<OverlayPrefs>) };
 }
 
 export function writeOverlayPrefs(p: OverlayPrefs): void {
-	try {
-		localStorage.setItem(KEY, JSON.stringify(p));
-	} catch {
-		/* ignore quota / unavailable */
-	}
+	writeJson(KEY, p);
 }
 
 // Current overlay prefs + a patch setter; re-renders this window when ANY same-origin window writes.

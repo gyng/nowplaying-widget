@@ -1,8 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import Inspector from './Inspector';
+import Inspector, { groupPalette } from './Inspector';
 import { container, leaf, type WidgetInstance } from '../core/layoutTree';
 import type { LayoutOp } from './ops';
+
+describe('groupPalette', () => {
+	it('groups by category in first-seen order, keeping registration order within a group', () => {
+		const groups = groupPalette([
+			{ type: 'gauge', label: 'Gauge', category: 'Meters' },
+			{ type: 'clock', label: 'Clock', category: 'Clocks' },
+			{ type: 'bar', label: 'Bar', category: 'Meters' }
+		]);
+		expect(groups.map((g) => g.category)).toEqual(['Meters', 'Clocks']);
+		expect(groups[0].items.map((i) => i.type)).toEqual(['gauge', 'bar']);
+	});
+
+	it('sinks uncategorized entries to a trailing "Other" group', () => {
+		const groups = groupPalette([
+			{ type: 'mystery', label: 'Mystery' },
+			{ type: 'gauge', label: 'Gauge', category: 'Meters' }
+		]);
+		expect(groups.map((g) => g.category)).toEqual(['Meters', 'Other']);
+		expect(groups[1].items[0].type).toBe('mystery');
+	});
+});
 
 const flowWidget: WidgetInstance = {
 	id: 'w1',

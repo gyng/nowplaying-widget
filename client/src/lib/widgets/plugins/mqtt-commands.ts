@@ -3,6 +3,7 @@
 // password is passed INWARD only (save); it is never returned (see mqtt-types.ts).
 
 import { invoke } from '@tauri-apps/api/core';
+import { COMMANDS } from '../../bridge/contract';
 import type { MqttCatalogEntry, MqttStatus } from './mqtt-types';
 
 export type MqttConfigInput = {
@@ -18,18 +19,19 @@ export type MqttConfigInput = {
 };
 
 /** Non-secret config status — never the password. */
-export const mqttConfigStatus = (): Promise<MqttStatus> => invoke<MqttStatus>('mqtt_config_status');
+export const mqttConfigStatus = (): Promise<MqttStatus> =>
+	invoke<MqttStatus>(COMMANDS.mqttConfigStatus);
 
 /** Persist `plugins/mqtt.json`. A blank `password` keeps the previously-saved one. */
 export const saveMqttConfig = (cfg: MqttConfigInput): Promise<void> =>
-	invoke('save_mqtt_config', { ...cfg });
+	invoke(COMMANDS.saveMqttConfig, { ...cfg });
 
 /** Start the MQTT client iff configured (idempotent). */
-export const mqttConnect = (): Promise<void> => invoke('mqtt_connect');
+export const mqttConnect = (): Promise<void> => invoke(COMMANDS.mqttConnect);
 
 /** Stop the MQTT client (if any). */
-export const mqttDisconnect = (): Promise<void> => invoke('mqtt_disconnect');
+export const mqttDisconnect = (): Promise<void> => invoke(COMMANDS.mqttDisconnect);
 
 /** Seen + discovered topics (id + friendly label + unit) for the inspector dropdown. */
 export const mqttCatalog = (): Promise<MqttCatalogEntry[]> =>
-	invoke<MqttCatalogEntry[]>('mqtt_catalog');
+	invoke<MqttCatalogEntry[]>(COMMANDS.mqttCatalog);

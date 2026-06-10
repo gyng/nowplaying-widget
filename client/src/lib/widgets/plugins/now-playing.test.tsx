@@ -1,16 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// startMediaSource()/getMediaCapabilities() call Tauri (no runtime in tests) — stub the module.
+// startMediaSource()/getMediaCapabilities()/mediaControl() call Tauri (no runtime in tests) — stub
+// the module.
 vi.mock('../../components/NowPlaying/source', () => ({
 	startMediaSource: () => undefined,
-	getMediaCapabilities: () => Promise.resolve(null)
+	getMediaCapabilities: () => Promise.resolve(null),
+	mediaControl: () => Promise.resolve()
 }));
 vi.mock('../../overlay', () => ({ copyToClipboard: () => Promise.resolve(true) }));
 
-import './now-playing'; // side-effect: registers the plugin + the nowplaying widget meta + np source
+import { registerNowPlayingPlugin } from './now-playing';
 import { listPlugins } from '../plugin';
 import { sourceCatalogIds } from '../../core/plugin';
 import { configCompleteness, createWidget, getMeta } from '../../core/widget';
+
+// Registers the plugin + the nowplaying widget meta + the np source (was an import side-effect).
+registerNowPlayingPlugin();
 
 describe('now-playing plugin', () => {
 	it('registers as a plugin with a settings panel + a media source', () => {
@@ -20,7 +25,7 @@ describe('now-playing plugin', () => {
 		expect(p?.sources?.some((s) => s.id === 'now-playing')).toBe(true);
 	});
 
-	it('registers the self-sourcing nowplaying widget meta (its look ships as editable css)', () => {
+	it('registers the nowplaying widget meta (its look ships as editable css)', () => {
 		expect(getMeta('nowplaying')?.binds).toBe('none');
 		const w = createWidget('nowplaying', 'np1');
 		expect(w.css).toContain('.np-title');

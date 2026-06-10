@@ -103,7 +103,16 @@ widgetsack/                 Rust / Tauri backend (the workspace member)
     state.rs                SessionRecord + updater() — the pure session reducer
     sensors.rs              System sensor poll loop (CPU/mem/net/GPU) → "telemetry"; pure seams
     ha.rs                   Home Assistant proxy (WS + REST); token stays server-side; pure seams
+    mqtt.rs / stocks.rs     Peer telemetry sources (broker proxy / quote poller) — same shape as ha.rs
+    llm.rs                  AI-provider proxy (Anthropic/OpenAI/Ollama); API key stays server-side
+    media.rs                Media transport control + per-session capability flags (GSMTC write side)
+    audio.rs                WASAPI loopback FFT → spectrum widget frames over a Tauri Channel
+    windowmgr.rs            Foreign-window enumeration + landing-zone snapping (Win32 edge)
+    display.rs              Friendly monitor names via the Windows CCD API
+    control.rs              Opt-in localhost agent-control HTTP endpoint (media/HA actuation)
     clickthrough.rs         Per-widget interactive rects + click-through cursor watcher
+    process_diag.rs         Host-process CPU/mem snapshot for the studio Diagnostics panel
+    log.rs                  Structured LogRecord logging (console + ring buffer)
     command.rs              #[tauri::command] handlers (layout/theme/sack I/O, fonts, devtools)
   tauri.conf.json           Window config, build hooks, bundle settings (product "widgetsack")
   capabilities/             Tauri capability files
@@ -133,7 +142,12 @@ client/                     React frontend
                                     Clock, Text, Button, Cpu, NowPlaying, Ha*  (+ *.test.tsx)
         canvas/                     editor hooks: useEditorModel, usePersistence, useKeyboard,
                                     useStudioInit, dragIntent, dropPlacement, … (+ *.test.ts)
-        plugins/                    home-assistant.ts, ha-source.ts
+        plugins/                    plugin registrations + Tauri command adapters:
+                                    home-assistant / now-playing / mqtt / stocks / llm (ai-provider)
+      llm/                  LLM stream adapter + reusable useLlmChat hook
+      audio/                spectrum Channel adapter for the audio FFT stream
+      formula/              QuickJS-WASM sandbox engine for user `expr` fields
+      windows/              window-presence source (list_windows → telemetry, for appOpen conditions)
       components/NowPlaying/
         source.ts                   Tauri media adapter (listen/invoke)
         priority.ts + .test.ts      pure source-priority sort (domain) + tests
@@ -240,8 +254,9 @@ pass with the simplest code, then refactor under green.
   the solver, sensor math, serialization shape) can be exercised without real media,
   hardware, or a window.
 
-`state.rs::updater` still has no Rust tests — it is the prime candidate for new ones if you
-touch it. Pure-seam tests in `sensors.rs` / `ha.rs` show the pattern to follow.
+`state.rs::updater` is covered by a `#[cfg(test)] mod tests` block (create/update/delete);
+keep it green when you touch the reducer. Pure-seam tests in `sensors.rs` / `ha.rs` show the
+same pattern to follow for new seams.
 
 ---
 
@@ -323,14 +338,26 @@ presentational (pure) components**. Current code already models the key split:
 - **Presentational meters stay pure and stateless.** A meter takes its value(s) and config
   as props and renders — it does not read a store, call Tauri, or subscribe to a sensor. The
   container (`WidgetHost`) does the `useSensor` subscription and feeds the meter plain props.
+  A type that reads SEVERAL sensors declares a `sensors` map in its meta
+  (`WidgetMeta.sensors`: config → named sensor ids); `WidgetHost` resolves it (`useSensorMap`)
+  and passes the meter a `sensors` prop (see the stock ticker). A type with bespoke wiring gets
+  a sibling container in `widgets/` registered as its component
+  ([NowPlayingHost.tsx](client/src/lib/widgets/NowPlayingHost.tsx),
+  [AssistantHost.tsx](client/src/lib/widgets/AssistantHost.tsx)). Documented exceptions —
+  meters that still self-source because their inputs can't be declared from config: `Cpu`
+  (discovers the `cpu.core.*` id set from the hub at runtime), `Spectrum` (streams FFT frames
+  over a dedicated Tauri channel), and `Transcribe` (push-to-talk microphone + transcription
+  calls). Don't add new ones.
 - **Containers own the wiring.** Subscriptions, `invoke`, `listen`, monitor/window controls,
   and persistence belong in `Canvas.tsx`, the `canvas/` hooks, the Tauri adapters, or the
   store — not in leaf meters.
 - **Adding a new widget type** = (1) add a presentational meter under
   [meters/](client/src/lib/widgets/meters/) consuming props, with a co-located test;
   (2) register it in [registry.tsx](client/src/lib/widgets/registry.tsx); (3) declare its
-  config/sensor metadata via the [widget.ts](client/src/lib/core/widget.ts) meta API. Keep
-  the meter prop-driven; let `WidgetHost` bind the sensor.
+  config/sensor metadata via the [widget.ts](client/src/lib/core/widget.ts) meta API;
+  (4) run `npm run gen:docs` — `check:docs` is a CI gate and fails if
+  [docs/widgets.md](docs/widgets.md) drifts from the registry. Keep the meter prop-driven;
+  let `WidgetHost` bind the sensor.
 - **Hooks** carry reusable stateful logic and live next to their consumer (`use*` naming,
   e.g. `useSensor.ts`, `canvas/useKeyboard.ts`). Pure helpers a hook leans on (e.g.
   `dragIntent`, `dropPlacement`, `menuPosition`) live as plain modules with their own tests.

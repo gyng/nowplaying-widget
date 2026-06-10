@@ -17,6 +17,7 @@ import { moveRect, resizeRect, type ResizeHandle } from '../core/geometry';
 import { exprFieldsOf, getMeta } from '../core/widget';
 import { registry } from './registry';
 import { useSensor } from './useSensor';
+import { useSensorMap } from './useSensorMap';
 import { useFormulaFields } from '../formula/useFormula';
 import { dragMoveIntent } from './canvas/dragIntent';
 import WidgetErrorBoundary from './WidgetErrorBoundary';
@@ -141,6 +142,17 @@ function WidgetHost({
 
 	// A sentinel id keeps the hook valid for self-sourcing widgets (no sensor).
 	const sensorState = useSensor(hub, instance.sensor ?? '__none__');
+	// Config-driven multi-sensor binding (WidgetMeta.sensors): resolve the named id map from the
+	// instance config and subscribe to each — the meter receives a `sensors` prop (name →
+	// SensorState) and stays props-only (AGENTS.md §6). Undefined for single/no-sensor types.
+	const sensorIds = useMemo(
+		() => getMeta(instance.type)?.sensors?.(instance.config),
+		[instance.type, instance.config]
+	);
+	const sensorMap = useSensorMap(hub, sensorIds);
+	// Only passed when the meta declares the binding — never collide with a config key `sensors`
+	// (e.g. the AI Briefing's sensor-id CSV) on types that don't.
+	const multiSensorProps = sensorIds ? { sensors: sensorMap } : undefined;
 	const Comp = registry[instance.type];
 	// How this widget binds to its sensor drives the meter's value-shape (Phase 8).
 	const binds = getMeta(instance.type)?.binds ?? 'scalar';
@@ -356,6 +368,7 @@ function WidgetHost({
 						<Comp
 							{...meterConfig}
 							{...formulaOverrides}
+							{...multiSensorProps}
 							editMode={editMode}
 							onControl={handleControl}
 						/>
@@ -364,6 +377,7 @@ function WidgetHost({
 							value={rawValue}
 							{...meterConfig}
 							{...formulaOverrides}
+							{...multiSensorProps}
 							onControl={handleControl}
 						/>
 					) : (
@@ -372,6 +386,7 @@ function WidgetHost({
 							history={history}
 							{...meterConfig}
 							{...formulaOverrides}
+							{...multiSensorProps}
 							onControl={handleControl}
 						/>
 					)}

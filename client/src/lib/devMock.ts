@@ -5,6 +5,7 @@
 // eliminated). It forces the STUDIO role and answers the boot commands with empty/canned data; the
 // goal is a clean-booting editor to exercise, not real telemetry.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { COMMANDS } from './bridge/contract';
 
 const MONITOR = {
 	name: 'Mock-1920',
@@ -24,27 +25,27 @@ export function installDevMock(): void {
 	mockIPC((cmd, args) => {
 		switch (cmd) {
 			// --- boot: persistence / themes / controls / fonts (empty so the studio opens blank) ---
-			case 'load_layout':
-			case 'load_controls':
-			case 'load_theme':
-			case 'read_sack':
+			case COMMANDS.loadLayout:
+			case COMMANDS.loadControls:
+			case COMMANDS.loadTheme:
+			case COMMANDS.readSack:
 				return null;
-			case 'list_themes':
-			case 'list_sacks':
-			case 'list_wallpapers':
-			case 'get_logs':
-			case 'system_fonts':
-			case 'list_display_names':
+			case COMMANDS.listThemes:
+			case COMMANDS.listSacks:
+			case COMMANDS.listWallpapers:
+			case COMMANDS.getLogs:
+			case COMMANDS.systemFonts:
+			case COMMANDS.listDisplayNames:
 				// 'list_display_names' (Windows-only friendly monitor names) has no real displays under the
 				// mock, so the switcher falls back to the device tag — and the boot stays self-policing.
 				return [];
-			case 'current_work_area':
+			case COMMANDS.currentWorkArea:
 				return { x: 0, y: 0, w: MONITOR.size.width, h: MONITOR.size.height - 48 };
 
 			// --- media (now-playing): no sessions / no caps ---
-			case 'get_initial_sessions':
+			case COMMANDS.getInitialSessions:
 				return { sessions: {} };
-			case 'media_capabilities':
+			case COMMANDS.mediaCapabilities:
 				return null;
 
 			// --- window / monitor plugin: one fake 1920×1080 monitor (empty list → no multi-monitor UI) ---
@@ -59,15 +60,15 @@ export function installDevMock(): void {
 				return ++evtId;
 
 			// --- autostart ---
-			case 'plugin:autostart|is_enabled':
+			case COMMANDS.autostartIsEnabled:
 				return false;
 
 			// --- Home Assistant proxy: not configured, no entities. Catalogs MUST be [] (not null) —
 			// ha-source caches the result and later .map()s it; a null would throw on the next read. ---
-			case 'ha_connect':
-			case 'ha_disconnect':
+			case COMMANDS.haConnect:
+			case COMMANDS.haDisconnect:
 				return undefined;
-			case 'list_ha_entities':
+			case COMMANDS.listHaEntities:
 				// A few canned entities so the dev studio's sensor typeahead has something to filter/pick
 				// (there's no live telemetry under the mock). Shape mirrors HaEntity (ha-types.ts).
 				return [
@@ -81,20 +82,20 @@ export function installDevMock(): void {
 					{ entity_id: 'sensor.memory_used', state: '41', friendly_name: 'Memory Used', unit: '%' },
 					{ entity_id: 'light.kitchen', state: 'on', friendly_name: 'Kitchen Light' }
 				];
-			case 'ha_config_status':
+			case COMMANDS.haConfigStatus:
 				return { configured: false, url: null, insecure: false, base_path: '' };
-			case 'ha_registry_snapshot':
+			case COMMANDS.haRegistrySnapshot:
 				return { areas: [], devices: [], entities: [] };
-			case 'ha_test_connection':
+			case COMMANDS.haTestConnection:
 				return { ha_version: null };
 
 			// --- MQTT proxy: not configured, empty catalog (same []-not-null rule as HA). ---
-			case 'mqtt_connect':
-			case 'mqtt_disconnect':
+			case COMMANDS.mqttConnect:
+			case COMMANDS.mqttDisconnect:
 				return undefined;
-			case 'mqtt_catalog':
+			case COMMANDS.mqttCatalog:
 				return [];
-			case 'mqtt_config_status':
+			case COMMANDS.mqttConfigStatus:
 				return {
 					configured: false,
 					host: '',
@@ -107,19 +108,19 @@ export function installDevMock(): void {
 				};
 
 			// --- audio outputs (the Spectrum widget's device picker) ---
-			case 'list_audio_outputs':
+			case COMMANDS.listAudioOutputs:
 				return [];
 
 			// --- stocks proxy: not configured (mirrors HA/MQTT; shape = StocksStatus). ---
-			case 'stocks_connect':
-			case 'stocks_disconnect':
+			case COMMANDS.stocksConnect:
+			case COMMANDS.stocksDisconnect:
 				return undefined;
-			case 'stocks_config_status':
+			case COMMANDS.stocksConfigStatus:
 				return { configured: false, provider: '', symbols: [], pollSeconds: 60 };
 
 			// --- AI provider: not configured (shape = LlmStatus). `llm_complete` returns canned layout
 			// ops so the layout assistant is exercisable under Playwright without a real model. ---
-			case 'llm_config_status':
+			case COMMANDS.llmConfigStatus:
 				return {
 					configured: false,
 					active: 'openai',
@@ -128,33 +129,33 @@ export function installDevMock(): void {
 					maxTokens: 1024,
 					agentControl: false
 				};
-			case 'control_start':
-			case 'control_stop':
+			case COMMANDS.controlStart:
+			case COMMANDS.controlStop:
 				return undefined;
-			case 'llm_test_connection':
+			case COMMANDS.llmTestConnection:
 				return { model: 'mock', reply: 'OK' };
-			case 'llm_list_models':
+			case COMMANDS.llmListModels:
 				return [];
-			case 'llm_complete':
+			case COMMANDS.llmComplete:
 				return '{"ops":[{"op":"addWidget","widgetType":"clock"}],"summary":"added a clock (mock)"}';
-			case 'llm_stream':
-			case 'llm_cancel':
+			case COMMANDS.llmStream:
+			case COMMANDS.llmCancel:
 				return undefined;
-			case 'llm_transcribe':
+			case COMMANDS.llmTranscribe:
 				return 'add a clock to the top left'; // canned transcript so the mic flow is testable in dev
-			case 'llm_synthesize':
+			case COMMANDS.llmSynthesize:
 				// No provider TTS in dev — reject so speakSmart falls back to the browser voice.
 				throw new Error('no provider TTS in dev mock');
 
 			// --- wallpapers (Background section) ---
-			case 'wallpaper_path':
+			case COMMANDS.wallpaperPath:
 				return `C:/mock/wallpapers/${(args as { name?: string } | undefined)?.name ?? ''}`;
-			case 'open_wallpapers_dir':
+			case COMMANDS.openWallpapersDir:
 				return null;
 
 			// --- widget actuation (only fired by clicking a live control, never at boot) ---
-			case 'media_control':
-			case 'ha_call_service':
+			case COMMANDS.mediaControl:
+			case COMMANDS.haCallService:
 				return null;
 
 			default:
@@ -165,8 +166,8 @@ export function installDevMock(): void {
 					cmd.startsWith('plugin:') ||
 					cmd.startsWith('save_') ||
 					cmd.startsWith('set_') ||
-					cmd === 'open_devtools' ||
-					cmd === 'write_sack'
+					cmd === COMMANDS.openDevtools ||
+					cmd === COMMANDS.writeSack
 				) {
 					return undefined;
 				}

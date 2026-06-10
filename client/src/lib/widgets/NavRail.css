@@ -10,7 +10,7 @@
 	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
-	padding: 4px 0;
+	padding: var(--space-2) 0;
 	background: var(--ui-surface);
 	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	z-index: 6;
@@ -25,9 +25,9 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 1px;
+	gap: var(--space-1);
 	width: 100%;
-	padding: 6px 2px;
+	padding: var(--space-3) var(--space-1);
 	border: none;
 	border-left: 2px solid transparent;
 	background: transparent;
@@ -65,7 +65,7 @@
 }
 
 .canvas .nav-rail .nav-short {
-	font-size: 10px;
+	font-size: var(--text-sm);
 	letter-spacing: 0.2px;
 	text-transform: uppercase;
 }
@@ -81,11 +81,11 @@
 	bottom: var(--bar-b, 0);
 	box-sizing: border-box;
 	overflow-y: auto;
-	padding: 12px 16px;
+	padding: var(--space-5) var(--space-6);
 	background: var(--ui-bg);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 12px;
+	font-size: var(--text-lg);
 	z-index: 7;
 	pointer-events: auto;
 	/* A quick fade + tiny rise on open, so swapping sections reads as "new screen" not a hard cut. */
@@ -107,13 +107,13 @@
 .canvas .rail-panel .rp-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-	gap: 6px;
-	margin-bottom: 4px;
+	gap: var(--space-3);
+	margin-bottom: var(--space-2);
 }
 
 .canvas .rail-panel .rp-grid button {
 	margin: 0;
-	padding: 12px 6px;
+	padding: var(--space-5) var(--space-3);
 	text-align: center;
 }
 
@@ -135,25 +135,25 @@
 	width: calc(var(--rail-l, 250px) - var(--nav-w, 56px) - var(--pane-gap, 6px));
 	box-sizing: border-box;
 	overflow-y: auto;
-	padding: 6px;
+	padding: var(--space-4); /* same panel inset as the Outline / Inspector rails */
 	background: var(--ui-surface);
 	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 	z-index: 6;
 	pointer-events: auto;
 }
 
 .canvas .designer-list .dl-new {
 	width: 100%;
-	margin-bottom: 6px;
-	padding: 5px;
+	margin-bottom: var(--space-3);
+	padding: var(--space-3);
 	background: rgba(var(--ui-accent-rgb), 0.16);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.6);
 	color: var(--ui-accent-fg);
 	font-family: monospace;
-	font-size: 12px;
+	font-size: var(--text-lg);
 	cursor: pointer;
 }
 
@@ -164,13 +164,13 @@
 /* Secondary action: copy the generated widget reference (agent handoff). */
 .canvas .designer-list .dl-ref {
 	width: 100%;
-	margin-bottom: 8px;
-	padding: 4px;
+	margin-bottom: var(--space-4);
+	padding: var(--space-2);
 	background: var(--ui-raised);
 	border: 1px solid var(--ui-border-strong);
 	color: var(--ui-fg-muted);
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 	cursor: pointer;
 }
 
@@ -183,19 +183,20 @@
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	margin: 8px 0 3px;
+	font-size: var(--text-sm);
+	margin: var(--space-4) 0 var(--space-2);
 }
 
 .canvas .designer-list .dl-items {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--space-1);
 }
 
 .canvas .designer-list .dl-item {
 	display: flex;
 	align-items: center;
-	border-radius: 2px;
+	border-radius: var(--radius-control);
 }
 
 .canvas .designer-list .dl-item.cur {
@@ -214,8 +215,8 @@
 	background: transparent;
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 3px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
 	cursor: pointer;
 }
 
@@ -228,7 +229,7 @@
 	border: none;
 	background: transparent;
 	color: var(--ui-fg-dim);
-	padding: 3px 6px;
+	padding: var(--space-1) var(--space-3);
 	cursor: pointer;
 	/* Reveal on hover/selection/focus (mirrors the Outline's .mv treatment) so the resting row stays
 	   uncluttered and the destructive ✕ isn't a live target at rest — but the buttons stay in the DOM
@@ -249,7 +250,7 @@
 }
 
 .canvas .designer-list .dl-icon:disabled {
-	opacity: 0.3;
+	opacity: var(--disabled-opacity);
 	cursor: default;
 }
 
@@ -258,8 +259,8 @@
 }
 
 .canvas .designer-list .rp-stub {
-	color: var(--dim-fg);
-	padding: 4px 2px;
+	color: var(--ui-fg-dim);
+	padding: var(--space-2) var(--space-1);
 }
 
 /* The editor placeholder shown until a widget is opened (covers the stage + inspector area). Stacks a
@@ -275,12 +276,12 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 10px;
-	padding: 16px;
+	gap: var(--space-5);
+	padding: var(--space-6);
 	background: var(--ui-bg);
-	color: var(--dim-fg);
+	color: var(--ui-fg-dim);
 	font-family: monospace;
-	font-size: 12px;
+	font-size: var(--text-lg);
 	z-index: 5;
 	pointer-events: auto;
 }
@@ -288,7 +289,7 @@
 /* The heading above the hint — mirrors the .rp-hd section-header vocabulary (accent + uppercase). */
 .canvas .designer-empty .de-title {
 	color: rgb(var(--ui-accent-rgb));
-	font-size: 14px;
+	font-size: var(--text-xl);
 	text-transform: uppercase;
 	letter-spacing: 1px;
 }
@@ -303,13 +304,17 @@
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	margin: 2px 0 4px;
+	font-size: var(--text-sm);
+	margin: var(--space-4) 0 var(--space-2);
+}
+
+.canvas .rail-panel .rp-hd:first-child {
+	margin-top: 0;
 }
 
 .canvas .rail-panel .rp-hd:not(:first-child) {
-	margin-top: 10px;
 	border-top: 1px solid var(--ui-border);
-	padding-top: 6px;
+	padding-top: var(--space-3);
 }
 
 .canvas .rail-panel button {
@@ -317,9 +322,10 @@
 	border: 1px solid var(--ui-border-strong);
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 6px;
-	margin: 0 2px 2px 0;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
+	margin: 0 var(--space-1) var(--space-1) 0;
+	min-height: var(--control-h);
 	cursor: pointer;
 }
 
@@ -342,17 +348,18 @@
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
-	margin-bottom: 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
+	margin-bottom: var(--space-2);
+	min-height: var(--control-h);
 }
 
 /* Theme token override fields (mirrors the Inspector's "Theme tokens" group). */
 .canvas .rail-panel .tk-field {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	margin-bottom: 6px;
+	gap: var(--space-1);
+	margin-bottom: var(--space-3);
 	color: var(--ui-fg-muted);
 }
 
@@ -363,8 +370,9 @@
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
+	min-height: var(--control-h);
 }
 
 .canvas .rail-panel .tk-field input:focus {
@@ -381,12 +389,12 @@
    exist, so the global-and-persistent token state is both discoverable and undoable. */
 .canvas .rail-panel button.tk-clear {
 	width: 100%;
-	margin-top: 2px;
+	margin-top: var(--space-1);
 	background: transparent;
 	border: 1px solid var(--ui-border-strong);
-	color: var(--dim-fg);
-	border-radius: 3px;
-	padding: 4px 6px;
+	color: var(--ui-fg-dim);
+	border-radius: var(--radius-control);
+	padding: var(--space-2) var(--space-3);
 	cursor: pointer;
 	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
@@ -402,9 +410,9 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
-	margin: 6px 0;
-	color: #bbb;
+	gap: var(--space-4);
+	margin: var(--space-3) 0;
+	color: var(--ui-fg-muted);
 }
 
 .canvas .rail-panel.bg-panel .bg-field > span {
@@ -415,28 +423,29 @@
 .canvas .rail-panel.bg-panel .bg-field input[type='text'] {
 	flex: 1 1 0;
 	min-width: 0;
-	background: var(--ui-raised, #1a1a1e);
-	color: var(--ui-fg, #eee);
-	border: 1px solid var(--ui-border-strong, #333);
+	background: var(--ui-raised);
+	color: var(--ui-fg);
+	border: 1px solid var(--ui-border-strong);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 2px 4px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-2);
+	min-height: var(--control-h);
 }
 
 .canvas .rail-panel.bg-panel .bg-field input[type='color'] {
 	flex: 0 0 auto;
 	width: 40px;
-	height: 22px;
+	height: var(--control-h);
 	padding: 0;
 	background: transparent;
-	border: 1px solid var(--ui-border-strong, #333);
+	border: 1px solid var(--ui-border-strong);
 	cursor: pointer;
 }
 
 .canvas .rail-panel.bg-panel .bg-range {
 	flex-direction: column;
 	align-items: stretch;
-	gap: 2px;
+	gap: var(--space-1);
 }
 
 .canvas .rail-panel.bg-panel .bg-range input[type='range'] {
@@ -448,26 +457,26 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	margin-top: 8px;
+	margin-top: var(--space-4);
 }
 
 .canvas .rail-panel.bg-panel .rp-sub {
-	color: var(--dim-fg);
+	color: var(--ui-fg-dim);
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	font-size: 10px;
+	font-size: var(--text-sm);
 }
 
 .canvas .rail-panel.bg-panel .bg-files-ops {
 	display: flex;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .canvas .rail-panel.bg-panel .bg-files {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
-	margin: 4px 0;
+	gap: var(--space-1);
+	margin: var(--space-2) 0;
 }
 
 .canvas .rail-panel.bg-panel .bg-file {
@@ -475,12 +484,12 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	background: var(--ui-raised, #1a1a1e);
-	border: 1px solid var(--ui-border-strong, #333);
-	color: var(--ui-fg, #eee);
+	background: var(--ui-raised);
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 3px 6px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
 	cursor: pointer;
 }
 
@@ -491,30 +500,30 @@
 .canvas .rail-panel.bg-panel .bg-file.cur {
 	border-color: rgb(var(--ui-accent-rgb));
 	background: rgba(var(--ui-accent-rgb), 0.16);
-	color: #fff;
+	color: var(--ui-fg);
 }
 
 .canvas .rail-panel.bg-panel .bg-checks {
 	display: flex;
-	gap: 12px;
-	margin: 6px 0;
+	gap: var(--space-5);
+	margin: var(--space-3) 0;
 }
 
 .canvas .rail-panel.bg-panel .bg-check {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	color: #bbb;
+	gap: var(--space-2);
+	color: var(--ui-fg-muted);
 }
 
 .canvas .rail-panel.bg-panel button.bg-clear {
 	width: 100%;
-	margin-top: 8px;
+	margin-top: var(--space-4);
 	background: transparent;
-	border: 1px solid var(--ui-border-strong, #3a3a40);
-	color: var(--dim-fg);
-	border-radius: 3px;
-	padding: 4px 6px;
+	border: 1px solid var(--ui-border-strong);
+	color: var(--ui-fg-dim);
+	border-radius: var(--radius-control);
+	padding: var(--space-2) var(--space-3);
 	cursor: pointer;
 	transition: border-color var(--motion-fast, 100ms) var(--ease-out, ease-out),
 		color var(--motion-fast, 100ms) var(--ease-out, ease-out);
@@ -522,19 +531,19 @@
 
 .canvas .rail-panel.bg-panel button.bg-clear:hover {
 	border-color: rgb(var(--ui-danger-rgb));
-	color: var(--ui-danger-fg, rgb(230, 160, 160));
+	color: var(--ui-danger-fg);
 }
 
 .canvas .rail-panel .rp-list {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--space-1);
 }
 
 /* A list row with a primary action (load, fills the row) + a trailing delete (✕). */
 .canvas .rail-panel .rp-list-row {
 	display: flex;
-	gap: 4px;
+	gap: var(--space-2);
 }
 
 .canvas .rail-panel .rp-list-row > button:first-child {
@@ -554,8 +563,8 @@
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
-	gap: 6px;
-	padding: 1px 2px;
+	gap: var(--space-3);
+	padding: var(--space-1);
 	color: var(--ui-fg-muted);
 	white-space: nowrap;
 }
@@ -566,7 +575,7 @@
    vs filled vs hollow shapes read clearly. */
 .canvas .rail-panel .sensor-dot {
 	flex: 0 0 auto;
-	font-size: 11px;
+	font-size: var(--text-md);
 	line-height: 1;
 }
 .canvas .rail-panel .sensor-dot.on {
@@ -584,13 +593,13 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 3px 12px;
-	margin-bottom: 8px;
-	color: var(--dim-fg);
-	font-size: 10px;
+	gap: var(--space-1) var(--space-5);
+	margin-bottom: var(--space-4);
+	color: var(--ui-fg-dim);
+	font-size: var(--text-sm);
 }
 .canvas .rail-panel .rp-sensor-legend .sensor-dot {
-	margin-right: 3px;
+	margin-right: var(--space-1);
 }
 .canvas .rail-panel .rp-sensor-legend .rp-count {
 	margin-left: auto;
@@ -612,7 +621,7 @@
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	color: var(--dim-fg);
+	color: var(--ui-fg-dim);
 }
 
 /* "from <plugin>" provenance badge: a small pill between the id and value, so plugin sensors (HA /
@@ -623,48 +632,74 @@
 	max-width: 40%;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	padding: 0 6px;
+	padding: 0 var(--space-3);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.45);
 	border-radius: 999px;
-	font-size: 9px;
+	font-size: var(--text-xs);
 	line-height: 1.5;
 	color: var(--ui-accent-fg);
 	background: rgba(var(--ui-accent-rgb), 0.1);
 }
 
-/* Theme picker: a selectable list (replaces a <select>), each a full-width row; the active theme is
-   highlighted + badged. Overrides the chunky generic .rail-panel button look for a list-item feel. */
+/* Theme picker: a responsive grid of preview CARDS (a 26-theme list of full-width rows carried two
+   colour dots per ~1500px row — near-zero information density). Each card is the swatch blown up
+   into a mini "surface" strip with the accent/fg dots on it, the name beneath, and the active card
+   highlighted + badged. Overrides the chunky generic .rail-panel button look. */
 .canvas .rail-panel .theme-list {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	margin-bottom: 6px;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+	gap: var(--space-2);
+	margin-bottom: var(--space-3);
 }
 
 /* One picker section (a built-in group like "Dark", or "Your themes"): its .rp-hd header + .theme-list
-   rows. Tightens the header's top margin so groups read as a stack of labelled bands. */
-.canvas .rail-panel .theme-group .rp-hd {
-	margin: 8px 0 3px;
-}
-
+   cards. Tightens the first header's top margin so groups read as a stack of labelled bands. */
 .canvas .rail-panel .theme-group:first-of-type .rp-hd {
-	margin-top: 2px;
+	margin-top: 0;
 }
 
 .canvas .rail-panel button.theme-row {
 	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 6px;
+	flex-direction: column;
+	align-items: stretch;
+	gap: var(--space-2);
 	width: 100%;
 	margin: 0;
-	padding: 5px 8px;
+	padding: var(--space-2);
 	text-align: left;
 	white-space: nowrap;
 	background: var(--ui-raised);
 	border: 1px solid var(--ui-border);
-	border-radius: 3px;
+	border-radius: var(--radius-panel);
 	color: var(--ui-fg);
+}
+
+/* The card's swatch: the row-sized chip scaled to a full-width surface strip so the theme's
+   bg/accent/fg actually read at a glance (the chip stays 24×16 everywhere else, e.g. the app-bar
+   dropdown). */
+.canvas .rail-panel .theme-row .np-swatch {
+	width: 100%;
+	height: 36px;
+	gap: var(--space-3);
+}
+
+.canvas .rail-panel .theme-row .np-swatch-dot {
+	width: 10px;
+	height: 10px;
+}
+
+/* Name + "active" badge share the card's footer line. */
+.canvas .rail-panel .theme-row .theme-card-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.canvas .rail-panel .theme-row .rp-id {
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .canvas .rail-panel button.theme-row:hover {
@@ -677,14 +712,14 @@
 	color: var(--ui-fg);
 }
 
-/* A theme row + its per-theme action icons (✎ edit raw CSS · ⎘ duplicate · ✕ delete), mirroring the
+/* A theme card + its per-theme action icons (✎ edit raw CSS · ⎘ duplicate · ✕ delete), mirroring the
    widget-designer list's dl-item/dl-icon treatment: the icons reveal on hover/selection/focus so the
-   resting list stays clean and the destructive ✕ isn't a live target at rest — but they stay in the
-   DOM + tab order for keyboard reach. */
+   resting grid stays clean and the destructive ✕ isn't a live target at rest — but they stay in the
+   DOM + tab order for keyboard reach. They float over the card's swatch corner. */
 .canvas .rail-panel .theme-item {
+	position: relative;
 	display: flex;
-	align-items: center;
-	gap: 2px;
+	align-items: stretch;
 }
 
 .canvas .rail-panel .theme-item button.theme-row {
@@ -694,9 +729,13 @@
 }
 
 .canvas .rail-panel .theme-acts {
+	position: absolute;
+	top: var(--space-2);
+	right: var(--space-2);
 	display: flex;
-	flex: 0 0 auto;
 	gap: 0;
+	background: color-mix(in srgb, var(--ui-bg) 70%, transparent);
+	border-radius: var(--radius-control);
 }
 
 .canvas .rail-panel .theme-item .dl-icon {
@@ -704,7 +743,7 @@
 	border: none;
 	background: transparent;
 	color: var(--ui-fg-dim);
-	padding: 3px 6px;
+	padding: var(--space-1) var(--space-3);
 	cursor: pointer;
 	opacity: 0;
 	transition: opacity var(--motion-fast, 100ms) var(--ease-out, ease-out),
@@ -728,16 +767,16 @@
 /* Sensor source groups (the Sensors section): a collapsible header (caret + source name + count)
    above that source's responsive sensor grid. The header overrides the chunky generic button look. */
 .canvas .rail-panel .rp-group {
-	margin-bottom: 6px;
+	margin-bottom: var(--space-3);
 }
 
 .canvas .rail-panel button.rp-group-hd {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--space-4);
 	width: 100%;
-	margin: 0 0 2px;
-	padding: 4px 6px;
+	margin: 0 0 var(--space-1);
+	padding: var(--space-2) var(--space-3);
 	text-align: left;
 	background: transparent;
 	border: none;
@@ -746,7 +785,7 @@
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	font-size: 10px;
+	font-size: var(--text-sm);
 }
 
 .canvas .rail-panel button.rp-group-hd:hover {
@@ -769,8 +808,8 @@
 .canvas .rail-panel .rp-filter {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	margin-bottom: 8px;
+	gap: var(--space-4);
+	margin-bottom: var(--space-4);
 }
 
 .canvas .rail-panel .rp-filter input {
@@ -780,10 +819,10 @@
 	background: var(--ui-raised);
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border-strong);
-	border-radius: 3px;
-	padding: 4px 8px;
+	border-radius: var(--radius-control);
+	padding: var(--space-2) var(--space-4);
 	font-family: monospace;
-	font-size: 11px;
+	font-size: var(--text-md);
 }
 
 .canvas .rail-panel .rp-filter input:focus {
@@ -793,13 +832,13 @@
 
 .canvas .rail-panel .rp-count {
 	flex: 0 0 auto;
-	color: var(--dim-fg);
-	font-size: 10px;
+	color: var(--ui-fg-dim);
+	font-size: var(--text-sm);
 }
 
 .canvas .rail-panel .rp-stub {
-	color: var(--dim-fg);
-	padding: 8px 2px;
+	color: var(--ui-fg-dim);
+	padding: var(--space-4) var(--space-1);
 }
 
 /* The Plugins section: a clickable plugin list (left) + the selected plugin's settings/summary
@@ -813,7 +852,7 @@
 	flex: 0 0 220px;
 	box-sizing: border-box;
 	overflow-y: auto;
-	padding: 12px 10px;
+	padding: var(--space-5);
 	border-right: 1px solid rgba(var(--ui-accent-rgb), 0.5);
 }
 
@@ -821,19 +860,44 @@
 	display: block;
 	width: 100%;
 	text-align: left;
-	margin: 0 0 1px;
-	padding: 5px 6px;
+	margin: 0 0 var(--space-1);
+	padding: var(--space-3);
 	background: transparent;
 	border: none;
 	border-left: 2px solid transparent;
 	color: var(--ui-fg);
 	font-family: monospace;
-	font-size: 12px;
+	font-size: var(--text-lg);
 	cursor: pointer;
 }
 
 .canvas .plugins-panel .pl-item:hover {
 	background: rgba(var(--ui-accent-rgb), 0.1);
+}
+
+/* Per-plugin status dot (PluginStatusDot): ok = live/configured, warn = connecting/error/failed
+   to load, off = not configured. Colors ride the centralized --ui-* tokens. */
+.canvas .plugins-panel .pl-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: var(--space-2);
+	background: var(--ui-fg-dim);
+}
+
+.canvas .plugins-panel .pl-dot--ok {
+	background: var(--ui-success-fg);
+}
+
+.canvas .plugins-panel .pl-dot--warn {
+	background: var(--ui-warn-fg);
+}
+
+/* A plugin whose registration threw: an inert row (not selectable — it has no detail pane). */
+.canvas .plugins-panel .pl-item.pl-failed {
+	color: var(--ui-fg-dim);
+	cursor: default;
 }
 
 .canvas .plugins-panel .pl-item.cur {
@@ -846,22 +910,25 @@
 	flex: 1 1 auto;
 	box-sizing: border-box;
 	overflow-y: auto;
-	padding: 12px 16px;
+	padding: var(--space-5) var(--space-6);
 }
 
 /* One source's id row + its live sensor list (ids + values), set off from the next source. */
 .canvas .plugins-panel .pl-source {
-	margin-bottom: 8px;
+	margin-bottom: var(--space-4);
 }
 
+/* Panel TITLE: one ramp step above the section headers, same uppercase voice. */
 .canvas .plugins-panel .pl-title {
-	font-size: 14px;
+	font-size: var(--text-xl);
+	text-transform: uppercase;
+	letter-spacing: 1px;
 	color: var(--ui-accent-fg);
 }
 
 .canvas .plugins-panel .pl-desc {
 	color: var(--ui-fg-muted);
-	margin: 2px 0 6px;
+	margin: var(--space-1) 0 var(--space-3);
 	max-width: 560px;
 	line-height: 1.5;
 }
@@ -870,7 +937,7 @@
    Danger item is tinted red as a pre-warning (error prevention), standalone action buttons get a
    little breathing room, and the About repo wraps instead of overflowing. */
 .canvas .settings-panel .pl-detail > button {
-	margin-top: 6px;
+	margin-top: var(--space-3);
 }
 
 .canvas .settings-panel .pl-item.set-danger {
@@ -896,8 +963,8 @@
 .canvas .settings-panel .about-hd {
 	display: flex;
 	align-items: center;
-	gap: 12px;
-	margin-bottom: 4px;
+	gap: var(--space-5);
+	margin-bottom: var(--space-2);
 }
 
 .canvas .settings-panel .about-mascot {
@@ -916,7 +983,7 @@
 
 .canvas .plugins-panel .nps-help {
 	color: var(--ui-fg-dim);
-	margin: 0 0 4px;
+	margin: 0 0 var(--space-2);
 	line-height: 1.5;
 }
 
@@ -931,14 +998,14 @@
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border);
 	font-family: monospace;
-	font-size: 12px;
-	padding: 4px 6px;
+	font-size: var(--text-lg);
+	padding: var(--space-2) var(--space-3);
 	resize: vertical;
 }
 
 .canvas .plugins-panel .nps-cur {
 	color: var(--ui-fg-muted);
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .canvas .plugins-panel .nps-cur span {
@@ -948,7 +1015,7 @@
 .canvas .plugins-panel .nps-sources {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: var(--space-1);
 	margin: 0;
 	padding: 0;
 	list-style: none;
@@ -957,9 +1024,9 @@
 .canvas .plugins-panel .nps-source {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	padding: 2px 4px;
-	border-radius: 2px;
+	gap: var(--space-3);
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-control);
 }
 
 .canvas .plugins-panel .nps-source:hover {
@@ -990,8 +1057,8 @@
 	border: 1px solid var(--ui-border-strong);
 	color: var(--ui-fg-muted);
 	font-family: monospace;
-	font-size: 11px;
-	padding: 1px 6px;
+	font-size: var(--text-md);
+	padding: var(--space-1) var(--space-3);
 	cursor: pointer;
 }
 
@@ -1004,7 +1071,7 @@
 }
 
 .canvas .plugins-panel .nps-add:disabled {
-	opacity: 0.35;
+	opacity: var(--disabled-opacity);
 	cursor: not-allowed;
 }
 
@@ -1023,10 +1090,10 @@
 	flex: 0 0 auto;
 	background: rgba(var(--ui-accent-rgb), 0.2);
 	border: 1px solid rgba(var(--ui-accent-rgb), 0.5);
-	border-radius: 2px;
+	border-radius: var(--radius-control);
 	color: var(--ui-accent-fg);
-	font-size: 9px;
-	padding: 0 3px;
+	font-size: var(--text-xs);
+	padding: 0 var(--space-1);
 }
 
 /* The Reset button, armed (awaiting the confirming second click). */
@@ -1037,32 +1104,32 @@
 
 /* The read-only "live session" region, set off from the editable settings above. */
 .canvas .plugins-panel .nps-live {
-	margin-top: 10px;
+	margin-top: var(--space-5);
 	border-top: 1px solid rgba(var(--ui-accent-rgb), 0.35);
-	padding-top: 2px;
+	padding-top: var(--space-1);
 }
 
 /* Live values = the bindable np.* sensors: id · value · copy. */
 .canvas .plugins-panel .nps-readout {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
-	margin-bottom: 2px;
+	gap: var(--space-1);
+	margin-bottom: var(--space-1);
 }
 
 .canvas .plugins-panel .nps-sensor {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 1px 2px;
+	gap: var(--space-4);
+	padding: var(--space-1);
 }
 
 .canvas .plugins-panel .nps-sensor-id {
 	flex: 0 0 auto;
 	background: var(--ui-raised);
-	border-radius: 2px;
+	border-radius: var(--radius-control);
 	color: var(--ui-fg-muted);
-	padding: 1px 5px;
+	padding: var(--space-1) var(--space-3);
 }
 
 .canvas .plugins-panel .nps-sensor-val {
@@ -1082,7 +1149,7 @@
 	border: none;
 	color: var(--ui-fg-dim);
 	cursor: pointer;
-	padding: 0 4px;
+	padding: 0 var(--space-2);
 }
 
 .canvas .plugins-panel .nps-copy:hover {
@@ -1093,7 +1160,7 @@
 .canvas .plugins-panel .nps-caps {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-	gap: 2px 8px;
+	gap: var(--space-1) var(--space-4);
 }
 
 .canvas .plugins-panel .nps-cap {
@@ -1121,8 +1188,8 @@
 .canvas .plugins-panel .nps-entries {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	margin: 0 0 4px;
+	gap: var(--space-1);
+	margin: 0 0 var(--space-2);
 	padding: 0;
 	list-style: none;
 }
@@ -1130,11 +1197,11 @@
 .canvas .plugins-panel .nps-entry {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	padding: 2px 4px;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
 	background: rgba(255, 255, 255, 0.03);
 	border: 1px solid var(--ui-border);
-	border-radius: 2px;
+	border-radius: var(--radius-control);
 }
 
 .canvas .plugins-panel .nps-entry:hover {
@@ -1174,7 +1241,7 @@
 .canvas .plugins-panel .nps-mini {
 	flex: 0 0 auto;
 	margin: 0;
-	padding: 0 4px;
+	padding: 0 var(--space-2);
 	background: transparent;
 	border: none;
 	color: var(--ui-fg-dim);
@@ -1186,7 +1253,7 @@
 }
 
 .canvas .plugins-panel .nps-mini:disabled {
-	opacity: 0.3;
+	opacity: var(--disabled-opacity);
 	cursor: default;
 }
 
@@ -1196,13 +1263,13 @@
 
 /* Collapsed raw-text fallback (a process that isn't running can't be quick-added, so edit by hand). */
 .canvas .plugins-panel .nps-raw {
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .canvas .plugins-panel .nps-raw > summary {
 	color: var(--ui-fg-dim);
 	cursor: pointer;
-	padding: 2px 0;
+	padding: var(--space-1) 0;
 	user-select: none;
 }
 
@@ -1211,7 +1278,7 @@
 }
 
 .canvas .plugins-panel .nps-raw .nps-area {
-	margin-top: 4px;
+	margin-top: var(--space-2);
 }
 
 /* Home Assistant settings (rendered inside .pl-detail): connection form + live status badge. */
@@ -1222,12 +1289,12 @@
 .canvas .plugins-panel .has-statusline {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	margin-bottom: 6px;
+	gap: var(--space-5);
+	margin-bottom: var(--space-3);
 }
 
 .canvas .plugins-panel .has-badge {
-	font-size: 11px;
+	font-size: var(--text-md);
 	color: var(--ui-fg-dim);
 }
 
@@ -1258,20 +1325,20 @@
 
 .canvas .plugins-panel .has-state-dim {
 	color: var(--ui-fg-dim);
-	font-size: 11px;
+	font-size: var(--text-md);
 }
 
 .canvas .plugins-panel .has-help {
 	color: var(--ui-fg-dim);
-	margin: 0 0 8px;
+	margin: 0 0 var(--space-4);
 	line-height: 1.5;
 }
 
 .canvas .plugins-panel .has-field {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
-	margin-bottom: 8px;
+	gap: var(--space-1);
+	margin-bottom: var(--space-4);
 	color: var(--ui-fg-muted);
 }
 
@@ -1282,8 +1349,9 @@
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border);
 	font-family: monospace;
-	font-size: 12px;
-	padding: 4px 6px;
+	font-size: var(--text-lg);
+	padding: var(--space-2) var(--space-3);
+	min-height: var(--control-h);
 }
 
 .canvas .plugins-panel .has-field input:focus {
@@ -1294,26 +1362,26 @@
 .canvas .plugins-panel .has-check {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--space-3);
 	color: var(--ui-fg-muted);
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 	cursor: pointer;
 }
 
 .canvas .plugins-panel .has-warn {
 	color: var(--ui-warn-fg);
 	line-height: 1.5;
-	margin: 0 0 8px;
+	margin: 0 0 var(--space-4);
 }
 
 .canvas .plugins-panel .has-advanced {
-	margin: 0 0 8px;
+	margin: 0 0 var(--space-4);
 }
 
 .canvas .plugins-panel .has-advanced > summary {
 	color: var(--ui-fg-dim);
 	cursor: pointer;
-	padding: 2px 0;
+	padding: var(--space-1) 0;
 	user-select: none;
 }
 
@@ -1322,14 +1390,14 @@
 }
 
 .canvas .plugins-panel .has-field small.has-help {
-	margin-top: 2px;
+	margin-top: var(--space-1);
 }
 
 .canvas .plugins-panel .has-actions {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	margin-top: 8px;
+	gap: var(--space-3);
+	margin-top: var(--space-4);
 }
 
 .canvas .plugins-panel .has-actions button.has-primary {
@@ -1338,7 +1406,7 @@
 }
 
 .canvas .plugins-panel .has-actions button:disabled {
-	opacity: 0.4;
+	opacity: var(--disabled-opacity);
 	cursor: not-allowed;
 }
 
@@ -1351,7 +1419,7 @@
 
 .canvas .plugins-panel .has-ok {
 	color: var(--ui-success-fg);
-	font-size: 11px;
+	font-size: var(--text-md);
 	/* The only save feedback in the studio with no motion otherwise — give it a gentle entrance so the
 	   tick reads as a confirmation event (it auto-dismisses from the component after ~2.5s). */
 	animation: has-ok-in var(--motion, 150ms) var(--ease-spring, ease-out);
@@ -1369,7 +1437,7 @@
 }
 
 .canvas .plugins-panel .has-test {
-	margin-top: 6px;
+	margin-top: var(--space-3);
 	line-height: 1.5;
 }
 
@@ -1384,9 +1452,9 @@
 /* HA entity browser: search + refresh bar, count, and the expose/copy entity rows. */
 .canvas .plugins-panel .has-browser-bar {
 	display: flex;
-	gap: 6px;
+	gap: var(--space-3);
 	align-items: center;
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .canvas .plugins-panel .has-search {
@@ -1396,8 +1464,9 @@
 	color: var(--ui-fg);
 	border: 1px solid var(--ui-border);
 	font-family: monospace;
-	font-size: 12px;
-	padding: 4px 6px;
+	font-size: var(--text-lg);
+	padding: var(--space-2) var(--space-3);
+	min-height: var(--control-h);
 }
 
 .canvas .plugins-panel .has-search:focus {
@@ -1413,9 +1482,9 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
+	gap: var(--space-4);
 	color: var(--ui-fg-dim);
-	margin-bottom: 4px;
+	margin-bottom: var(--space-2);
 }
 
 .canvas .plugins-panel .has-group-toggle {
@@ -1425,31 +1494,32 @@
 
 /* Grouped (area > device > entity) browser. */
 .canvas .plugins-panel .has-area {
-	margin-bottom: 6px;
+	margin-bottom: var(--space-3);
 }
 
 .canvas .plugins-panel .has-area-hd {
 	color: rgb(var(--ui-accent-rgb));
 	text-transform: uppercase;
 	letter-spacing: 1px;
+	font-size: var(--text-sm);
 	border-bottom: 1px solid var(--ui-border);
-	padding: 4px 0 2px;
-	margin-bottom: 2px;
+	padding: var(--space-2) 0 var(--space-1);
+	margin-bottom: var(--space-1);
 }
 
 .canvas .plugins-panel .has-device {
-	margin: 2px 0 2px 8px;
+	margin: var(--space-1) 0 var(--space-1) var(--space-4);
 }
 
 .canvas .plugins-panel .has-device-hd {
 	color: var(--ui-fg-muted);
-	padding: 1px 0;
+	padding: var(--space-1) 0;
 }
 
 .canvas .plugins-panel .has-entities {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: var(--space-1);
 	margin: 0;
 	padding: 0;
 	list-style: none;
@@ -1458,9 +1528,9 @@
 .canvas .plugins-panel .has-entity {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 2px 4px;
-	border-radius: 2px;
+	gap: var(--space-4);
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-control);
 }
 
 .canvas .plugins-panel .has-entity:hover {
@@ -1509,7 +1579,7 @@
 	border: none;
 	color: var(--ui-fg-dim);
 	cursor: pointer;
-	padding: 0 4px;
+	padding: 0 var(--space-2);
 }
 
 .canvas .plugins-panel .has-copy:hover {

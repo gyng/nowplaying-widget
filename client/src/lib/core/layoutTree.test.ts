@@ -10,6 +10,7 @@ import {
 	isLeaf,
 	leaf,
 	resolvePad,
+	ROOT_PAD,
 	type Group
 } from './layoutTree';
 
@@ -21,13 +22,19 @@ const prim = (id: string): WidgetInstance => ({
 });
 
 describe('constructors', () => {
-	it('emptyRoot is an empty col that stretches its children', () => {
-		expect(emptyRoot()).toEqual({ id: 'root', kind: 'col', children: [], align: 'stretch' });
+	it('emptyRoot is an empty padded col that stretches its children', () => {
+		expect(emptyRoot()).toEqual({
+			id: 'root',
+			kind: 'col',
+			children: [],
+			align: 'stretch',
+			pad: ROOT_PAD
+		});
 	});
 
 	it('emptyMonitorLayout pairs an empty root with no floating', () => {
 		expect(emptyMonitorLayout()).toEqual({
-			root: { id: 'root', kind: 'col', children: [], align: 'stretch' },
+			root: { id: 'root', kind: 'col', children: [], align: 'stretch', pad: ROOT_PAD },
 			floating: []
 		});
 	});

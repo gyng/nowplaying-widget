@@ -7,8 +7,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TelemetryBatch, TelemetryHub } from '../core/telemetry';
 import { registerSource, type SensorSource } from '../core/plugin';
 import { isStudioWindow } from '../overlay';
+import { COMMANDS, EVENTS } from '../bridge/contract';
 
-export const TELEMETRY_EVENT = 'telemetry';
+export const TELEMETRY_EVENT = EVENTS.telemetry;
 
 /** Wildcard sentinel: this window wants every sensor sampled (GPU included). */
 const ALL_SENSORS = '*';
@@ -16,7 +17,7 @@ const ALL_SENSORS = '*';
 const REPORT_DEBOUNCE_MS = 250;
 
 const reportActive = (ids: string[]): void => {
-	void invoke('set_active_sensors', { ids }).catch((err) => {
+	void invoke(COMMANDS.setActiveSensors, { ids }).catch((err) => {
 		console.error('set_active_sensors failed', err);
 	});
 };

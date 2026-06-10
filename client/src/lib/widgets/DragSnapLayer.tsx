@@ -15,6 +15,7 @@ import { planArrangement } from '../core/arrange';
 import { parseLayoutAny } from '../core/migration';
 import { isGroup } from '../core/layoutTree';
 import { loadLayoutRaw, pointerProbe, snapWindow, listWindows, monitorParam } from '../overlay';
+import { EVENTS } from '../bridge/contract';
 import './DragSnapLayer.css';
 
 const POLL_MS = 33; // ~30Hz cursor poll while a drag is in progress
@@ -88,7 +89,7 @@ export default function DragSnapLayer() {
 			reload();
 		});
 
-		const unlisten = listen('layout_changed', reload);
+		const unlisten = listen(EVENTS.layoutChanged, reload);
 		return () => {
 			alive = false;
 			unlisten.then((u) => u());
@@ -117,13 +118,13 @@ export default function DragSnapLayer() {
 			}
 		};
 
-		const startP = listen<DragPayload>('win_drag_start', () => {
+		const startP = listen<DragPayload>(EVENTS.winDragStart, () => {
 			hoveredRef.current = null;
 			stopPoll();
 			pollRef.current = window.setInterval(tick, POLL_MS);
 		});
 
-		const endP = listen<DragPayload>('win_drag_end', async (e) => {
+		const endP = listen<DragPayload>(EVENTS.winDragEnd, async (e) => {
 			stopPoll();
 			const zone = hoveredRef.current;
 			hoveredRef.current = null;
@@ -131,7 +132,7 @@ export default function DragSnapLayer() {
 			if (zone) await snapWindow(e.payload.hwnd, zone.rect);
 		});
 
-		const arrangeP = listen('arrange_zones', async () => {
+		const arrangeP = listen(EVENTS.arrangeZones, async () => {
 			const plans = planArrangement(physRef.current, await listWindows());
 			for (const p of plans) await snapWindow(p.hwnd, p.rect);
 		});

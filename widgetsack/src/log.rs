@@ -21,7 +21,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Tauri event name carrying one `LogRecord` to the webview (the logs UI's live stream).
-pub const LOG_EVENT: &str = "log";
+/// The string itself lives in bridge.rs with the rest of the bridge contract.
+pub use crate::bridge::LOG_EVENT;
 
 /// Most recent entries retained for a UI that opens after the fact. Oldest drop past this.
 const BUFFER_CAP: usize = 1000;

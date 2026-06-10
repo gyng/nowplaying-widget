@@ -127,11 +127,15 @@ export type LayoutV2 = {
 };
 
 // Reusable library entry (Phase 6). Instantiate one def many times, rebinding params.
+/** One value a select param can take (rendered as a dropdown option). */
+export type ParamChoice = { value: string; label: string };
 export type ParamSpec = {
 	key: string; // e.g. 'core'
 	label?: string;
 	default?: unknown;
 	target?: string; // dotted path into the cloned child, e.g. 'unit.sensor'
+	targets?: string[]; // several paths driven by ONE value (e.g. a locale shared by two clocks)
+	choices?: ParamChoice[]; // present → the param is a SELECT; values are validated against it
 };
 
 export type WidgetDef = {
@@ -177,8 +181,16 @@ export function isGroup(unit: WidgetInstance | Group): unit is Group {
 /** An empty in-flow root: a column with no children (the v2 migration target). Stretches
  * its children to full width by default (like flexbox's own `align-items: stretch`), so a
  * pane added to the root fills the available width rather than collapsing to 0. */
+// Editor-facing spacing defaults. The canvas spacing scale is 2 / 4 / 6 / 8 / 16
+// (hairline / tight / default gap / section / screen edge — the demo seed's outer anchors).
+// Applied at CREATION time only (new containers, fresh monitors); the solver keeps `?? 0`
+// fallbacks, so layouts saved before these defaults existed render exactly as they did.
+export const NEW_CONTAINER_GAP = 6;
+export const ROOT_PAD = 16;
+
 export function emptyRoot(): Container {
-	return { id: 'root', kind: 'col', children: [], align: 'stretch' };
+	// `pad` keeps docked widgets off the literal screen edge / taskbar line out of the box.
+	return { id: 'root', kind: 'col', children: [], align: 'stretch', pad: ROOT_PAD };
 }
 
 export function emptyMonitorLayout(): MonitorLayout {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Layout as LayoutV1, WidgetInstance } from './layout';
+import { emptyRoot } from './layoutTree';
 import { migrateV1, parseLayoutAny } from './migration';
 
 const widget = (id: string, x: number, y: number, w: number, h: number): WidgetInstance => ({
@@ -19,12 +20,9 @@ describe('migrateV1', () => {
 		};
 		const v2 = migrateV1(v1);
 		expect(v2.version).toBe(2);
-		expect(v2.monitors.default.root).toEqual({
-			id: 'root',
-			kind: 'col',
-			children: [],
-			align: 'stretch'
-		});
+		// The canonical empty root (incl. its creation-time pad — harmless here: v1 widgets are
+		// all floating with verbatim rects, so an empty padded root renders nothing differently).
+		expect(v2.monitors.default.root).toEqual(emptyRoot());
 		expect(v2.monitors.default.floating).toHaveLength(2);
 		expect(v2.monitors.default.floating[0]).toEqual({
 			id: 'g',
@@ -96,12 +94,7 @@ describe('parseLayoutAny', () => {
 	it('tolerates a missing v2 root by substituting an empty root', () => {
 		const r = parseLayoutAny({ version: 2, monitors: { m: { floating: [] } } });
 		expect(r).not.toBeNull();
-		expect(r?.monitors.m.root).toEqual({
-			id: 'root',
-			kind: 'col',
-			children: [],
-			align: 'stretch'
-		});
+		expect(r?.monitors.m.root).toEqual(emptyRoot());
 	});
 
 	it('preserves a valid per-monitor background and drops a malformed one', () => {

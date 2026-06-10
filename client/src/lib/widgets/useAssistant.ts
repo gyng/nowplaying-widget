@@ -1,15 +1,16 @@
-// Per-instance generation for the self-sourcing AI Briefing widget. A self-sourcing meter's stateful
-// hook (the documented exception — like Cpu/Spectrum read their source): it snapshots the live sensor
-// hub, calls the LLM provider on the widget's own schedule (interval or cron), and exposes the text.
-// Pure logic lives elsewhere — the schedule math in core/schedule.ts, the prompt in core/llm.ts.
+// Per-instance generation for the AI Briefing widget — the stateful half of the AssistantHost
+// container (AGENTS.md §6: wiring lives in the widgets layer, not in meters/). It snapshots the live
+// sensor hub, calls the LLM provider on the widget's own schedule (interval or cron), and exposes
+// the text; the pure meters/Assistant meter just renders what it's given. Pure logic lives
+// elsewhere — the schedule math in core/schedule.ts, the prompt in core/llm.ts.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTelemetryHub } from '../telemetryContext';
-import type { SensorValue, TelemetryHub } from '../../core/telemetry';
-import { buildAssistantMessages } from '../../core/llm';
-import { cronMatches, intervalMs, isCron } from '../../core/schedule';
-import { isStudioWindow } from '../../overlay';
-import { speakSmart } from '../plugins/llm-tts';
-import { llmComplete } from '../plugins/llm-commands';
+import { useTelemetryHub } from './telemetryContext';
+import type { SensorValue, TelemetryHub } from '../core/telemetry';
+import { buildAssistantMessages } from '../core/llm';
+import { cronMatches, intervalMs, isCron } from '../core/schedule';
+import { isStudioWindow } from '../overlay';
+import { speakSmart } from './plugins/llm-tts';
+import { llmComplete } from './plugins/llm-commands';
 
 // The default sensor snapshot ("auto") — present-only; absent ids are skipped.
 const AUTO_WATCH = [

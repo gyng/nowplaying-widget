@@ -1,11 +1,11 @@
-// Self-sourcing stock/crypto ticker (binds: 'none'): reads the `stocks.<SYMBOL>.*` sensors fed by the
-// Rust stocks poller (plugins/stocks.ts → widgetsack/src/stocks.rs) straight from the telemetry hub,
-// the way Cpu reads cpu.core.* — so it isn't a single bound sensor. Renders the symbol, last price,
-// colour-coded change %, and an intraday sparkline (the real `.series`, falling back to the price
-// history ring). Up/down colour flows from one `data-dir` on the root (the sparkline picks it up via
-// currentColor), so the whole widget restyles from CSS.
-import { useTelemetryHub } from '../telemetryContext';
-import { useSensor } from '../useSensor';
+// Stock/crypto ticker for the `stocks.<SYMBOL>.*` sensors fed by the Rust stocks poller
+// (plugins/stocks.ts → widgetsack/src/stocks.rs). Props-only (AGENTS.md §6): the plugin meta's
+// `sensors` map derives the five ids from the configured symbol, and WidgetHost subscribes and
+// passes their live states in the `sensors` prop — the meter never touches the hub. Renders the
+// symbol, last price, colour-coded change %, and an intraday sparkline (the real `.series`,
+// falling back to the price history ring). Up/down colour flows from one `data-dir` on the root
+// (the sparkline picks it up via currentColor), so the whole widget restyles from CSS.
+import type { SensorState } from '../../core/telemetry';
 import Sparkline from './Sparkline';
 import {
 	currencySymbol,
@@ -17,6 +17,15 @@ import {
 } from './tickerFormat';
 import './Ticker.css';
 
+// The named states WidgetHost resolves from the meta's `sensors` map (plugins/stocks.ts).
+type TickerSensors = {
+	price?: SensorState;
+	change?: SensorState;
+	series?: SensorState;
+	currency?: SensorState;
+	state?: SensorState;
+};
+
 type Props = {
 	symbol?: string;
 	label?: string; // overrides the symbol shown in the header
@@ -24,30 +33,23 @@ type Props = {
 	showSparkline?: boolean;
 	// Swap the up/down colours (red = up, green = down) — the East-Asian-market convention.
 	invertColors?: boolean;
+	sensors?: TickerSensors;
 };
 
-const numeric = (s: { value: { kind: string; value: unknown } | null }): number | null =>
-	s.value?.kind === 'scalar' ? (s.value.value as number) : null;
-const textOf = (s: { value: { kind: string; value: unknown } | null }): string | null =>
-	s.value?.kind === 'text' ? (s.value.value as string) : null;
+const numeric = (s: SensorState | undefined): number | null =>
+	s?.value?.kind === 'scalar' ? s.value.value : null;
+const textOf = (s: SensorState | undefined): string | null =>
+	s?.value?.kind === 'text' ? s.value.value : null;
 
 export default function Ticker({
 	symbol = '',
 	label = '',
 	decimals = 2,
 	showSparkline = true,
-	invertColors = false
+	invertColors = false,
+	sensors = {}
 }: Props) {
-	const hub = useTelemetryHub();
 	const sym = symbol.trim().toUpperCase();
-	const base = sym ? `stocks.${sym}` : '__ticker_none__';
-
-	// One subscription per field (stable hook order; the no-symbol case binds inert `__ticker_none__.*`).
-	const price = useSensor(hub, `${base}.price`);
-	const change = useSensor(hub, `${base}.change`);
-	const seriesState = useSensor(hub, `${base}.series`);
-	const currency = useSensor(hub, `${base}.currency`);
-	const state = useSensor(hub, `${base}.state`);
 
 	if (!sym) {
 		return (
@@ -59,15 +61,16 @@ export default function Ticker({
 		);
 	}
 
-	const priceVal = numeric(price);
-	const changeVal = numeric(change);
-	const cur = textOf(currency);
-	const market = marketLabel(textOf(state));
+	const priceVal = numeric(sensors.price);
+	const changeVal = numeric(sensors.change);
+	const cur = textOf(sensors.currency);
+	const market = marketLabel(textOf(sensors.state));
 	const dir = direction(changeVal);
 	const loading = priceVal === null;
 
-	const series = seriesState.value?.kind === 'series' ? (seriesState.value.value as number[]) : [];
-	const spark = series.length >= 2 ? series : price.history;
+	const seriesValue = sensors.series?.value;
+	const series = seriesValue?.kind === 'series' ? seriesValue.value : [];
+	const spark = series.length >= 2 ? series : sensors.price?.history ?? [];
 
 	return (
 		<div

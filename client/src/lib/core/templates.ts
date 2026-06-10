@@ -12,10 +12,14 @@ import type {
 	Leaf,
 	Length,
 	Pad,
+	ParamSpec,
 	WidgetInstance
 } from './layoutTree';
-import { container } from './layoutTree';
+import { container, group, isContainer, isGroup, leaf } from './layoutTree';
+import { applyParams } from './solve';
 import { NOWPLAYING_DEFAULT_CSS } from './widget';
+
+const rand = (): string => Math.random().toString(36).slice(2, 8);
 
 // A primitive widget instance. `rect` is the leaf's stored box — it's the slot size for an 'auto'/
 // 'content' FILL meter (gauge/sparkline/analogclock) and a fallback; intrinsic text meters on
@@ -50,23 +54,17 @@ const lf = (
 	...(box?.pad !== undefined ? { pad: box.pad } : {})
 });
 
-// Map the `separator` option to the literal that sits between the hour and the minute (none = the
-// gyng\DateTime "HHmm" look). The time format then composes the hour width + separator + AM/PM marker.
-const TIME_SEPARATORS: Record<string, string> = { none: '', colon: ':', dot: '.' };
-function timeFormat(hour: string, separator: string): string {
-	const sep = TIME_SEPARATORS[separator] ?? '';
-	return hour === '12' ? `h${sep}mm A` : `HH${sep}mm`;
-}
-
 // gyng\DateTime (+ the Enigma analog icon on top, as in the saved layout): a small clock icon, the
 // time, the weekday glyph, and a "D MMMM" date row. Text leaves use basis 'content' so each hugs its
 // own text (the date "5" + month "JUNE" sit adjacent); the icon is a fixed square with a bottom margin
-// so it sits clear of the time. The languages + hour + separator come from the template's options; the
-// defaults reproduce the original (ja weekday, en date, 24-hour, no separator → "1700 / 火 / 5 JUNE").
-function clockTree(opts: Record<string, string> = {}): Container {
-	const weekdayLang = opts.weekdayLang ?? 'ja';
-	const dateLang = opts.dateLang ?? 'en';
-	const time = timeFormat(opts.hour ?? '24', opts.separator ?? 'none');
+// so it sits clear of the time. The tree bakes the DEFAULTS (ja weekday, en date, 24-hour "HHmm" →
+// "1700 / 火 / 5 JUNE"); the languages + time format are PARAMS (ParamSpec, below) applied onto the
+// built tree via the same applyParams mechanism library defs use — so a template cloned into the
+// library keeps its options, switchable per instance.
+function clockTree(): Container {
+	const weekdayLang = 'ja';
+	const dateLang = 'en';
+	const time = 'HHmm';
 	return container(
 		'dt-root',
 		'col',
@@ -243,32 +241,70 @@ function musicLeaf(): Leaf {
 	});
 }
 
-/** One configurable choice a template exposes at insert time (a select). `tree(opts)` reads the chosen
- * `value`s by `key`; `resolveTemplateOptions` fills any unset/invalid key with `default`. */
-export type TemplateOption = {
-	key: string;
-	label: string;
-	default: string;
-	choices: { value: string; label: string }[];
-};
-
 export type Template = {
 	id: string;
 	name: string;
 	description: string;
 	size: { w: number; h: number }; // the group def's canvas size
-	/** Insert-time options surfaced as selects in the studio picker (absent → a one-click insert). */
-	options?: TemplateOption[];
-	/** The flow tree (the def's child), built from the resolved options. Template-local ids; remapped
-	 * to fresh ids on insert. Templates with no options ignore the argument. */
-	tree: (opts?: Record<string, string>) => LayoutNode;
+	/** The template's configurable options as library ParamSpecs (selects: every spec carries
+	 * `choices` + a `default` + a dotted `target`/`targets` path into the tree). ONE spec drives both
+	 * the insert-time options form AND the params of a def cloned from the template (newFromTemplate),
+	 * so a cloned clock still switches 12/24-hour per instance. Absent → a one-click insert. */
+	params?: ParamSpec[];
+	/** The flow tree (the def's child) with the params' DEFAULTS baked in. Template-local ids;
+	 * remapped to fresh ids on insert. Options apply on top via applyParams (instantiateTemplate). */
+	tree: () => LayoutNode;
 };
 
 // The three clock languages, reused for both the weekday and the date selects.
-const CLOCK_LANGS: TemplateOption['choices'] = [
+const CLOCK_LANGS: NonNullable<ParamSpec['choices']> = [
 	{ value: 'en', label: 'English' },
 	{ value: 'ja', label: '日本語' },
 	{ value: 'zh', label: '中文' }
+];
+
+// Every hour-width × separator combination as one select: the chosen VALUE is the literal dayjs
+// format written to the time clock's `config.format` (a param value must be path-assignable data —
+// the old hour+separator pair composed the format in code, which a serialized ParamSpec can't do).
+const TIME_CHOICES: NonNullable<ParamSpec['choices']> = [
+	{ value: 'HHmm', label: '24-hour · 1700' },
+	{ value: 'HH:mm', label: '24-hour · 17:00' },
+	{ value: 'HH.mm', label: '24-hour · 17.00' },
+	{ value: 'hmm A', label: '12-hour · 500 PM' },
+	{ value: 'h:mm A', label: '12-hour · 5:00 PM' },
+	{ value: 'h.mm A', label: '12-hour · 5.00 PM' }
+];
+
+// Param targets are INDEX paths into clockTree's structure (children.1 = dt-time, children.2 =
+// dt-day, children.3 = the date row holding dt-date + dt-month). Index paths survive the fresh-id
+// remap on insert/clone, which id-based paths would not. templates.test.ts pins each one to the
+// node it must hit, so a clockTree reshuffle fails the suite instead of silently no-op'ing.
+const CLOCK_PARAMS: ParamSpec[] = [
+	{
+		key: 'time',
+		label: 'Time',
+		default: 'HHmm',
+		target: 'children.1.unit.config.format',
+		choices: TIME_CHOICES
+	},
+	{
+		key: 'weekdayLang',
+		label: 'Weekday',
+		default: 'ja',
+		target: 'children.2.unit.config.locale',
+		choices: CLOCK_LANGS
+	},
+	{
+		key: 'dateLang',
+		label: 'Date',
+		default: 'en',
+		// One language drives BOTH the day-of-month and the month name (they form one phrase).
+		targets: [
+			'children.3.children.0.unit.config.locale',
+			'children.3.children.1.unit.config.locale'
+		],
+		choices: CLOCK_LANGS
+	}
 ];
 
 export const TEMPLATES: Template[] = [
@@ -277,29 +313,7 @@ export const TEMPLATES: Template[] = [
 		name: 'Clock (JP weekday)',
 		description: 'Analog icon · time · weekday · date (configurable)',
 		size: { w: 170, h: 150 },
-		options: [
-			{ key: 'weekdayLang', label: 'Weekday', default: 'ja', choices: CLOCK_LANGS },
-			{ key: 'dateLang', label: 'Date', default: 'en', choices: CLOCK_LANGS },
-			{
-				key: 'hour',
-				label: 'Hour',
-				default: '24',
-				choices: [
-					{ value: '24', label: '24-hour' },
-					{ value: '12', label: '12-hour' }
-				]
-			},
-			{
-				key: 'separator',
-				label: 'Separator',
-				default: 'none',
-				choices: [
-					{ value: 'none', label: 'None · 1700' },
-					{ value: 'colon', label: 'Colon · 17:00' },
-					{ value: 'dot', label: 'Dot · 17.00' }
-				]
-			}
-		],
+		params: CLOCK_PARAMS,
 		tree: clockTree
 	},
 	{
@@ -329,17 +343,70 @@ export function getTemplate(id: string): Template | undefined {
 	return TEMPLATES.find((t) => t.id === id);
 }
 
-/** Fill a partial option map with each template option's default, dropping unknown keys and any value
- * that isn't one of the option's choices. Pure — drives both the picker's initial state and the
- * insert. A template with no options resolves to `{}`. */
+/** Fill a partial option map with each template param's default, dropping unknown keys and any value
+ * that isn't one of the param's choices. Pure — drives both the picker's initial state and the
+ * insert. A template with no params resolves to `{}`. */
 export function resolveTemplateOptions(
 	t: Template,
 	partial: Record<string, string> = {}
 ): Record<string, string> {
 	const out: Record<string, string> = {};
-	for (const o of t.options ?? []) {
-		const v = partial[o.key];
-		out[o.key] = v !== undefined && o.choices.some((c) => c.value === v) ? v : o.default;
+	for (const p of t.params ?? []) {
+		if (!p.choices) continue; // template params are selects; anything else has no picker row
+		const v = partial[p.key];
+		out[p.key] =
+			v !== undefined && p.choices.some((c) => c.value === v) ? v : String(p.default ?? '');
 	}
 	return out;
+}
+
+/** Build the template's tree with `options` applied: fresh defaults-baked tree + applyParams over the
+ * validated option map — the SAME write path resolveGroup uses for def instance params, so insert-time
+ * options and library params can never drift. Returns template-local ids (remap via freshIds). */
+export function instantiateTemplate(t: Template, options?: Record<string, string>): LayoutNode {
+	const tree = t.tree(); // a fresh tree each call — safe to write params onto
+	applyParams(tree, t.params, resolveTemplateOptions(t, options));
+	return tree;
+}
+
+/** Deep-clone a flow tree with fresh, unique node/unit ids. Template-local ids are stable, so two
+ * inserts/defs from the same template must not share ids; leaf id mirrors its unit id (leaf()
+ * invariant). Pure (modulo Math.random for the ids). */
+export function freshIds(node: LayoutNode): LayoutNode {
+	if (isContainer(node)) {
+		return { ...node, id: `${node.kind}-${rand()}`, children: node.children.map(freshIds) };
+	}
+	const unit = isGroup(node.unit)
+		? { ...node.unit, id: `group-${rand()}` }
+		: { ...node.unit, id: `${node.unit.type}-${rand()}` };
+	return { ...node, id: unit.id, unit };
+}
+
+/** The primary monitor's first-run demo layout: the actual `system` / `network` / `nowplaying`
+ * templates instantiated as floating self-contained groups (the templates ARE the default skin —
+ * one source of truth, no hand-built copy to drift), plus a small interactive demo button. Fresh
+ * ids per call. */
+export function demoSeed(): Leaf[] {
+	const place = (templateId: string, x: number, y: number): Leaf => {
+		const t = getTemplate(templateId);
+		if (!t) throw new Error(`built-in template ${templateId} missing`);
+		const g = group(`grp-${rand()}`, { ...t.size }, freshIds(instantiateTemplate(t)), {
+			name: t.name,
+			config: { x, y } // a floating group's anchor lives in its config
+		});
+		return leaf(g);
+	};
+	const button: WidgetInstance = {
+		id: `button-${rand()}`,
+		type: 'button',
+		rect: { x: 16, y: 310, w: 90, h: 44 },
+		config: { label: 'tap' },
+		interactive: true
+	};
+	return [
+		place('system', 16, 16),
+		place('network', 16, 176),
+		place('nowplaying', 210, 16),
+		leaf(button)
+	];
 }

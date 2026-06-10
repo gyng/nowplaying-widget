@@ -4,16 +4,16 @@
 .color-field {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: var(--space-2);
 	width: 100%;
 }
 
 .color-field .cf-swatch {
-	flex: 0 0 22px;
-	height: 20px;
+	flex: 0 0 var(--control-h);
+	height: var(--control-h);
 	padding: 0;
-	border: 1px solid #333;
-	border-radius: 3px;
+	border: 1px solid var(--ui-border-strong);
+	border-radius: var(--radius-control);
 	background: none;
 	cursor: pointer;
 }
@@ -24,7 +24,7 @@
 }
 .color-field .cf-swatch::-webkit-color-swatch {
 	border: none;
-	border-radius: 2px;
+	border-radius: var(--radius-control);
 }
 
 .color-field .cf-text {
@@ -34,18 +34,18 @@
 
 .color-field .cf-clear {
 	flex: 0 0 auto;
-	width: 20px;
-	height: 20px;
+	width: var(--control-h);
+	height: var(--control-h);
 	line-height: 1;
 	padding: 0;
 	background: transparent;
-	border: 1px solid #3a3a40;
-	border-radius: 3px;
-	color: var(--dim-fg, #999);
+	border: 1px solid var(--ui-border-strong);
+	border-radius: var(--radius-control);
+	color: var(--ui-fg-dim);
 	cursor: pointer;
 }
 
 .color-field .cf-clear:hover {
 	border-color: rgb(var(--ui-danger-rgb));
-	color: rgb(230, 160, 160);
+	color: var(--ui-danger-fg);
 }

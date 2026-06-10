@@ -2,6 +2,7 @@ use std::{collections::HashMap, time::SystemTime};
 
 use serde::Serialize;
 
+use crate::bridge::{SESSION_CREATE_EVENT, SESSION_DELETE_EVENT, SESSION_UPDATE_EVENT};
 use crate::{event::NpSessionEvent, log, ManagerEventWrapper, SessionUpdateEventWrapper};
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,13 +33,13 @@ pub fn updater(
                 last_model_update: None,
             };
             let _ = (*sessions).insert(session_id, new_record.clone());
-            ("session_create", Some(new_record))
+            (SESSION_CREATE_EVENT, Some(new_record))
         }
         NpSessionEvent::Create(_session_id_dupe, ev) => {
             log::warn("session", "unexpected manager event for Create")
                 .field("event", format!("{ev:?}"))
                 .emit();
-            ("session_create", None)
+            (SESSION_CREATE_EVENT, None)
         }
         NpSessionEvent::Update(session_id, ev) => {
             // Model/timeline (play/pause/seek) updates carry NO new album art — capture that before `ev`
@@ -101,15 +102,15 @@ pub fn updater(
             } else {
                 updated_record
             };
-            ("session_update", Some(emitted))
+            (SESSION_UPDATE_EVENT, Some(emitted))
         }
         NpSessionEvent::Delete(session_id, _ev) => {
             let maybe_deleted_record = (*sessions).remove(&session_id);
 
             if let Some(deleted_record) = maybe_deleted_record {
-                ("session_delete", Some(deleted_record))
+                (SESSION_DELETE_EVENT, Some(deleted_record))
             } else {
-                ("session_delete", None)
+                (SESSION_DELETE_EVENT, None)
             }
         }
         NpSessionEvent::Unsupported(session_id, label) => {

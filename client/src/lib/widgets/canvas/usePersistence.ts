@@ -7,6 +7,7 @@
 // clearPreviewWrite runs on unmount. Token write is authoritative (empty -> omit tokens).
 import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { COMMANDS } from '../../bridge/contract';
 import { emptyRoot, type Library, type LayoutV2, type MonitorLayout } from '../../core/layoutTree';
 import { parseLayoutAny } from '../../core/migration';
 import type { Baseline, EditorState, Extra } from './types';
@@ -70,7 +71,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
 		try {
-			const raw = await invoke<string | null>('load_layout');
+			const raw = await invoke<string | null>(COMMANDS.loadLayout);
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 			monitors = (obj ? parseLayoutAny(obj) : null)?.monitors ?? {};
 			fileLib = obj?.library as Library | undefined;
@@ -105,7 +106,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		if (theme) out.theme = theme;
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
-			await invoke('save_layout', { contents: JSON.stringify(out, null, 2) });
+			await invoke(COMMANDS.saveLayout, { contents: JSON.stringify(out, null, 2) });
 			return true;
 		} catch (err) {
 			console.warn('save_layout failed', err);
@@ -121,7 +122,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		let fileLib: Library | undefined;
 		let fileTheme: string | undefined;
 		try {
-			const raw = await invoke<string | null>('load_layout');
+			const raw = await invoke<string | null>(COMMANDS.loadLayout);
 			const obj = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 			monitors = (obj ? parseLayoutAny(obj) : null)?.monitors ?? {};
 			fileLib = obj?.library as Library | undefined;
@@ -138,7 +139,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		if (theme) out.theme = theme;
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
-			await invoke('save_layout', { contents: JSON.stringify(out, null, 2) });
+			await invoke(COMMANDS.saveLayout, { contents: JSON.stringify(out, null, 2) });
 			return true;
 		} catch (err) {
 			console.warn('save_layout failed', err);

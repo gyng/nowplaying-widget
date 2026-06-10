@@ -4,61 +4,102 @@
 // (a snapshot is just the current references). Undo coalesces at the saveLayout COMMIT chokepoint:
 // one undo step per drag, recorded only when monitor/library reference-changed since lastSnap.
 //
-// The whole Svelte `handleOp` switch + every op helper is ported VERBATIM here as pure
-// transforms `(state) => Partial<EditorState>`. A commit (the old `saveLayout()`) runs the
-// recordHistory logic inline on the post-edit state and bumps `saveSeq`; the persistence hook
-// watches `saveSeq` to write to disk (debounced in the studio, immediate on an overlay).
+// The op helpers (the old Svelte handleOp switch bodies) are pure `(state) => Patch` transforms in
+// the sibling editorOps.ts; this file owns the reducer — grouped into delegated sub-reducers
+// (selection / history / def-edit / load+misc) — the handleOp dispatch table, and the hook. A
+// commit (the old `saveLayout()`) runs the recordHistory logic inline on the post-edit state and
+// bumps `saveSeq`; the persistence hook watches `saveSeq` to write to disk (debounced in the
+// studio, immediate on an overlay).
 import { useCallback, useMemo, useReducer } from 'react';
-import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../../core/layout';
-import { createWidget, getMeta } from '../../core/widget';
+import { DEFAULT_MONITOR } from '../../core/layout';
 import {
 	container,
 	emptyRoot,
-	group,
 	isContainer,
-	isGroup,
-	isLeaf,
-	leaf,
-	type AlignH,
-	type AlignV,
-	type BackgroundSpec,
 	type Container,
-	type Group,
 	type Leaf,
-	type LayoutNode,
-	type Length,
 	type Library,
 	type MonitorLayout,
-	type Pad,
 	type WidgetDef
 } from '../../core/layoutTree';
-import {
-	collapseContainer,
-	findNode,
-	findParent,
-	insertChild,
-	moveNode,
-	removeNode,
-	replaceNode,
-	ungroupNode,
-	updateContainer,
-	updateNode
-} from '../../core/layoutEdit';
-import { intrinsicSize, type Solved } from '../../core/solve';
-import { getTemplate, resolveTemplateOptions } from '../../core/templates';
+import { collapseContainer } from '../../core/layoutEdit';
+import { getTemplate } from '../../core/templates';
 import type { LayoutOp } from '../ops';
-import { dropPlacement } from './dropPlacement';
 import { clampTreeSpacing } from './spacingGuard';
 import type { EditorState, Snap } from './types';
+import {
+	addBeside,
+	addContainer,
+	addDefParam,
+	addWidget,
+	addWidgetAt,
+	bulkPatchConfig,
+	bulkSetBasis,
+	cfgNum,
+	clearTokens,
+	clearWidgetTokens,
+	clone,
+	deleteDef,
+	defInUse,
+	distributeEvenly,
+	dock,
+	dropWidgetInto,
+	floatingLeafFrom,
+	floatNode,
+	freshIds,
+	indent,
+	insertTemplate,
+	insertWidget,
+	lookup,
+	makeWidget,
+	outdent,
+	patchContainerOp,
+	patchGroup,
+	patchUnit,
+	rand,
+	removeById,
+	renameDef,
+	reorder,
+	reparentNode,
+	replaceNodeOp,
+	resetWidget,
+	setBackground,
+	setDefCss,
+	setDefSize,
+	setGridTracks,
+	setLeafAlign,
+	setLeafBox,
+	setNodeBases,
+	setNodeBasis,
+	setSolvedForFloat,
+	setToken,
+	setWidgetToken,
+	splitNode,
+	ungroupSelected,
+	wrapLeafWith,
+	type Patch
+} from './editorOps';
 
-const rand = (): string => Math.random().toString(36).slice(2, 8);
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const cfgNum = (c: Record<string, unknown> | undefined, k: string): number =>
-	typeof c?.[k] === 'number' ? (c[k] as number) : 0;
-
-// A patch the reducer applies. `commit` (the `op` action flag) = this was a `saveLayout()`
-// chokepoint (record undo + bump saveSeq). Selection-only edits leave it false.
-type Patch = Partial<EditorState>;
+// Stable public surface: the Canvas + the co-located tests import these from here (the ops module
+// is an implementation detail of the model).
+export {
+	addWidget,
+	addContainer,
+	addBeside,
+	splitNode,
+	patchContainerOp,
+	distributeEvenly,
+	setGridTracks,
+	floatNode,
+	defInUse,
+	bulkPatchConfig,
+	bulkSetBasis,
+	setWidgetToken,
+	clearWidgetTokens,
+	lookup,
+	setSolvedForFloat,
+	DEFAULT_MONITOR
+};
 
 // --- snapshot / history helpers (operate on a state slice) ----------------------------------
 
@@ -103,783 +144,11 @@ function setBaselinePatch(s: EditorState): Patch {
 	};
 }
 
-// --- selection lookup (shared with the Canvas's derived state) ------------------------------
-
-export function lookup(id: string, m: MonitorLayout): LayoutNode | null {
-	return findNode(m.root, id) ?? m.floating.find((l) => l.id === id) ?? null;
-}
-
-// =============================================================================================
-// The op helpers — ported VERBATIM from Canvas.svelte. Each takes the current state and returns
-// a patch (the new monitor/library/selection). `solved` is needed by a few (float/move-to-monitor).
-// =============================================================================================
-
-function wrapLeafWith(
-	root: Container,
-	targetId: string,
-	removeId: string,
-	node: LayoutNode
-): Container {
-	const pruned = findNode(root, removeId) ? removeNode(root, removeId) : root;
-	return updateNode(pruned, targetId, (n) =>
-		container(`cell-${rand()}`, 'col', [n, node], { align: 'stretch', overlap: true })
-	);
-}
-
-function floatingLeafFrom(node: Leaf, x: number, y: number, r?: Rect): Leaf {
-	if (!isGroup(node.unit)) {
-		const u = node.unit;
-		return leaf({ ...u, rect: { x, y, w: r?.w ?? u.rect.w, h: r?.h ?? u.rect.h } });
-	}
-	const g = node.unit;
-	return leaf({ ...g, config: { ...(g.config ?? {}), x, y } });
-}
-
-function dropWidgetInto(s: EditorState, containerId: string, widgetType: string): Patch {
-	const id = `${widgetType}-${rand()}`;
-	return {
-		monitor: {
-			...s.monitor,
-			root: insertChild(s.monitor.root, containerId, leaf(createWidget(widgetType, id)))
-		},
-		selectedId: id
-	};
-}
-
-function reparentNode(s: EditorState, id: string, containerId: string): Patch {
-	if (id === containerId) return {};
-	const node = findNode(s.monitor.root, id);
-	if (node && isContainer(node) && findNode(node, containerId)) return {};
-	const fl = s.monitor.floating.find((l) => l.id === id);
-	if (fl) {
-		return {
-			monitor: {
-				...s.monitor,
-				floating: s.monitor.floating.filter((l) => l.id !== id),
-				root: insertChild(s.monitor.root, containerId, fl)
-			},
-			selectedId: id
-		};
-	}
-	return {
-		monitor: { ...s.monitor, root: moveNode(s.monitor.root, id, containerId) },
-		selectedId: id
-	};
-}
-
-// Replace node `id` wholesale with `node` (the Inspector Data tab). Floating leaves swap in the
-// floating array; flow nodes swap in the tree. The Inspector coerces the node's id to `id`.
-function replaceNodeOp(s: EditorState, id: string, node: LayoutNode): Patch {
-	if (s.monitor.floating.some((l) => l.id === id)) {
-		return {
-			monitor: {
-				...s.monitor,
-				floating: s.monitor.floating.map((l) => (l.id === id ? (node as Leaf) : l))
-			},
-			selectedId: id
-		};
-	}
-	return {
-		monitor: { ...s.monitor, root: replaceNode(s.monitor.root, id, node) },
-		selectedId: id
-	};
-}
-
-function addWidget(s: EditorState, type: string): Patch {
-	const selectedContainer = currentContainer(s);
-	const id = `${type}-${rand()}`;
-	const w = leaf(createWidget(type, id));
-	const monitor = selectedContainer
-		? { ...s.monitor, root: insertChild(s.monitor.root, selectedContainer.id, w) }
-		: { ...s.monitor, floating: [...s.monitor.floating, w] };
-	return { monitor, selectedId: id };
-}
-
-// Drop a palette widget onto the stage: a new FLOATING widget centered on the drop point (item 7).
-function addWidgetAt(s: EditorState, type: string, x: number, y: number): Patch {
-	const id = `${type}-${rand()}`;
-	const inst = createWidget(type, id);
-	const at = dropPlacement(inst.rect, x, y);
-	const w = leaf({ ...inst, rect: { ...inst.rect, x: at.x, y: at.y } });
-	return {
-		monitor: { ...s.monitor, floating: [...s.monitor.floating, w] },
-		selectedId: id
-	};
-}
-
-// Build a fresh container of `kind`: an empty row/col, or a 2×2 grid of col cells. Shared by the
-// "Add inside" (addContainer) and "Add beside" (addBeside) paths so both produce identical bands.
-function newContainerOfKind(kind: Container['kind'], id: string): Container {
-	if (kind === 'grid') {
-		const cols = 2;
-		const rows = 2;
-		const cells = Array.from({ length: cols * rows }, () =>
-			container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
-		);
-		return container(id, 'grid', cells, { cols, rows, basis: { fr: 1 }, align: 'stretch' });
-	}
-	return container(id, kind, [], { basis: { fr: 1 }, align: 'stretch' });
-}
-
-// Insert a new child container of `kind` into `containerId` (or the selected container / root). Used
-// by the Outline's +Row/+Col/+Grid (selected) and the container context menu's Add (right-clicked).
-function addContainer(
-	s: EditorState,
-	kind: Container['kind'],
-	containerId?: string,
-	index?: number
-): Patch {
-	const target = containerId ?? currentContainer(s)?.id ?? s.monitor.root.id;
-	// Only a real container can hold children; bail if the id isn't one (e.g. a stale menu target).
-	const targetNode = findNode(s.monitor.root, target);
-	if (!targetNode || !isContainer(targetNode)) return {};
-	const id = `${kind}-${rand()}`;
-	let root = s.monitor.root;
-	// Cell-targeted (grid): pad the earlier empty cells with spacer containers so the new band lands in
-	// the CLICKED cell rather than the first free one. (`index` only ever exceeds the child count for an
-	// empty trailing cell — see collectGridPlaceholders.)
-	if (index !== undefined && index > targetNode.children.length) {
-		for (let i = targetNode.children.length; i < index; i++) {
-			root = insertChild(
-				root,
-				target,
-				container(`cell-${rand()}`, 'col', [], { align: 'stretch' })
-			);
-		}
-	}
-	root = insertChild(root, target, newContainerOfKind(kind, id), index);
-	root = updateContainer(root, target, { align: 'stretch' });
-	return { monitor: { ...s.monitor, root }, selectedId: id };
-}
-
-// Insert a new sibling container of `kind` directly AFTER node `id`, in id's parent — the context
-// menu's "Add beside". Mirrors addContainer but targets the parent + an index, so the band lands
-// next to the right-clicked one rather than inside it. No-op at the root (it has no siblings) or
-// when the id isn't in the tree.
-function addBeside(s: EditorState, id: string, kind: Container['kind']): Patch {
-	const parent = findParent(s.monitor.root, id);
-	if (!parent) return {};
-	const newId = `${kind}-${rand()}`;
-	const idx = parent.children.findIndex((ch) => ch.id === id);
-	let root = insertChild(s.monitor.root, parent.id, newContainerOfKind(kind, newId), idx + 1);
-	root = updateContainer(root, parent.id, { align: 'stretch' });
-	return { monitor: { ...s.monitor, root }, selectedId: newId };
-}
-
-// Split cells carry basis fr:1 so they SHARE the box evenly — an empty cell with basis 'auto'
-// has ~0 intrinsic extent and (no fr) gets no leftover, collapsing to 0 height/width.
-const splitCell = (kind: Container['kind']): Container =>
-	container(`cell-${rand()}`, kind, [], { align: 'stretch', basis: { fr: 1 } });
-
-// The new band CONTAINER a split produces (no existing content to keep): for 'rows' a col of two
-// rows, for 'cols' a row of two cols, for 'grid' a fresh 2×2 grid.
-function splitBandContainer(dir: 'rows' | 'cols' | 'grid'): Container {
-	if (dir === 'grid') return newContainerOfKind('grid', `grid-${rand()}`);
-	const parentKind: Container['kind'] = dir === 'rows' ? 'col' : 'row';
-	const bandKind: Container['kind'] = dir === 'rows' ? 'row' : 'col';
-	return container(`cell-${rand()}`, parentKind, [splitCell(bandKind), splitCell(bandKind)], {
-		align: 'stretch',
-		basis: { fr: 1 }
-	});
-}
-
-// Split an EMPTY grid placeholder (cell `index` of `grid`): materialise the band container AT that
-// cell — padding any earlier empty cells like addContainer — instead of splitting the whole grid
-// (which would wrongly wrap the grid a level deeper). Used when the split op carries a cellIndex.
-function splitGridCell(
-	s: EditorState,
-	grid: Container,
-	index: number,
-	dir: 'rows' | 'cols' | 'grid'
-): Patch {
-	const band = splitBandContainer(dir);
-	let root = s.monitor.root;
-	if (index > grid.children.length) {
-		for (let i = grid.children.length; i < index; i++) {
-			root = insertChild(root, grid.id, splitCell('col'));
-		}
-	}
-	root = insertChild(root, grid.id, band, index);
-	root = updateContainer(root, grid.id, { align: 'stretch' });
-	return { monitor: { ...s.monitor, root }, selectedId: band.id };
-}
-
-function splitNode(
-	s: EditorState,
-	id: string,
-	dir: 'rows' | 'cols' | 'grid',
-	cellIndex?: number
-): Patch {
-	const node = findNode(s.monitor.root, id);
-	if (!node || !isContainer(node)) return {};
-	// An empty grid cell (placeholder) carries a cellIndex: split THAT cell, not the whole grid.
-	if (cellIndex !== undefined && node.kind === 'grid') {
-		return splitGridCell(s, node, cellIndex, dir);
-	}
-	const cell = splitCell;
-	// `keep` wraps the EXISTING content, so it preserves the node's own kind (re-kinding it would
-	// re-flow what's already there). The new empty cells take the BAND orientation (see below).
-	const keep = node.children.length
-		? container(`cell-${rand()}`, node.kind, node.children, {
-				align: node.align ?? 'stretch',
-				basis: { fr: 1 },
-				cols: node.cols,
-				rows: node.rows,
-				gap: node.gap,
-				pad: node.pad,
-				justify: node.justify
-		  })
-		: null;
-	let patch: Partial<Container>;
-	if (dir === 'grid') {
-		const cells = Array.from({ length: 4 }, () => cell('col'));
-		if (keep) cells[0] = keep;
-		patch = { kind: 'grid', cols: 2, rows: 2, children: cells };
-	} else {
-		// "into rows" → a COL parent (stacks vertically) holding ROW bands; "into cols" → a ROW parent
-		// holding COL strips. So each band's own kind IS the thing the user asked to create.
-		const parentKind: Container['kind'] = dir === 'rows' ? 'col' : 'row';
-		const bandKind: Container['kind'] = dir === 'rows' ? 'row' : 'col';
-		patch = {
-			kind: parentKind,
-			cols: undefined,
-			rows: undefined,
-			children: keep ? [keep, cell(bandKind)] : [cell(bandKind), cell(bandKind)]
-		};
-	}
-	const patched: Container = {
-		...node,
-		...patch,
-		align: 'stretch',
-		basis: node.basis ?? { fr: 1 }
-	};
-	const monitor = { ...s.monitor, root: updateNode(s.monitor.root, id, () => patched) };
-	const kids = patched.children;
-	return { monitor, selectedId: (keep ? kids[kids.length - 1] : kids[0]).id };
-}
-
-function removeById(s: EditorState, id: string): Patch {
-	const monitor = s.monitor.floating.some((l) => l.id === id)
-		? { ...s.monitor, floating: s.monitor.floating.filter((l) => l.id !== id) }
-		: { ...s.monitor, root: removeNode(s.monitor.root, id) };
-	const patch: Patch = { monitor };
-	// Match Svelte's net selection result: removing the PRIMARY collapsed the whole marquee (the
-	// `$: syncSelectionPrimary(selectedId)` reactive set selectedIds=[] when selectedId went null);
-	// removing a non-primary member just filters it out.
-	if (s.selectedId === id) {
-		patch.selectedId = null;
-		patch.selectedIds = [];
-	} else if (s.selectedIds.includes(id)) {
-		patch.selectedIds = s.selectedIds.filter((x) => x !== id);
-	}
-	return patch;
-}
-
-function reorder(s: EditorState, id: string, delta: number): Patch {
-	const parent = findParent(s.monitor.root, id);
-	if (!parent) return {};
-	const idx = parent.children.findIndex((c) => c.id === id);
-	const ni = idx + delta;
-	if (ni < 0 || ni >= parent.children.length) return {};
-	return { monitor: { ...s.monitor, root: moveNode(s.monitor.root, id, parent.id, ni) } };
-}
-
-function outdent(s: EditorState, id: string): Patch {
-	const parent = findParent(s.monitor.root, id);
-	if (!parent || parent.id === s.monitor.root.id) return {};
-	const grand = findParent(s.monitor.root, parent.id);
-	if (!grand) return {};
-	const pidx = grand.children.findIndex((c) => c.id === parent.id);
-	return { monitor: { ...s.monitor, root: moveNode(s.monitor.root, id, grand.id, pidx + 1) } };
-}
-
-function indent(s: EditorState, id: string): Patch {
-	const parent = findParent(s.monitor.root, id);
-	if (!parent) return {};
-	const idx = parent.children.findIndex((c) => c.id === id);
-	const prev = parent.children[idx - 1];
-	if (!prev || !isContainer(prev)) return {};
-	return { monitor: { ...s.monitor, root: moveNode(s.monitor.root, id, prev.id) } };
-}
-
-function dock(s: EditorState, id: string): Patch {
-	const lf = s.monitor.floating.find((l) => l.id === id);
-	if (!lf) return {};
-	return {
-		monitor: {
-			...s.monitor,
-			floating: s.monitor.floating.filter((l) => l.id !== id),
-			root: insertChild(s.monitor.root, s.monitor.root.id, lf)
-		},
-		selectedId: id
-	};
-}
-
-function makeWidget(s: EditorState, id: string): Patch {
-	const node = lookup(id, s.monitor);
-	if (!node) return {};
-	const sz = intrinsicSize(node, s.library);
-	const size = {
-		w: Math.max(40, Math.round(sz.w) || 120),
-		h: Math.max(24, Math.round(sz.h) || 80)
-	};
-	const defId = `def-${rand()}`;
-	const name = isContainer(node) ? `widget-${node.kind}` : (node.unit as WidgetInstance).type;
-	const def: WidgetDef = { id: defId, name, size, child: clone(node) };
-	const library: Library = {
-		version: s.library?.version ?? 1,
-		defs: [...(s.library?.defs ?? []), def]
-	};
-
-	const grpId = `grp-${rand()}`;
-	const floatingLeaf = s.monitor.floating.find((l) => l.id === id);
-	if (floatingLeaf && isLeaf(floatingLeaf) && !isGroup(floatingLeaf.unit)) {
-		const r = (floatingLeaf.unit as WidgetInstance).rect;
-		const g = group(grpId, size, clone(node), { def: defId, name, config: { x: r.x, y: r.y } });
-		return {
-			library,
-			monitor: {
-				...s.monitor,
-				floating: s.monitor.floating.map((l) => (l.id === id ? leaf(g) : l))
-			},
-			selectedId: grpId
-		};
-	}
-	const g = group(grpId, size, clone(node), { def: defId, name });
-	return {
-		library,
-		monitor: { ...s.monitor, root: updateNode(s.monitor.root, id, () => leaf(g)) },
-		selectedId: grpId
-	};
-}
-
-function ungroupSelected(s: EditorState, id: string): Patch {
-	const fl = s.monitor.floating.find((l) => l.id === id);
-	if (fl) {
-		if (!isGroup(fl.unit)) return {};
-		const g = fl.unit;
-		const def = g.def && s.library ? s.library.defs.find((d) => d.id === g.def) : undefined;
-		const base = def ? def.child : g.child;
-		if (base && isLeaf(base) && !isGroup(base.unit)) {
-			const u = clone(base.unit) as WidgetInstance;
-			u.rect = { ...u.rect, x: cfgNum(g.config, 'x'), y: cfgNum(g.config, 'y') };
-			return {
-				monitor: {
-					...s.monitor,
-					floating: s.monitor.floating.map((l) => (l.id === id ? leaf(u) : l))
-				},
-				selectedId: u.id
-			};
-		}
-		console.warn('ungroup: dock this composite group into the flow first');
-		return {};
-	}
-	return {
-		monitor: { ...s.monitor, root: ungroupNode(s.monitor.root, id, s.library) },
-		selectedId: null
-	};
-}
-
-function insertWidget(s: EditorState, defId: string): Patch {
-	const def = s.library?.defs.find((d) => d.id === defId);
-	if (!def) return {};
-	const grpId = `grp-${rand()}`;
-	const g = group(grpId, def.size, clone(def.child), { def: defId, name: def.name });
-	// Dock the placed group into the selected container, else the monitor's flow ROOT — widgets join
-	// the rows/columns layout instead of the floating layer (right-click → Float to escape the flow).
-	const target = currentContainer(s)?.id ?? s.monitor.root.id;
-	return {
-		monitor: { ...s.monitor, root: insertChild(s.monitor.root, target, leaf(g)) },
-		selectedId: grpId
-	};
-}
-
-// Instantiate a built-in template directly onto the canvas as a SELF-CONTAINED group: the template's
-// flow tree (fresh ids) lives inline on the group with no library `def`, so repeat inserts stay
-// independent and the library isn't cluttered (resolveGroup renders the inline child when there's no
-// def; the user can "Make widget" later to promote it). Docks into the selected container, else the
-// flow root — mirrors insertWidget minus the library lookup.
-function insertTemplate(
-	s: EditorState,
-	templateId: string,
-	options?: Record<string, string>
-): Patch {
-	const t = getTemplate(templateId);
-	if (!t) return {};
-	const grpId = `grp-${rand()}`;
-	const g = group(grpId, t.size, freshIds(t.tree(resolveTemplateOptions(t, options))), {
-		name: t.name
-	});
-	const target = currentContainer(s)?.id ?? s.monitor.root.id;
-	return {
-		monitor: { ...s.monitor, root: insertChild(s.monitor.root, target, leaf(g)) },
-		selectedId: grpId
-	};
-}
-
-function defInUse(s: EditorState, defId: string): boolean {
-	let used = false;
-	const visit = (n: LayoutNode): void => {
-		if (isLeaf(n)) {
-			if (isGroup(n.unit) && n.unit.def === defId) used = true;
-		} else {
-			n.children.forEach(visit);
-		}
-	};
-	const scan = (mon: MonitorLayout): void => {
-		visit(mon.root);
-		mon.floating.forEach(visit);
-	};
-	// Check the REAL monitor (stashed in savedMonitor while designing another def) plus, if designing,
-	// the scoped editing tree (a composite def could embed this one) — never just the scoped tree.
-	scan(s.editingDefId != null && s.savedMonitor ? s.savedMonitor : s.monitor);
-	if (s.editingDefId != null) scan(s.monitor);
-	return used;
-}
-
-function renameDef(s: EditorState, defId: string, name: string): Patch {
-	if (!s.library) return {};
-	return {
-		library: {
-			...s.library,
-			defs: s.library.defs.map((d) => (d.id === defId ? { ...d, name } : d))
-		}
-	};
-}
-
-function deleteDef(s: EditorState, defId: string): Patch {
-	if (!s.library) return {};
-	if (s.editingDefId === defId) {
-		console.warn(`def ${defId} is being edited; not deleted`);
-		return {};
-	}
-	if (defInUse(s, defId)) {
-		console.warn(`def ${defId} is in use; not deleted`);
-		return {};
-	}
-	return { library: { ...s.library, defs: s.library.defs.filter((d) => d.id !== defId) } };
-}
-
-function addDefParam(s: EditorState, defId: string, key: string, target?: string): Patch {
-	if (!s.library || !key) return {};
-	return {
-		library: {
-			...s.library,
-			defs: s.library.defs.map((d) =>
-				d.id === defId
-					? { ...d, params: [...(d.params ?? []), { key, target: target || undefined }] }
-					: d
-			)
-		}
-	};
-}
-
-function patchGroup(s: EditorState, id: string, patch: Partial<Group>): Patch {
-	const merge = (g: Group): Group => ({ ...g, ...patch });
-	if (s.monitor.floating.some((l) => l.id === id)) {
-		return {
-			monitor: {
-				...s.monitor,
-				floating: s.monitor.floating.map((l) =>
-					l.id === id && isGroup(l.unit) ? { ...l, unit: merge(l.unit) } : l
-				)
-			}
-		};
-	}
-	return {
-		monitor: {
-			...s.monitor,
-			root: updateNode(s.monitor.root, id, (n) =>
-				isLeaf(n) && isGroup(n.unit) ? { ...n, unit: merge(n.unit) } : n
-			)
-		}
-	};
-}
-
-function setDefSize(s: EditorState, defId: string, w: number, h: number): Patch {
-	if (!s.library) return {};
-	const size = { w: Math.max(8, w), h: Math.max(8, h) };
-	return {
-		library: {
-			...s.library,
-			defs: s.library.defs.map((d) => (d.id === defId ? { ...d, size } : d))
-		}
-	};
-}
-
-function setDefCss(s: EditorState, defId: string, css: string): Patch {
-	if (!s.library) return {};
-	return {
-		library: {
-			...s.library,
-			defs: s.library.defs.map((d) => (d.id === defId ? { ...d, css: css || undefined } : d))
-		}
-	};
-}
-
-function setToken(s: EditorState, key: string, value: string): Patch {
-	const next = { ...s.tokenOverrides };
-	if (value) next[key] = value;
-	else delete next[key];
-	return { tokenOverrides: next };
-}
-
-// Drop every global token override in one op (the panel's "Clear overrides" button). Returns an
-// empty patch when there's nothing to clear so it doesn't push a no-op entry onto the undo history.
-function clearTokens(s: EditorState): Patch {
-	return Object.keys(s.tokenOverrides).length ? { tokenOverrides: {} } : {};
-}
-
-// Set (or clear, when spec is undefined) the current monitor's full-screen background layer. Lives on
-// the monitor so it persists in widgets.json and rides the same commit/undo path as any layout edit.
-function setBackground(s: EditorState, spec: BackgroundSpec | undefined): Patch {
-	if (!spec && !s.monitor.background) return {}; // clearing an already-empty background: no-op
-	const monitor = { ...s.monitor };
-	if (spec) monitor.background = spec;
-	else delete monitor.background;
-	return { monitor };
-}
-
-// Per-widget token override (the Inspector's "Override theme for this widget"): merge `key`→`value`
-// into the selected unit's own `tokens` (delete the key when value is empty; drop the whole object
-// when it empties out). Works on a primitive widget OR a group, in the flow tree or the floating
-// layer — routed through the existing patchUnit/patchGroup so it rides the same commit/undo path.
-function setWidgetToken(s: EditorState, id: string, key: string, value: string): Patch {
-	const node = lookup(id, s.monitor);
-	if (!node || !isLeaf(node)) return {};
-	const cur = node.unit.tokens ?? {};
-	const next: Record<string, string> = { ...cur };
-	if (value) next[key] = value;
-	else delete next[key];
-	const tokens = Object.keys(next).length ? next : undefined;
-	return isGroup(node.unit) ? patchGroup(s, id, { tokens }) : patchUnit(s, id, { tokens });
-}
-
-// Drop ALL of a widget's/group's per-widget token overrides at once (the Inspector "Clear" button).
-function clearWidgetTokens(s: EditorState, id: string): Patch {
-	const node = lookup(id, s.monitor);
-	if (!node || !isLeaf(node) || !node.unit.tokens) return {};
-	return isGroup(node.unit)
-		? patchGroup(s, id, { tokens: undefined })
-		: patchUnit(s, id, { tokens: undefined });
-}
-
-function patchFloating(s: EditorState, id: string, patch: Partial<WidgetInstance>): Patch {
-	return {
-		monitor: {
-			...s.monitor,
-			floating: s.monitor.floating.map((l) =>
-				l.id === id && !isGroup(l.unit)
-					? { ...l, unit: { ...(l.unit as WidgetInstance), ...patch } }
-					: l
-			)
-		}
-	};
-}
-
-function patchUnit(s: EditorState, id: string, patch: Partial<WidgetInstance>): Patch {
-	if (s.monitor.floating.some((l) => l.id === id)) return patchFloating(s, id, patch);
-	return {
-		monitor: {
-			...s.monitor,
-			root: updateNode(s.monitor.root, id, (n) =>
-				isLeaf(n) && !isGroup(n.unit)
-					? { ...n, unit: { ...(n.unit as WidgetInstance), ...patch } }
-					: n
-			)
-		}
-	};
-}
-
-// The ids of the current selection (the marquee set, else the single primary). Shared by the bulk
-// multi-select edits so they act on exactly what's highlighted, in ONE commit (one undo step).
-function selectionIds(s: EditorState): string[] {
-	return s.selectedIds.length ? s.selectedIds : s.selectedId ? [s.selectedId] : [];
-}
-
-// Set one config key on EVERY selected primitive widget (flow + floating). One commit → one undo.
-function bulkPatchConfig(s: EditorState, key: string, value: unknown): Patch {
-	const ids = new Set(selectionIds(s));
-	if (!ids.size) return {};
-	const apply = (u: WidgetInstance): WidgetInstance => ({
-		...u,
-		config: { ...u.config, [key]: value }
-	});
-	const floating = s.monitor.floating.map((l) =>
-		ids.has(l.id) && !isGroup(l.unit) ? { ...l, unit: apply(l.unit as WidgetInstance) } : l
-	);
-	let root = s.monitor.root;
-	for (const id of ids) {
-		root = updateNode(root, id, (n) =>
-			isLeaf(n) && !isGroup(n.unit) ? { ...n, unit: apply(n.unit as WidgetInstance) } : n
-		);
-	}
-	return { monitor: { ...s.monitor, root, floating } };
-}
-
-// Set the main-axis basis on every selected FLOW leaf (floating leaves ignore basis). One commit.
-function bulkSetBasis(s: EditorState, basis: Length | undefined): Patch {
-	const ids = selectionIds(s);
-	if (!ids.length) return {};
-	let root = s.monitor.root;
-	for (const id of ids) {
-		root = updateNode(root, id, (n) => {
-			const next = { ...n } as LayoutNode & { basis?: Length };
-			if (basis === undefined) delete next.basis;
-			else next.basis = basis;
-			return next;
-		});
-	}
-	return { monitor: { ...s.monitor, root } };
-}
-
-function resetWidget(s: EditorState, id: string): Patch {
-	const node = lookup(id, s.monitor);
-	if (!node || !isLeaf(node) || isGroup(node.unit)) return {};
-	const meta = getMeta((node.unit as WidgetInstance).type);
-	return patchUnit(s, id, {
-		config: { ...(meta?.defaultConfig ?? {}) },
-		css: meta?.defaultCss,
-		sensor: meta?.defaultSensor
-	});
-}
-
-function patchContainerOp(s: EditorState, id: string, patch: Partial<Container>): Patch {
-	let root = updateContainer(s.monitor.root, id, patch);
-	// Resizing a GRID (its cols/rows) must DROP the cells that no longer fit — otherwise reducing the
-	// grid does nothing, because solve.ts's gridRows() just grows the row count back to hold the
-	// orphaned children. Trim from the end (grids fill row-major) down to the new cols×rows.
-	if (patch.cols !== undefined || patch.rows !== undefined) {
-		const node = findNode(root, id);
-		if (node && isContainer(node) && node.kind === 'grid') {
-			const cap = Math.max(1, node.cols ?? 1) * Math.max(1, node.rows ?? 1);
-			if (node.children.length > cap) {
-				root = updateNode(
-					root,
-					id,
-					(n) => ({ ...n, children: (n as Container).children.slice(0, cap) } as LayoutNode)
-				);
-			}
-		}
-	}
-	return { monitor: { ...s.monitor, root } };
-}
-
-// Set (or clear, when undefined) a flow node's main-axis basis: 'auto'/px = fixed, {fr} = grow.
-// Works on any node in the flow tree (a widget leaf or a container); floating leaves ignore basis.
-function setNodeBasis(s: EditorState, id: string, basis: Length | undefined): Patch {
-	const root = updateNode(s.monitor.root, id, (n) => {
-		const next = { ...n } as LayoutNode & { basis?: Length };
-		if (basis === undefined) delete next.basis;
-		else next.basis = basis;
-		return next;
-	});
-	return { monitor: { ...s.monitor, root } };
-}
-
-// Set per-node main-axis basis in ONE pass (one commit). Used by the splitter drag (two children's
-// fr at once) and Distribute-evenly. Unknown ids are skipped by updateNode.
-function setNodeBases(s: EditorState, entries: { id: string; basis: Length }[]): Patch {
-	let root = s.monitor.root;
-	for (const { id, basis } of entries) {
-		root = updateNode(root, id, (n) => ({ ...n, basis } as LayoutNode));
-	}
-	return { monitor: { ...s.monitor, root } };
-}
-
-// Reset a container to an EVEN distribution. For a row/col: every child basis → {fr:1}. For a GRID:
-// clear the per-track colFr/rowFr weights so the flexible columns/rows go back to a uniform split
-// (the easy "reset" for dragged grid tracks — also reachable by double-clicking a grid splitter).
-function distributeEvenly(s: EditorState, containerId: string): Patch {
-	const node = findNode(s.monitor.root, containerId);
-	if (!node || !isContainer(node) || node.children.length === 0) return {};
-	if (node.kind === 'grid') {
-		const root = updateContainer(s.monitor.root, containerId, {
-			colFr: undefined,
-			rowFr: undefined
-		});
-		return { monitor: { ...s.monitor, root } };
-	}
-	return setNodeBases(
-		s,
-		node.children.map((c) => ({ id: c.id, basis: { fr: 1 } as Length }))
-	);
-}
-
-// Set fr weights on specific FLEXIBLE tracks of a grid (the grid-splitter drag/commit + keyboard +
-// double-click reset). Reads/creates the colFr/rowFr array (defaulting absent tracks to weight 1),
-// writes the given indices, and stores it back. A no-op when `gridId` isn't a grid.
-function setGridTracks(
-	s: EditorState,
-	gridId: string,
-	which: 'col' | 'row',
-	entries: { index: number; fr: number }[]
-): Patch {
-	const node = findNode(s.monitor.root, gridId);
-	if (!node || !isContainer(node) || node.kind !== 'grid') return {};
-	const key = which === 'col' ? 'colFr' : 'rowFr';
-	const cur = node[key];
-	const maxIdx = entries.reduce((m, e) => Math.max(m, e.index), -1);
-	const hint = which === 'col' ? Math.max(1, node.cols ?? 1) : Math.max(1, node.rows ?? 1);
-	const count = Math.max(hint, cur?.length ?? 0, maxIdx + 1);
-	const next = Array.from({ length: count }, (_, i) => {
-		const w = cur?.[i];
-		return typeof w === 'number' && w > 0 ? w : 1;
-	});
-	for (const e of entries) {
-		if (e.index >= 0 && e.index < count) next[e.index] = Number(e.fr.toFixed(3));
-	}
-	return {
-		monitor: { ...s.monitor, root: updateContainer(s.monitor.root, gridId, { [key]: next }) }
-	};
-}
-
-// Set a leaf's placement (halign/valign) within the box the layout gives it. 'fill' (the default)
-// clears the field so the leaf spans the box; the others pin it to a screen edge/center. A no-op
-// on non-leaf nodes (containers align their children via align/justify instead).
-function setLeafAlign(s: EditorState, id: string, halign: AlignH, valign: AlignV): Patch {
-	const root = updateNode(s.monitor.root, id, (n) => {
-		if (!isLeaf(n)) return n;
-		const next = { ...n } as Leaf & { halign?: AlignH; valign?: AlignV };
-		if (halign === 'fill') delete next.halign;
-		else next.halign = halign;
-		if (valign === 'fill') delete next.valign;
-		else next.valign = valign;
-		return next;
-	});
-	return { monitor: { ...s.monitor, root } };
-}
-
-// Set a flow leaf's per-side margin (outer space) or padding (inner inset); `value` undefined clears
-// the field. Mirrors setLeafAlign — flow only, since floating leaves are absolutely positioned and
-// don't participate in the flow where margin/pad apply.
-function setLeafBox(
-	s: EditorState,
-	id: string,
-	field: 'margin' | 'pad',
-	value: Pad | undefined
-): Patch {
-	const root = updateNode(s.monitor.root, id, (n) => {
-		if (!isLeaf(n)) return n;
-		const next = { ...n } as Leaf & { margin?: Pad; pad?: Pad };
-		if (value === undefined) delete next[field];
-		else next[field] = value;
-		return next;
-	});
-	return { monitor: { ...s.monitor, root } };
-}
-
-// The selected container (incl. root) in the live tree — used by addWidget/addContainer/insert.
-function currentContainer(s: EditorState): Container | null {
-	if (!s.selectedId) return null;
-	const node = lookup(s.selectedId, s.monitor);
-	return node && isContainer(node) ? node : null;
-}
-
 // =============================================================================================
 // The reducer. Mutating ops dispatch `{ type: 'op', run, commit }` where `run(state)` returns a
 // patch; commit runs recordHistory + bumps saveSeq (the persistence chokepoint). Dedicated
-// actions cover selection, undo/redo, def-edit, history reset, baseline, and load.
+// actions cover selection, undo/redo, def-edit, history reset, baseline, and load — grouped into
+// the sub-reducers below by concern.
 // =============================================================================================
 
 type Action =
@@ -923,79 +192,12 @@ function syncPrimary(next: EditorState, patchSetSelectedIds: boolean): EditorSta
 	return { ...next, lastPrimary, selectedIds: next.selectedId ? [next.selectedId] : [] };
 }
 
-// Add a freshly-built def to the library, then enter the def editor scoped to it. Shared by
-// newWidget / cloneDef / newFromTemplate. Does NOT drop an instance onto the live monitor —
-// designing a widget shouldn't place it on the layout; the whole library is persisted regardless
-// (usePersistence writes every def), and the user instantiates it via the Inspector library
-// palette. Assumes the caller already refused re-entry while another def is open (would orphan
-// savedMonitor).
-// The scoped monitor for designing/previewing `def`: a clone of its child as the root, with any
-// pad/gap too big for the def's canvas self-healed (see spacingGuard.clampTreeSpacing).
-function scopedMonitorFromDef(def: WidgetDef): MonitorLayout {
-	const rawRoot: Container = isContainer(def.child)
-		? (clone(def.child) as Container)
-		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
-	return { root: clampTreeSpacing(rawRoot, def.size) as Container, floating: [] };
-}
+// --- selection sub-reducer -------------------------------------------------------------------
 
-// Deep-clone a template's flow tree with fresh, unique node/unit ids (template-local ids are stable,
-// so two defs from the same template must not share ids). Leaf id mirrors its unit id (leaf() invariant).
-function freshIds(node: LayoutNode): LayoutNode {
-	if (isContainer(node)) {
-		return { ...node, id: `${node.kind}-${rand()}`, children: node.children.map(freshIds) };
-	}
-	const unit = isGroup(node.unit)
-		? { ...node.unit, id: `group-${rand()}` }
-		: { ...node.unit, id: `${node.unit.type}-${rand()}` };
-	return { ...node, id: unit.id, unit };
-}
+type SelectionAction = Extract<Action, { type: 'select' | 'selectClick' | 'setSelectedIds' }>;
 
-// Build a fresh WidgetDef from a template id: the template's flow TREE becomes the def child (ids
-// remapped), at the template's declared size. Shared by newFromTemplate (clone into the library) and
-// previewTemplate (read-only preview, not stored).
-function templateDef(templateId: string, options?: Record<string, string>): WidgetDef | null {
-	const t = getTemplate(templateId);
-	if (!t) return null;
-	return {
-		id: `def-${rand()}`,
-		name: t.name,
-		size: t.size,
-		child: freshIds(t.tree(resolveTemplateOptions(t, options)))
-	};
-}
-
-function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
-	const library: Library = {
-		version: state.library?.version ?? 1,
-		defs: [...(state.library?.defs ?? []), def]
-	};
-	const scopedMonitor = scopedMonitorFromDef(def);
-	const next: EditorState = {
-		...state,
-		library,
-		savedMonitor: state.monitor, // preserve the REAL monitor untouched (no instance dropped)
-		monitor: scopedMonitor,
-		defEditBaseline: scopedMonitor,
-		editingDefId: def.id,
-		selectedId: null
-	};
-	return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
-}
-
-function editorReducer(state: EditorState, action: Action): EditorState {
+function reduceSelection(state: EditorState, action: SelectionAction): EditorState {
 	switch (action.type) {
-		case 'op': {
-			const patch = action.run(state);
-			const setSelectedIds = 'selectedIds' in patch;
-			let next = { ...state, ...patch };
-			next = syncPrimary(next, setSelectedIds); // collapse the marquee unless the op set the set
-			if (action.commit) next = { ...next, ...commitPatch(next) };
-			return next;
-		}
-		case 'patch': {
-			const setSelectedIds = 'selectedIds' in action.patch;
-			return syncPrimary({ ...state, ...action.patch }, setSelectedIds);
-		}
 		case 'select':
 			// A bare select (Outline/Inspector/menu) sets selectedId only → collapse the marquee.
 			return syncPrimary({ ...state, selectedId: action.id }, false);
@@ -1010,6 +212,15 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 				selectedId: action.primary,
 				lastPrimary: action.primary
 			};
+	}
+}
+
+// --- history sub-reducer (undo/redo/reset/baseline) -------------------------------------------
+
+type HistoryAction = Extract<Action, { type: 'undo' | 'redo' | 'resetHistory' | 'setBaseline' }>;
+
+function reduceHistory(state: EditorState, action: HistoryAction): EditorState {
+	switch (action.type) {
 		case 'undo': {
 			if (!state.undoStack.length) return state;
 			const redoStack = [...state.redoStack, snap(state)];
@@ -1043,6 +254,82 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 			next = { ...next, ...commitPatch(next) };
 			return next;
 		}
+		case 'resetHistory':
+			return { ...state, ...resetHistoryPatch(state) };
+		case 'setBaseline':
+			return { ...state, ...setBaselinePatch(state) };
+	}
+}
+
+// --- def-edit sub-reducer (the widget designer mode switches) ----------------------------------
+
+// The scoped monitor for designing/previewing `def`: a clone of its child as the root, with any
+// pad/gap too big for the def's canvas self-healed (see spacingGuard.clampTreeSpacing).
+function scopedMonitorFromDef(def: WidgetDef): MonitorLayout {
+	const rawRoot: Container = isContainer(def.child)
+		? (clone(def.child) as Container)
+		: container(`${def.id}__root`, 'col', [clone(def.child)], { align: 'stretch' });
+	return { root: clampTreeSpacing(rawRoot, def.size) as Container, floating: [] };
+}
+
+// Build a fresh WidgetDef from a template id: the template's flow TREE (defaults baked, ids
+// remapped) becomes the def child at the template's declared size, and the template's ParamSpecs
+// become the def's params — so a cloned clock still switches 12/24-hour per instance, instead of
+// the options being silently dropped/baked. Shared by newFromTemplate (clone into the library) and
+// previewTemplate (read-only preview, not stored).
+function templateDef(templateId: string): WidgetDef | null {
+	const t = getTemplate(templateId);
+	if (!t) return null;
+	return {
+		id: `def-${rand()}`,
+		name: t.name,
+		size: t.size,
+		child: freshIds(t.tree()),
+		...(t.params ? { params: clone(t.params) } : {})
+	};
+}
+
+// Add a freshly-built def to the library, then enter the def editor scoped to it. Shared by
+// newWidget / cloneDef / newFromTemplate. Does NOT drop an instance onto the live monitor —
+// designing a widget shouldn't place it on the layout; the whole library is persisted regardless
+// (usePersistence writes every def), and the user instantiates it via the Inspector library
+// palette. Assumes the caller already refused re-entry while another def is open (would orphan
+// savedMonitor).
+function enterNewDef(state: EditorState, def: WidgetDef): EditorState {
+	const library: Library = {
+		version: state.library?.version ?? 1,
+		defs: [...(state.library?.defs ?? []), def]
+	};
+	const scopedMonitor = scopedMonitorFromDef(def);
+	const next: EditorState = {
+		...state,
+		library,
+		savedMonitor: state.monitor, // preserve the REAL monitor untouched (no instance dropped)
+		monitor: scopedMonitor,
+		defEditBaseline: scopedMonitor,
+		editingDefId: def.id,
+		selectedId: null
+	};
+	return syncPrimary({ ...next, ...resetHistoryPatch(next) }, false);
+}
+
+type DefEditAction = Extract<
+	Action,
+	{
+		type:
+			| 'newWidget'
+			| 'cloneDef'
+			| 'newFromTemplate'
+			| 'previewTemplate'
+			| 'endPreview'
+			| 'clonePreview'
+			| 'enterDefEdit'
+			| 'endDefEdit';
+	}
+>;
+
+function reduceDefEdit(state: EditorState, action: DefEditAction): EditorState {
+	switch (action.type) {
 		case 'newWidget': {
 			// Refuse to start a new def while already editing one (would orphan savedMonitor). The UI
 			// folds the open def (endDefEdit) before starting a new one.
@@ -1165,10 +452,18 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 			next = { ...next, ...commitPatch(next) }; // saveLayout()
 			return next;
 		}
-		case 'resetHistory':
-			return { ...state, ...resetHistoryPatch(state) };
-		case 'setBaseline':
-			return { ...state, ...setBaselinePatch(state) };
+	}
+}
+
+// --- load / persistence-adjacent sub-reducer ---------------------------------------------------
+
+type LoadAction = Extract<
+	Action,
+	{ type: 'load' | 'setTheme' | 'replaceMonitor' | 'revertToBaseline' | 'setMonitorKey' }
+>;
+
+function reduceLoad(state: EditorState, action: LoadAction): EditorState {
+	switch (action.type) {
 		case 'load':
 			return { ...state, ...action.patch };
 		case 'setTheme':
@@ -1189,6 +484,47 @@ function editorReducer(state: EditorState, action: Action): EditorState {
 		}
 		case 'setMonitorKey':
 			return state;
+	}
+}
+
+function editorReducer(state: EditorState, action: Action): EditorState {
+	switch (action.type) {
+		case 'op': {
+			const patch = action.run(state);
+			const setSelectedIds = 'selectedIds' in patch;
+			let next = { ...state, ...patch };
+			next = syncPrimary(next, setSelectedIds); // collapse the marquee unless the op set the set
+			if (action.commit) next = { ...next, ...commitPatch(next) };
+			return next;
+		}
+		case 'patch': {
+			const setSelectedIds = 'selectedIds' in action.patch;
+			return syncPrimary({ ...state, ...action.patch }, setSelectedIds);
+		}
+		case 'select':
+		case 'selectClick':
+		case 'setSelectedIds':
+			return reduceSelection(state, action);
+		case 'undo':
+		case 'redo':
+		case 'resetHistory':
+		case 'setBaseline':
+			return reduceHistory(state, action);
+		case 'newWidget':
+		case 'cloneDef':
+		case 'newFromTemplate':
+		case 'previewTemplate':
+		case 'endPreview':
+		case 'clonePreview':
+		case 'enterDefEdit':
+		case 'endDefEdit':
+			return reduceDefEdit(state, action);
+		case 'load':
+		case 'setTheme':
+		case 'replaceMonitor':
+		case 'revertToBaseline':
+		case 'setMonitorKey':
+			return reduceLoad(state, action);
 		default:
 			return state;
 	}
@@ -1402,43 +738,3 @@ export function useEditorModel(studio: boolean, seedFloating: Leaf[]): EditorMod
 		[state, handleOp, commitOp, mutateNoSave]
 	);
 }
-
-// floatNode needs `solved` at call time; the Canvas drag paths pass the solved map in, but the
-// handleOp `float` case (from Inspector/Outline/menu) has no point arg. Mirror the Svelte version:
-// it reads the live `solved` (a Canvas reactive). Here we recompute from monitor+workArea would be
-// wrong (no workArea here), so the Canvas injects `solved` via a module-level ref before dispatch.
-let solvedRef: Solved = new Map();
-export function setSolvedForFloat(s: Solved): void {
-	solvedRef = s;
-}
-function floatNode(s: EditorState, id: string, at?: { x: number; y: number }): Patch {
-	const node = findNode(s.monitor.root, id);
-	if (!node || !isLeaf(node)) return {};
-	const r = solvedRef.get(id);
-	const lf = floatingLeafFrom(node, at?.x ?? r?.x ?? 0, at?.y ?? r?.y ?? 0, r);
-	return {
-		monitor: {
-			...s.monitor,
-			root: removeNode(s.monitor.root, id),
-			floating: [...s.monitor.floating, lf]
-		},
-		selectedId: id
-	};
-}
-
-export {
-	addWidget,
-	addContainer,
-	addBeside,
-	splitNode,
-	patchContainerOp,
-	distributeEvenly,
-	setGridTracks,
-	floatNode,
-	defInUse,
-	bulkPatchConfig,
-	bulkSetBasis,
-	setWidgetToken,
-	clearWidgetTokens,
-	DEFAULT_MONITOR
-};

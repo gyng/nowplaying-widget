@@ -9,8 +9,9 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { LlmDelta } from '../core/llm';
 import { handleDelta } from '../../stores/llmStore';
+import { EVENTS } from '../bridge/contract';
 
-export const LLM_DELTA_EVENT = 'llm_delta';
+export const LLM_DELTA_EVENT = EVENTS.llmDelta;
 
 let refs = 0;
 let unlisten: UnlistenFn | null = null;

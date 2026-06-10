@@ -5,13 +5,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { LogRecord } from './core/logs';
+import { COMMANDS, EVENTS } from './bridge/contract';
 
 /** The buffered log backlog (oldest first) for a UI that opens after entries were produced. */
 export function getLogs(): Promise<LogRecord[]> {
-	return invoke<LogRecord[]>('get_logs').catch(() => []);
+	return invoke<LogRecord[]>(COMMANDS.getLogs).catch(() => []);
 }
 
 /** Stream new log entries as the backend emits them. Returns an unlisten function. */
 export function subscribeLogs(cb: (record: LogRecord) => void): Promise<UnlistenFn> {
-	return listen<LogRecord>('log', (ev) => cb(ev.payload));
+	return listen<LogRecord>(EVENTS.log, (ev) => cb(ev.payload));
 }
