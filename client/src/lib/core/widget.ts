@@ -190,7 +190,8 @@ const expr = (
 export const BUILTIN_METAS: WidgetMeta[] = [
 	{
 		type: 'gauge',
-		description: 'Circular arc gauge for one scalar sensor (default 0–100%).',
+		description:
+			'Gauge for one scalar sensor (default 0–100%): arc ring, full circle, linear bar, pips or needle dial.',
 		binds: 'scalar',
 		label: 'Gauge',
 		category: 'Meters',
@@ -204,6 +205,36 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 			num('max', 'max', { help: 'value mapped to a full gauge' }),
 			color('color', 'color'),
 			color('track', 'track', { help: 'color of the unfilled arc' }),
+			{
+				key: 'style',
+				label: 'style',
+				kind: 'select',
+				options: ['arc', 'circle', 'linear', 'pips', 'needle'],
+				default: 'arc',
+				help: 'arc ring (default), closed circle, linear bar, discrete pips, or analog needle dial'
+			},
+			{
+				key: 'direction',
+				label: 'direction',
+				kind: 'select',
+				options: ['arc', 'ltr', 'rtl', 'btt', 'ttb'],
+				default: 'arc',
+				help: 'pips + linear styles only: arc keeps pips on the ring; ltr/rtl/btt/ttb lay the bar or pip row along an axis'
+			},
+			num('pips', 'pips', {
+				min: 3,
+				max: 40,
+				step: 1,
+				default: 10,
+				help: 'pips style only: number of segments'
+			}),
+			num('sweep', 'sweep (°)', {
+				min: 90,
+				max: 360,
+				step: 15,
+				default: 270,
+				help: 'arc/pips/needle styles: arc span in degrees (180 = semicircle); the gap stays centred at the bottom'
+			}),
 			expr('value', 'value (formula)', 'number', {
 				help: 'overrides the sensor, e.g. round(mem.used, 0) or cpu.total / 2'
 			}),

@@ -72,8 +72,9 @@ const widgetInstances = TYPES.map((t) => buildInstance(t.type, `w-${t.type}`));
 
 // A curated demo layout (hand-placed) — the marketing shot. Landscape (four columns) with generous
 // padding/gaps so it sits well in the README and shows the widget breadth: A = at-a-glance readouts
-// (clock, CPU/GPU gauges, net rates, uptime, a countdown timer), B = graphs (per-core CPU, MEM/VRAM,
-// net throughput, audio spectrum), C = cards (now-playing + stock ticker), D = analog clock + Home
+// (clock, CPU arc + GPU circle gauges, net rates, uptime, a countdown timer), B = graphs (per-core
+// CPU, MEM/VRAM, net throughput, a disk pips gauge, audio spectrum), C = cards (now-playing + stock
+// ticker), D = analog clock + Home
 // Assistant sensor/climate/light. 24px outer pad, 24px column gaps; 900×380 to match the README's
 // other shots. Sized to fill the .demo-panel (gallery.css). The date clock carries instance css to
 // step its fixed 30px value down — at 30px a long date wraps into the gauges below.
@@ -96,7 +97,7 @@ const DEMO: WidgetInstance[] = [
 	buildInstance('gauge', 'd-g-gpu', {
 		rect: { x: 114, y: 100, w: 78, h: 78 },
 		sensor: 'gpu.util',
-		config: { label: 'GPU', unit: '%' }
+		config: { label: 'GPU', unit: '%', style: 'circle' }
 	}),
 	buildInstance('text', 'd-net-down-t', {
 		rect: { x: 24, y: 198, w: 168, h: 18 },
@@ -141,8 +142,13 @@ const DEMO: WidgetInstance[] = [
 		sensor: 'net.up',
 		config: { histogram: true, color: 'rgb(119, 196, 211)' }
 	}),
+	buildInstance('gauge', 'd-disk', {
+		rect: { x: 216, y: 248, w: 300, h: 22 },
+		sensor: 'disk.c.used.pct',
+		config: { label: 'DISK', unit: '%', style: 'pips', direction: 'ltr', pips: 20 }
+	}),
 	buildInstance('spectrum', 'd-spectrum', {
-		rect: { x: 216, y: 268, w: 300, h: 88 }
+		rect: { x: 216, y: 288, w: 300, h: 68 }
 	}),
 	// Column C (x 540, w 184) — cards: now-playing + stock ticker.
 	buildInstance('nowplaying', 'd-np', { rect: { x: 540, y: 24, w: 184, h: 192 } }),
