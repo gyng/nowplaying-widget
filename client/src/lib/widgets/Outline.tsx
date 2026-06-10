@@ -2,7 +2,13 @@
 // the floating layer. Structural editing only — select, reorder (↑/↓), reparent
 // (⟸ out / ⟹ in), dock (⤒) / float (⤓), remove (✕), and add containers. All changes
 // go up as a single `op` event; the Canvas applies them via core/layoutEdit.
-import { memo, useMemo, useState, type DragEvent as ReactDragEvent } from 'react';
+import {
+	memo,
+	useMemo,
+	useState,
+	type DragEvent as ReactDragEvent,
+	type MouseEvent as ReactMouseEvent
+} from 'react';
 import { isContainer, type Container, type LayoutNode, type Leaf } from '../core/layoutTree';
 import { isGroup } from '../core/layoutTree';
 import { outlineRows } from '../core/layoutEdit';
@@ -24,6 +30,11 @@ type Props = {
 	// tree is scoped to that def, not the monitor layout.
 	scopeLabel?: string;
 	onOp?: (op: LayoutOp) => void;
+	// Right-click on a ROW opens the same node context menu as right-clicking the widget on the
+	// stage (the Canvas supplies the handler and owns the menu). Only rows claim the event — the
+	// rest of the panel keeps the native menu (text fields keep copy/paste). Absent (overlay /
+	// preview) → rows stay native too.
+	onNodeContextMenu?: (e: { id: string; x: number; y: number }) => void;
 };
 
 function Outline({
@@ -34,11 +45,21 @@ function Outline({
 	onHover,
 	docked = false,
 	scopeLabel,
-	onOp
+	onOp,
+	onNodeContextMenu
 }: Props) {
 	const op = (o: LayoutOp) => onOp?.(o);
 	const hoverProps = (id: string) =>
 		onHover ? { onMouseEnter: () => onHover(id), onMouseLeave: () => onHover(null) } : undefined;
+	const ctxProps = (id: string) =>
+		onNodeContextMenu
+			? {
+					onContextMenu: (e: ReactMouseEvent) => {
+						e.preventDefault();
+						onNodeContextMenu({ id, x: e.clientX, y: e.clientY });
+					}
+			  }
+			: undefined;
 
 	const rows = useMemo(() => outlineRows(root), [root]);
 
@@ -171,6 +192,7 @@ function Outline({
 					onDrop={(e) => onRowDrop(e, root)}
 					onDragLeave={onRowDragLeave}
 					{...hoverProps(root.id)}
+					{...ctxProps(root.id)}
 				>
 					▦ root ({root.kind})
 				</button>
@@ -197,6 +219,7 @@ function Outline({
 							onDrop={(e) => onRowDrop(e, r.node)}
 							onDragLeave={onRowDragLeave}
 							{...hoverProps(r.node.id)}
+							{...ctxProps(r.node.id)}
 						>
 							<span className="guides" aria-hidden="true">
 								{/* one lane per ancestor (a vertical only while that ancestor still has
@@ -273,6 +296,7 @@ function Outline({
 									draggable
 									onDragStart={(e) => onRowDragStart(e, lf.id)}
 									{...hoverProps(lf.id)}
+									{...ctxProps(lf.id)}
 								>
 									<button
 										type="button"

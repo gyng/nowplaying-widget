@@ -1709,6 +1709,12 @@ export default function Canvas({ studio = false }: Props) {
 	const onWidgetContextMenu = useCallback((e: { id: string; x: number; y: number }) => {
 		setMenu({ x: e.x, y: e.y, id: e.id });
 	}, []);
+	// Outline rows open the same node menu (the rows name nodes, so no hit-testing needed). The
+	// root row maps to the stage's '__canvas__' sentinel like a bare-canvas right-click would.
+	const onOutlineContextMenu = useCallback((e: { id: string; x: number; y: number }) => {
+		const rootId = monitorForDragRef.current.root.id;
+		setMenu({ x: e.x, y: e.y, id: e.id === rootId ? '__canvas__' : e.id });
+	}, []);
 	const onCanvasContextMenu = useCallback(
 		(event: React.MouseEvent) => {
 			if (!editModeRef.current || previewingRef.current) return; // read-only while previewing
@@ -2698,6 +2704,7 @@ export default function Canvas({ studio = false }: Props) {
 										docked
 										scopeLabel={designing ? editingDefName : undefined}
 										onOp={handleOp}
+										onNodeContextMenu={previewing ? undefined : onOutlineContextMenu}
 									/>
 								)}
 								{navSection === 'widget-designer' && (
@@ -2894,6 +2901,7 @@ export default function Canvas({ studio = false }: Props) {
 								hoverId={hoverId}
 								onHover={setHoverId}
 								onOp={handleOp}
+								onNodeContextMenu={previewing ? undefined : onOutlineContextMenu}
 							/>
 						)}
 						{(!studio || navSection === 'layouts' || designing) &&
