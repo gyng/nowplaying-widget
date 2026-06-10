@@ -1006,25 +1006,9 @@
 	font-family: system-ui, sans-serif;
 }
 
-/* Designer empty-state: a quiet title above the prose hint so the panel reads as an intentional
-   "here's what this is" rather than a stray sentence. */
-.canvas .designer-empty {
-	padding: var(--space-5);
-	max-width: 320px;
-}
-
-.canvas .de-title {
-	color: var(--ui-accent-fg);
-	text-transform: uppercase;
-	letter-spacing: 1px;
-	font-size: var(--text-xl); /* panel title: one step above the section headers */
-	margin-bottom: var(--space-3);
-}
-
-.canvas .de-hint {
-	line-height: 1.5;
-	color: var(--ui-fg-dim);
-}
+/* (The designer empty-state — .designer-empty/.de-title/.de-hint — is styled ONCE in NavRail.css
+   as a fixed, opaque, full-coverage panel. A duplicate block here used to clamp it to
+   max-width:320px, leaving the Layout stage visible behind the strip.) */
 
 .canvas .edit-badge {
 	position: absolute;
