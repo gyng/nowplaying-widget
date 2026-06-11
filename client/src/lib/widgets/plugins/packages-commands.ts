@@ -1,13 +1,15 @@
 // The plugin-package Tauri command adapter (outer ring) — every `invoke` behind a typed function,
-// so the packages module shares the command-name strings and tests can mock this module. Both
-// commands are dumb file I/O on the app-config `plugins/` dir (command.rs); failures degrade to
-// empty/null so a broken folder can never take the studio down.
+// so the packages module shares the command-name strings and tests can mock this module. The
+// read commands are dumb file I/O on the app-config `plugins/` dir (command.rs) and degrade to
+// empty/null so a broken folder can never take the studio down; the remote-install commands
+// PROPAGATE failures instead — the Plugins panel shows the reason to the user.
 
 import { invoke } from '@tauri-apps/api/core';
 import { COMMANDS } from '../../bridge/contract';
 
-/** One discovered `plugins/<id>/plugin.json`: the directory name + the raw, unparsed manifest. */
-export type PluginPackageFile = { id: string; manifest: string };
+/** One discovered `plugins/<id>/plugin.json`: the directory name + the raw, unparsed manifest +
+ * (for packages installed from a URL) the raw `.install.json` provenance sidecar. */
+export type PluginPackageFile = { id: string; manifest: string; install: string | null };
 
 /** Every package directory with a manifest, sorted by id. [] when none / on failure. */
 export async function listPluginPackages(): Promise<PluginPackageFile[]> {
@@ -27,4 +29,27 @@ export async function readPluginPackageAsset(id: string, name: string): Promise<
 		console.warn('read_plugin_package_asset failed', err);
 		return null;
 	}
+}
+
+/** What `install_plugin_package` reports back on success. */
+export type InstalledPackage = { id: string; version: string };
+
+/** Install (or update — same command) a package from `owner/repo`, a github.com repo URL, or an
+ * https plugin.json URL. Throws the backend's reason string on failure (the caller shows it). */
+export async function installPluginPackage(source: string): Promise<InstalledPackage> {
+	return await invoke<InstalledPackage>(COMMANDS.installPluginPackage, { source });
+}
+
+/** What `check_plugin_package_update` reports: the sidecar's version vs the remote manifest's. */
+export type PackageUpdateCheck = { current: string; latest: string; source: string };
+
+/** Re-fetch just the manifest from the recorded install source. Throws on failure (no sidecar,
+ * bad network, …) — the row shows the reason. */
+export async function checkPluginPackageUpdate(id: string): Promise<PackageUpdateCheck> {
+	return await invoke<PackageUpdateCheck>(COMMANDS.checkPluginPackageUpdate, { id });
+}
+
+/** Delete `plugins/<id>/` (idempotent). Throws on failure. */
+export async function removePluginPackage(id: string): Promise<void> {
+	await invoke(COMMANDS.removePluginPackage, { id });
 }

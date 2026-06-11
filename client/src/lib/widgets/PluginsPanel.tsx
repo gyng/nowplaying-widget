@@ -3,12 +3,21 @@
 // survives section switches); everything else — the failed-registration rows, the settings panel
 // behind its ErrorBoundary, the sources/widget-types fallback — renders here. Lazy-loaded like
 // the other studio panels, so the overlay never fetches it.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../../stores/createStore';
 import type { TelemetryHub } from '../core/telemetry';
 import { statusDotFrom, type Plugin } from './plugin';
 import { pluginLoadErrors } from './plugins';
-import { enabledPackages, packagesStore, togglePackage, type PackageRow } from './plugins/packages';
+import {
+	checkPackageUpdate,
+	enabledPackages,
+	installPackage,
+	packagesStore,
+	removePackage,
+	togglePackage,
+	updatePackage,
+	type PackageRow
+} from './plugins/packages';
 import ErrorBoundary from './ErrorBoundary';
 import SensorList from './SensorList';
 import { useSensor } from './useSensor';
@@ -29,11 +38,44 @@ function packageSubtext(row: PackageRow): string {
 	return parts.length ? parts.join(' · ') : 'empty';
 }
 
+// The per-row state of the manual update-check flow (local to the row — closing the panel resets
+// it, which is fine for an on-demand check).
+type UpdateState =
+	| { kind: 'idle' }
+	| { kind: 'busy'; label: string }
+	| { kind: 'current' }
+	| { kind: 'update'; current: string; latest: string }
+	| { kind: 'error'; message: string };
+
 // One third-party package row: opt-in enable toggle + name/version + a contents line; a parse
 // failure shows as an untoggleable warn row (the reason rides the title), dropped-template
-// warnings keep the toggle but carry a warn dot.
+// warnings keep the toggle but carry a warn dot. Rows installed from a URL also show their
+// source plus manual "Check updates"/Update actions; Remove works for every row (a hand-dropped
+// folder is still just a directory).
 function PackageItem({ row, enabled }: { row: PackageRow; enabled: boolean }) {
 	const warn = row.error ?? (row.warnings.length ? row.warnings.join('\n') : null);
+	const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
+	const busy = update.kind === 'busy';
+
+	const onCheck = async () => {
+		setUpdate({ kind: 'busy', label: 'checking…' });
+		const r = await checkPackageUpdate(row.id);
+		if (!r.ok) setUpdate({ kind: 'error', message: r.error });
+		else if (r.updateAvailable) setUpdate({ kind: 'update', current: r.current, latest: r.latest });
+		else setUpdate({ kind: 'current' });
+	};
+	const onUpdate = async () => {
+		setUpdate({ kind: 'busy', label: 'updating…' });
+		const r = await updatePackage(row.id);
+		if (!r.ok) setUpdate({ kind: 'error', message: r.error ?? 'update failed' });
+		else setUpdate({ kind: 'idle' });
+	};
+	const onRemove = async () => {
+		if (!window.confirm(`Remove package “${row.name}”? Its folder is deleted from disk.`)) return;
+		const r = await removePackage(row.id);
+		if (!r.ok) window.alert(`Remove failed: ${r.error}`);
+	};
+
 	return (
 		<div
 			className={['pkg-item', row.error && 'pl-failed'].filter(Boolean).join(' ')}
@@ -59,8 +101,48 @@ function PackageItem({ row, enabled }: { row: PackageRow; enabled: boolean }) {
 				{warn && <span className="pl-dot pl-dot--warn" aria-label="Package warning" />}
 			</label>
 			<span className="pkg-sub dim">{packageSubtext(row)}</span>
+			{row.installedFrom && <span className="pkg-sub pkg-src dim">from {row.installedFrom}</span>}
+			<div className="pkg-actions">
+				{row.installedFrom && (
+					<button type="button" disabled={busy} onClick={() => void onCheck()}>
+						Check updates
+					</button>
+				)}
+				{update.kind === 'update' && (
+					<button type="button" className="pkg-update" onClick={() => void onUpdate()}>
+						Update
+					</button>
+				)}
+				<button type="button" className="rp-danger" disabled={busy} onClick={() => void onRemove()}>
+					Remove
+				</button>
+				{update.kind === 'busy' && <span className="pkg-status dim">{update.label}</span>}
+				{update.kind === 'current' && <span className="pkg-status dim">up to date</span>}
+				{update.kind === 'update' && (
+					<span className="pkg-status">
+						v{update.current} → v{update.latest} available
+					</span>
+				)}
+				{update.kind === 'error' && (
+					<span className="pkg-status pkg-status--err" title={update.message}>
+						{update.message}
+					</span>
+				)}
+			</div>
 		</div>
 	);
+}
+
+// The window.prompt → install → window.alert(reason) flow for the "Install from URL…" button.
+// Blocking primitives on purpose (consistent with the package CSS-consent confirm above).
+async function promptInstall(): Promise<void> {
+	const source = window.prompt(
+		'Install a plugin package from:\n· owner/repo (GitHub, default branch)\n' +
+			'· a github.com repo URL (optionally /tree/<branch>)\n· an https link to a plugin.json'
+	);
+	if (!source?.trim()) return;
+	const r = await installPackage(source.trim());
+	if (!r.ok) window.alert(`Install failed: ${r.error}`);
 }
 
 // One Plugins-list status dot: subscribes to the plugin's declared status sensor (the same
@@ -115,6 +197,9 @@ export default function PluginsPanel({ hub, plugins, selectedId, onSelect }: Pro
 				{/* Third-party packages: declarative template/theme bundles dropped into the app-config
 				    plugins/ dir. Opt-in — discovered packages start disabled. */}
 				<div className="rp-hd">Packages</div>
+				<button type="button" className="pkg-install" onClick={() => void promptInstall()}>
+					Install from URL…
+				</button>
 				{packageRows.length ? (
 					packageRows.map((r) => (
 						<PackageItem key={r.id} row={r} enabled={enabledIds.includes(r.id)} />

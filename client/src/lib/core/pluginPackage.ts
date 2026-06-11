@@ -240,6 +240,56 @@ export function parsePluginPackage(dirId: string, raw: string): PackageParseResu
 	return { ok: true, pkg: { manifest, warnings } };
 }
 
+// ---- remote-install provenance (Phase 3) --------------------------------------------------------
+// `install_plugin_package` (command.rs) writes a `.install.json` sidecar next to the manifest:
+// `{ source, ref, version, installedAt }`. The backend hands its RAW text back on
+// `list_plugin_packages` (`PluginPackageFile.install`); parsing it is this pure half's job.
+
+/** Provenance of a package installed from a URL — `source` is `owner/repo` for GitHub installs or
+ * the verbatim manifest URL when `ref === 'direct'`. */
+export type InstallSidecar = {
+	source: string;
+	ref: string;
+	version: string;
+	installedAt: number;
+};
+
+/**
+ * Parse a raw `.install.json` sidecar. Fail-closed (null) on anything structurally off — a
+ * package with an unreadable sidecar just degrades to a "local" package (no update affordances),
+ * it never breaks the row. Never throws.
+ */
+export function parseInstallSidecar(raw: unknown): InstallSidecar | null {
+	if (typeof raw !== 'string') return null;
+	let json: unknown;
+	try {
+		json = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (typeof json !== 'object' || json === null || Array.isArray(json)) return null;
+	const o = json as Record<string, unknown>;
+	if (typeof o.source !== 'string' || !o.source.trim()) return null;
+	if (typeof o.ref !== 'string' || !o.ref.trim()) return null;
+	if (typeof o.version !== 'string' || !o.version.trim()) return null;
+	if (typeof o.installedAt !== 'number' || !Number.isFinite(o.installedAt)) return null;
+	return { source: o.source, ref: o.ref, version: o.version, installedAt: o.installedAt };
+}
+
+/** "Update available" means the remote version string DIFFERS — no semver ordering games
+ * (downgrades are deliberate re-installs, so direction doesn't matter). */
+export function versionsDiffer(a: string, b: string): boolean {
+	return a.trim() !== b.trim();
+}
+
+/** The source string to feed back into `install_plugin_package` for an update: a pinned GitHub
+ * ref must round-trip as a `/tree/<ref>` URL (plain `owner/repo` would resolve back to `main`);
+ * direct URLs and default-branch installs re-use the recorded source as-is. */
+export function reinstallSource(s: InstallSidecar): string {
+	if (s.ref === 'direct' || s.ref === 'main') return s.source;
+	return `https://github.com/${s.source}/tree/${s.ref}`;
+}
+
 /** The registry id of a package template: namespaced so two packages (or a package and a
  * built-in) can never collide — `pkg:<pkgId>:<tplId>`. */
 export function packageTemplateId(pkgId: string, tplId: string): string {

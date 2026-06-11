@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { packageTemplateId, packageTemplates, parsePluginPackage } from './pluginPackage';
+import {
+	packageTemplateId,
+	packageTemplates,
+	parseInstallSidecar,
+	parsePluginPackage,
+	reinstallSource,
+	versionsDiffer
+} from './pluginPackage';
 import { isLeaf } from './layoutTree';
 
 // A minimal valid leaf node (a clock widget) the structural whitelist accepts.
@@ -90,6 +97,58 @@ describe('parsePluginPackage', () => {
 		if (!r.ok) return;
 		expect(r.pkg.manifest.theme).toBeUndefined();
 		expect(r.pkg.warnings[0]).toContain('theme dropped');
+	});
+});
+
+describe('parseInstallSidecar', () => {
+	const sidecar = (over: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			source: 'acme/pack',
+			ref: 'main',
+			version: '1.0.0',
+			installedAt: 1750000000000,
+			...over
+		});
+
+	it('parses a valid sidecar', () => {
+		expect(parseInstallSidecar(sidecar())).toEqual({
+			source: 'acme/pack',
+			ref: 'main',
+			version: '1.0.0',
+			installedAt: 1750000000000
+		});
+	});
+
+	it('fails closed on missing/empty/bad fields, bad JSON, and non-strings', () => {
+		expect(parseInstallSidecar(null)).toBeNull();
+		expect(parseInstallSidecar(undefined)).toBeNull();
+		expect(parseInstallSidecar('{nope')).toBeNull();
+		expect(parseInstallSidecar('[1]')).toBeNull();
+		expect(parseInstallSidecar(sidecar({ source: '' }))).toBeNull();
+		expect(parseInstallSidecar(sidecar({ ref: 42 }))).toBeNull();
+		expect(parseInstallSidecar(sidecar({ version: '  ' }))).toBeNull();
+		expect(parseInstallSidecar(sidecar({ installedAt: 'soon' }))).toBeNull();
+		expect(parseInstallSidecar(sidecar({ installedAt: Infinity }))).toBeNull();
+	});
+});
+
+describe('versionsDiffer', () => {
+	it('treats any string difference (ignoring padding) as an available update', () => {
+		expect(versionsDiffer('1.0.0', '1.0.0')).toBe(false);
+		expect(versionsDiffer(' 1.0.0 ', '1.0.0')).toBe(false);
+		expect(versionsDiffer('1.0.0', '1.0.1')).toBe(true);
+		expect(versionsDiffer('2.0.0', '1.0.0')).toBe(true); // downgrade still "differs"
+	});
+});
+
+describe('reinstallSource', () => {
+	const base = { source: 'acme/pack', version: '1.0.0', installedAt: 0 };
+	it('round-trips main/direct installs verbatim and pins other refs as tree URLs', () => {
+		expect(reinstallSource({ ...base, ref: 'main' })).toBe('acme/pack');
+		expect(reinstallSource({ ...base, source: 'https://x.dev/p/plugin.json', ref: 'direct' })).toBe(
+			'https://x.dev/p/plugin.json'
+		);
+		expect(reinstallSource({ ...base, ref: 'v2' })).toBe('https://github.com/acme/pack/tree/v2');
 	});
 });
 

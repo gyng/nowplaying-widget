@@ -949,6 +949,49 @@
 	margin-left: calc(13px + var(--space-2));
 }
 
+/* Provenance line ("from owner/repo") under the contents line — same subtitle indent. */
+.canvas .plugins-panel .pkg-item .pkg-src {
+	word-break: break-all; /* a long direct URL must not widen the rail */
+}
+
+/* The "Install from URL…" button sits between the Packages header and the rows; full-width so it
+   reads as part of the list, not a stray chip. */
+.canvas .plugins-panel button.pkg-install {
+	display: block;
+	width: 100%;
+	margin: 0 0 var(--space-2);
+}
+
+/* Per-row remote actions (Check updates / Update / Remove) + the inline check result. Compact —
+   they ride inside the row, under the subtitle, at the same indent. */
+.canvas .plugins-panel .pkg-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin-left: calc(13px + var(--space-2));
+}
+
+.canvas .plugins-panel .pkg-actions button {
+	font-size: var(--text-sm);
+	min-height: 0;
+	padding: 0 var(--space-2);
+	margin: 0;
+}
+
+.canvas .plugins-panel .pkg-actions button.pkg-update {
+	border-color: rgb(var(--ui-accent-rgb));
+	color: var(--ui-accent-fg);
+}
+
+.canvas .plugins-panel .pkg-actions .pkg-status {
+	font-size: var(--text-sm);
+}
+
+.canvas .plugins-panel .pkg-actions .pkg-status--err {
+	color: var(--ui-danger-fg);
+}
+
 .canvas .plugins-panel .pl-item.cur {
 	background: rgba(var(--ui-accent-rgb), 0.16);
 	border-left-color: rgb(var(--ui-accent-rgb));
