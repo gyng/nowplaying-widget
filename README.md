@@ -130,10 +130,6 @@ To write one, see the [authoring guide](docs/third-party-plugins.md) and the ref
 driven by a sandboxed [open-meteo](https://open-meteo.com) source, and a small theme, CI-tested
 against the real pipeline on every build.
 
-## TODO
-
-- Desktop-pinned widget layer (behind windows, à la wallpaper engines)
-
 ## Development
 
 Build/run instructions, the test gates, and the release process live in
