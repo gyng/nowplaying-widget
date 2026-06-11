@@ -18,6 +18,7 @@ import type { WindowDescriptor } from './core/windowMatch';
 import { monitorHasWidgets } from './core/layoutTree';
 import { builtinCss } from './core/builtinThemes';
 import { compareMonitorOptions, monitorOptionLabel } from './monitorLabel';
+import { monitorByKey, monitorDeviceKey } from './monitorKey';
 import { migrateMonitorKeys, parseLayoutAny } from './core/migration';
 import { readOverlayPrefs, type OverlayLayer } from './widgets/canvas/overlayPrefs';
 import type { OverlayPresentation } from './widgets/canvas/overlayPresentation';
@@ -65,14 +66,9 @@ export async function applyOverlayLayer(layer: OverlayLayer): Promise<void> {
 	emit(EVENTS.overlayLayerStatus, { layer, ok, detail, label: win.label }).catch(() => undefined);
 }
 
-/** A monitor's STABLE layout key: the GDI device tag ('DISPLAY3'), not the `availableMonitors()`
- * enumeration index — the index reshuffles across reboots/hot-plugs, which put a saved layout on
- * the wrong physical monitor. Falls back to a position-independent `m<i>` when the platform gives
- * no device name (plain browser / tests). The primary monitor's key stays 'default' (callers). */
-export function monitorDeviceKey(name: string | null | undefined, index: number): string {
-	const tag = (name ?? '').replace(/^[\\.?]+/, '').trim();
-	return tag || `m${index}`;
-}
+// The stable per-monitor layout key (monitorDeviceKey) and its reverse lookup (monitorByKey) live
+// in monitorKey.ts — a pure seam, unit-tested without a window.
+export { monitorDeviceKey };
 
 /** The set of saved-layout monitor keys that hold at least one widget (so an overlay there would
  * render something). Keys: 'default' (primary) or the device key, matching studioMonitorOptions.
@@ -240,6 +236,50 @@ export async function fillPrimaryMonitor(): Promise<void> {
 			console.warn('onScaleChanged registration failed', err);
 			scaleListenerWired = false; // allow a retry on a later fill
 		}
+	}
+}
+
+// Guard so repeat fillOwnMonitor() calls don't stack duplicate onScaleChanged listeners (one per
+// secondary-overlay webview, mirroring fillPrimaryMonitor's scaleListenerWired).
+let ownScaleListenerWired = false;
+
+/** Secondary overlay (?monitor=<key>) self-fit + reveal: position/size THIS window onto the monitor
+ * whose stable device key is `key`, re-assert borderless + click-through, then show. Runs in the
+ * overlay's OWN webview so it can't be orphaned: the spawn-side `tauri://created` setup in
+ * reconcileOverlays runs in the CREATING window's JS context, and when an empty-primary `main`
+ * destroys itself (renderer reclaim) right after reconciling, that context died before
+ * positioning/revealing the new overlay — leaving it permanently invisible (and `if (have) continue`
+ * never repaired it). Idempotent with the spawn-side setup when both run. Best-effort: failures are
+ * logged, never thrown. No-op when no current monitor matches `key` (a later reconcile closes the
+ * orphan). */
+export async function fillOwnMonitor(key: string): Promise<void> {
+	try {
+		const m = monitorByKey(await availableMonitors(), key);
+		if (!m) {
+			console.warn(`fillOwnMonitor: no monitor matches key '${key}'`);
+			return;
+		}
+		const win = getCurrentWindow();
+		await win.setPosition(new PhysicalPosition(m.position.x, m.position.y));
+		await win.setSize(new PhysicalSize(m.size.width, m.size.height));
+		// Same re-asserts as the spawn side: no border/title bar (the window-state plugin can restore
+		// a stale decorations:true) and click-through BEFORE the window is ever visible.
+		await win.setDecorations(false);
+		await win.setShadow(false);
+		await win.setIgnoreCursorEvents(true);
+		await win.show();
+		// show() raises the window; re-assert the chosen z-order layer AFTER it (see
+		// setMainWindowVisible). Safe to apply the full layer here, incl. the wallpaper SetParent,
+		// which must run from this overlay's own webview anyway.
+		await applyOverlayLayer(readOverlayPrefs().overlayLayer);
+		// #12: DPI/scale hot-plug — re-fit to our monitor when its scale factor changes (mirrors
+		// fillPrimaryMonitor; the device key stays stable across a scale change).
+		if (!ownScaleListenerWired) {
+			ownScaleListenerWired = true;
+			await win.onScaleChanged(() => void fillOwnMonitor(key));
+		}
+	} catch (err) {
+		console.warn('fillOwnMonitor failed', err);
 	}
 }
 
@@ -851,7 +891,10 @@ export async function reconcileOverlays(): Promise<void> {
 			// uses no OS file-drop, so Tauri's native handler is safe to disable here too.
 			dragDropEnabled: false
 		});
-		// Constructor sizes are logical; place precisely in physical px, then show.
+		// Constructor sizes are logical; place precisely in physical px, then show. BEST-EFFORT fast
+		// path only: this callback lives in the CREATING window's JS context and dies with it (an
+		// empty-primary `main` self-destructs right after reconciling). The overlay's own Canvas init
+		// re-runs the same setup via fillOwnMonitor (idempotent), so it reveals either way.
 		w.once('tauri://created', async () => {
 			try {
 				await w.setPosition(new PhysicalPosition(m.position.x, m.position.y));

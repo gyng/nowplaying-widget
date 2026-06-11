@@ -9,6 +9,7 @@ import { EVENTS } from '../../bridge/contract';
 import { startAllSources } from '../../core/plugin';
 import type { TelemetryHub } from '../../core/telemetry';
 import {
+	fillOwnMonitor,
 	fillPrimaryMonitor,
 	listThemes,
 	monitorParam,
@@ -51,6 +52,14 @@ export function useStudioInit(deps: StudioInitDeps): void {
 
 		(async () => {
 			const dep = d.current;
+			// A secondary overlay (?monitor=<key>) fits + reveals ITSELF before anything else. The
+			// spawn-side `tauri://created` setup in reconcileOverlays runs in the creating window's JS
+			// context and dies with it when an empty-primary `main` self-destructs (renderer reclaim)
+			// right after spawning us — which left the overlay permanently invisible. Running first also
+			// means the work-area read below sees the window on its real monitor, not wherever the
+			// window-state plugin parked it.
+			const ownKey = dep.studio ? null : monitorParam();
+			if (ownKey) await fillOwnMonitor(ownKey);
 			await dep.updateWorkArea();
 			sourceStop = await startAllSources(dep.hub); // built-in `system` + any plugin sources
 			if (cancelled) {
@@ -142,11 +151,14 @@ export function useStudioInit(deps: StudioInitDeps): void {
 			}
 		})().catch((err) => {
 			// The primary main window is born hidden (config `visible:false`) and only revealed once
-			// init reaches `syncPrimaryOverlays`. If init throws before that, reveal it anyway so a
-			// failure can never strand the app permanently invisible (its old always-visible default).
+			// init reaches `syncPrimaryOverlays`; a secondary is born hidden and reveals itself via
+			// fillOwnMonitor. If init throws before the reveal, reveal anyway so a failure can never
+			// strand a window permanently invisible (the old always-visible default).
 			console.warn('overlay init failed', err);
-			if (!cancelled && !d.current.studio && !monitorParam()) {
-				void setMainWindowVisible(true).catch(() => undefined);
+			if (!cancelled && !d.current.studio) {
+				const key = monitorParam();
+				if (key) void fillOwnMonitor(key);
+				else void setMainWindowVisible(true).catch(() => undefined);
 			}
 		});
 
