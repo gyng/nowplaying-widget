@@ -8,7 +8,8 @@
 import {
 	newQuickJSWASMModuleFromVariant,
 	type QuickJSContext,
-	type QuickJSRuntime
+	type QuickJSRuntime,
+	type QuickJSWASMModule
 } from 'quickjs-emscripten-core';
 // One pinned variant with the WASM embedded (base64) in the JS — a single payload, no runtime .wasm
 // fetch (robust under Tauri's CSP/asset protocol) instead of the umbrella package's 4 wasm flavors.
@@ -34,6 +35,18 @@ let ctx: QuickJSContext | null = null;
 let readyPromise: Promise<void> | null = null;
 const readyListeners = new Set<() => void>();
 
+// The WASM module itself is loaded once per window and shared: the formula engine's singleton
+// context AND every package-source sandbox (packageSandbox.ts) get their own runtime from it.
+let modulePromise: Promise<QuickJSWASMModule> | null = null;
+
+/** The (cached) QuickJS-WASM module load. Rejects on a genuine load failure — callers decide
+ *  whether that's fatal (a package source reports an error status; the formula engine just stays
+ *  not-ready). */
+export function loadQuickJSModule(): Promise<QuickJSWASMModule> {
+	if (!modulePromise) modulePromise = newQuickJSWASMModuleFromVariant(quickjsVariant);
+	return modulePromise;
+}
+
 function defineHostFns(c: QuickJSContext): void {
 	const reg = (name: string, fn: (...args: number[]) => string) => {
 		const handle = c.newFunction(name, (...args) =>
@@ -53,7 +66,7 @@ function defineHostFns(c: QuickJSContext): void {
  *  cached. Resolves once the sandbox is ready; never rejects (a failed init just leaves it not-ready). */
 export function initFormulaEngine(): Promise<void> {
 	if (!readyPromise) {
-		readyPromise = newQuickJSWASMModuleFromVariant(quickjsVariant)
+		readyPromise = loadQuickJSModule()
 			.then((QuickJS) => {
 				runtime = QuickJS.newRuntime();
 				// Bound an adversarial / imported-sack formula's RESOURCES as tightly as its CPU: the

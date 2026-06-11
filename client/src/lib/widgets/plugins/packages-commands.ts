@@ -53,3 +53,13 @@ export async function checkPluginPackageUpdate(id: string): Promise<PackageUpdat
 export async function removePluginPackage(id: string): Promise<void> {
 	await invoke(COMMANDS.removePluginPackage, { id });
 }
+
+/** What `package_fetch` hands back — the exact shape the sandbox's `transform` receives. */
+export type PackageFetchResponse = { url: string; status: number; body: string };
+
+/** Host-side fetch for a package source: the backend re-reads `plugins/<id>/plugin.json` and
+ * enforces its `source.hosts` allowlist server-side (https only, no redirects, GET, 10s timeout,
+ * 256 KiB cap). Throws the backend's reason — the poll loop maps failures to status 0. */
+export async function packageFetch(id: string, url: string): Promise<PackageFetchResponse> {
+	return await invoke<PackageFetchResponse>(COMMANDS.packageFetch, { id, url });
+}

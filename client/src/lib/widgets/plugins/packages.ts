@@ -2,15 +2,21 @@
 // core/pluginPackage.ts; the raw file I/O in packages-commands.ts). Canvas calls `initPackages()`
 // once per window (both roles): discover `plugins/<id>/plugin.json`, parse every manifest
 // (failures become warn rows in the Plugins panel, like pluginLoadErrors), and apply the ENABLED
-// ones — register their templates as a named group in the Add palette / widget designer, and
-// inject their theme CSS (scanned by core/cssThreats; injected only with the user's stored
-// consent). Packages are OPT-IN: the enabled list is an explicit localStorage allowlist that
-// starts empty, so a freshly dropped folder registers nothing until the user flips its toggle.
+// ones — register their templates as a named group in the Add palette / widget designer, inject
+// their theme CSS (scanned by core/cssThreats; injected only with the user's stored consent), and
+// run their sandboxed sensor source (Phase 2 — QuickJS poll loop in packages-source.ts, started
+// only with stored network consent for the manifest's exact hosts list). Packages are OPT-IN: the
+// enabled list is an explicit localStorage allowlist that starts empty, so a freshly dropped
+// folder registers nothing until the user flips its toggle.
 
 import { createStore } from '../../../stores/createStore';
 import { createPersistedStore } from '../../../stores/persist';
 import { scanCssThreats, threatSummary } from '../../core/cssThreats';
+import { registerSource, unregisterSource, type SensorCatalogEntry } from '../../core/plugin';
 import {
+	consentFingerprint,
+	enableConsentMessage,
+	packageSensorId,
 	packageTemplates,
 	parseInstallSidecar,
 	parsePluginPackage,
@@ -20,6 +26,7 @@ import {
 	type PluginPackageManifest
 } from '../../core/pluginPackage';
 import { registerTemplates, unregisterTemplates } from '../../core/templates';
+import type { TelemetryHub } from '../../core/telemetry';
 import {
 	checkPluginPackageUpdate,
 	installPluginPackage,
@@ -27,6 +34,7 @@ import {
 	readPluginPackageAsset,
 	removePluginPackage
 } from './packages-commands';
+import { startPackageSource } from './packages-source';
 
 // One discovered package directory: either a parsed manifest (+ drop warnings) or a parse error.
 type Discovered = {
@@ -50,6 +58,10 @@ export type PackageRow = {
 	warnings: string[];
 	templates: number;
 	themeName: string | null;
+	/** Declared source sensors (0 when the package has no source). */
+	sensors: number;
+	/** The source's network allowlist ([] when no source) — shown as a dim "network:" line. */
+	hosts: string[];
 	/** The install source (`owner/repo` or a URL) when installed via `installPackage`; null for a
 	 * hand-dropped folder (no update-check affordance — there's nowhere to check against). */
 	installedFrom: string | null;
@@ -73,6 +85,21 @@ const trustedCssPackages = createPersistedStore<string[]>(
 	parseIds
 );
 
+const parseConsentMap = (raw: unknown): Record<string, string> => {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+	const out: Record<string, string> = {};
+	for (const [k, v] of Object.entries(raw)) if (typeof v === 'string') out[k] = v;
+	return out;
+};
+
+// Network consent per package id, keyed by the hosts FINGERPRINT (sorted hosts string) the user
+// saw in the first-enable confirm. A manifest update that changes the hosts list mismatches the
+// stored fingerprint, so the source stays stopped until the new hosts are re-confirmed.
+const netConsentPackages = createPersistedStore<Record<string, string>>(
+	'widgetsack.packages.netConsent',
+	parseConsentMap
+);
+
 /** The discovered package rows, for the Plugins panel (subscribe via useStore). */
 export const packagesStore = createStore<PackageRow[]>([]);
 
@@ -88,6 +115,8 @@ function rowOf(d: Discovered): PackageRow {
 		warnings: d.warnings.slice(),
 		templates: d.manifest?.templates.length ?? 0,
 		themeName: d.manifest?.theme?.name ?? null,
+		sensors: d.manifest?.source ? d.manifest.sensors.length : 0,
+		hosts: d.manifest?.source?.hosts.slice() ?? [],
 		installedFrom: d.install?.source ?? null,
 		...(d.install ? { installedVersion: d.install.version } : {})
 	};
@@ -119,10 +148,48 @@ async function injectPackageTheme(d: Discovered): Promise<void> {
 	document.head.appendChild(el);
 }
 
+// ---- sandboxed sensor sources (Phase 2) ----------------------------------------------------------
+// The poll loop itself lives in packages-source.ts; this module owns WHEN it runs: started by
+// applyPackage when a package is enabled AND its hosts fingerprint matches the stored network
+// consent, stopped on disable/remove/refresh. The hub arrives from Canvas via initPackages — the
+// loop ingests into THIS window's hub, exactly like the first-party sources.
+
+let hubRef: TelemetryHub | null = null;
+
+// One running poll loop's stop function per package id.
+const runningSources = new Map<string, () => void>();
+
+function stopPackageSource(id: string): void {
+	runningSources.get(id)?.();
+	runningSources.delete(id);
+}
+
+function netConsented(d: Discovered): boolean {
+	const hosts = d.manifest?.source?.hosts;
+	if (!hosts) return false;
+	return netConsentPackages.getSnapshot()[d.id] === consentFingerprint(hosts);
+}
+
+// The sensor-catalog entries a package's source contributes: its declared sensors (namespaced,
+// with the manifest's label/unit) plus the implicit status sensor. Registered as a no-op-start
+// SensorSource purely so sourceCatalogEntries() — which reads the registry live — surfaces them
+// in the Inspector dropdown / Sensors browser; the poll loop's lifecycle is owned HERE (start on
+// enable+consent, stop on disable), not by the one-shot startAllSources at Canvas init.
+function packageCatalog(m: PluginPackageManifest): SensorCatalogEntry[] {
+	const entries: SensorCatalogEntry[] = m.sensors.map((s) => ({
+		id: packageSensorId(m.id, s.id),
+		...(s.label !== undefined ? { label: s.label } : {}),
+		...(s.unit !== undefined ? { unit: s.unit } : {})
+	}));
+	entries.push({ id: packageSensorId(m.id, 'status'), label: `${m.name} status` });
+	return entries;
+}
+
 // ---- registration ------------------------------------------------------------------------------
 
 // Apply one package's enabled state: register/unregister its template group (keyed by the
-// package's display name — that's the heading the palette shows) and add/remove its theme style.
+// package's display name — that's the heading the palette shows), add/remove its theme style,
+// and start/stop its sandboxed source (+ catalog entries).
 async function applyPackage(d: Discovered, enabled: boolean): Promise<void> {
 	if (!d.manifest) return; // unparsed packages register nothing
 	if (enabled) {
@@ -130,9 +197,25 @@ async function applyPackage(d: Discovered, enabled: boolean): Promise<void> {
 			registerTemplates(d.manifest.name, packageTemplates(d.manifest));
 		}
 		await injectPackageTheme(d);
+		if (d.manifest.source) {
+			const m = d.manifest;
+			registerSource({
+				id: `pkg:${d.id}`,
+				start: async () => () => undefined, // lifecycle owned here, not by startAllSources
+				catalogEntries: () => packageCatalog(m)
+			});
+			stopPackageSource(d.id); // refresh re-applies — never stack two loops
+			// Consent-gated: a hosts list the user never confirmed (fresh enable race, manifest
+			// edited on disk, update that changed hosts) keeps the loop OFF, fail-closed.
+			if (hubRef && netConsented(d)) {
+				runningSources.set(d.id, await startPackageSource(m, hubRef));
+			}
+		}
 	} else {
 		unregisterTemplates(d.manifest.name);
 		removePackageTheme(d.id);
+		unregisterSource(`pkg:${d.id}`);
+		stopPackageSource(d.id);
 	}
 }
 
@@ -174,34 +257,53 @@ export async function refreshPackages(): Promise<void> {
 
 let initialized = false;
 
-/** One-shot init per window (Canvas mount, both roles — idempotent like registerBuiltinPlugins). */
-export async function initPackages(): Promise<void> {
+/** One-shot init per window (Canvas mount, both roles — idempotent like registerBuiltinPlugins).
+ * `hub` is this window's telemetry hub — package sources ingest into it (overlays poll too, so an
+ * overlay-only widget bound to a package sensor works without the studio open). */
+export async function initPackages(hub: TelemetryHub): Promise<void> {
 	if (initialized) return;
 	initialized = true;
+	hubRef = hub;
 	await refreshPackages();
 }
 
 /**
  * Flip one package's enabled state, LIVE (templates appear in / vanish from the palette without
- * a reload; the theme style tag follows). On the FIRST enable of a package whose theme CSS scans
- * with threats, `confirmCssThreats` is asked with a human summary (the Plugins panel passes a
- * window.confirm mirroring the sack-import wording); declining aborts the enable. Consent is
- * stored, so subsequent boots inject without asking again. Other windows (overlays) pick the
- * change up on their next reload — the allowlist is shared localStorage.
+ * a reload; the theme style tag follows; a source's poll loop starts/stops). On the FIRST enable
+ * of a package whose theme CSS scans with threats AND/OR which declares a network source,
+ * `confirmEnable` is asked ONCE with a combined message stating both facts (the Plugins panel
+ * passes window.confirm); declining aborts the enable. Both consents are stored — CSS by package
+ * id, network by hosts FINGERPRINT (so changed hosts re-prompt) — and subsequent boots apply
+ * without asking again. Other windows (overlays) pick the change up on their next reload — the
+ * allowlist is shared localStorage.
  */
 export async function togglePackage(
 	id: string,
 	enabled: boolean,
-	confirmCssThreats: (summary: string) => boolean = () => true
+	confirmEnable: (message: string) => boolean = () => true
 ): Promise<void> {
 	const d = discovered.get(id);
 	if (!d?.manifest) return; // unknown / unparsed → not toggleable
-	if (enabled && d.manifest.theme && !trustedCssPackages.getSnapshot().includes(id)) {
-		const css = await readPluginPackageAsset(id, d.manifest.theme.file);
-		const threats = css ? scanCssThreats(css) : [];
-		if (threats.length) {
-			if (!confirmCssThreats(threatSummary(threats))) return;
-			trustedCssPackages.update((ids) => [...ids, id]);
+	if (enabled) {
+		let cssSummary: string | null = null;
+		if (d.manifest.theme && !trustedCssPackages.getSnapshot().includes(id)) {
+			const css = await readPluginPackageAsset(id, d.manifest.theme.file);
+			const threats = css ? scanCssThreats(css) : [];
+			if (threats.length) cssSummary = threatSummary(threats);
+		}
+		const source = d.manifest.source;
+		const fingerprint = source ? consentFingerprint(source.hosts) : null;
+		const needsNet = fingerprint !== null && netConsentPackages.getSnapshot()[id] !== fingerprint;
+		if (cssSummary !== null || needsNet) {
+			const message = enableConsentMessage({
+				...(cssSummary !== null ? { cssSummary } : {}),
+				...(needsNet && source ? { hosts: source.hosts, pollSeconds: source.pollSeconds } : {})
+			});
+			if (!confirmEnable(message)) return;
+			if (cssSummary !== null) trustedCssPackages.update((ids) => [...ids, id]);
+			if (needsNet && fingerprint !== null) {
+				netConsentPackages.update((m) => ({ ...m, [id]: fingerprint }));
+			}
 		}
 	}
 	enabledPackages.update((ids) => {
@@ -271,6 +373,17 @@ export async function updatePackage(id: string): Promise<PackageOpResult> {
 		return { ok: false, error: String(err) };
 	}
 	await refreshPackages();
+	// If the update CHANGED the hosts list (or dropped the source), the stored network consent is
+	// stale — drop it so the new hosts must be re-confirmed (toggle off/on). The fingerprint check
+	// in applyPackage already kept the new source from starting during the refresh above.
+	const next = discovered.get(id);
+	const nextFp = next?.manifest?.source ? consentFingerprint(next.manifest.source.hosts) : null;
+	netConsentPackages.update((m) => {
+		if (m[id] === undefined || m[id] === nextFp) return m;
+		const rest = { ...m };
+		delete rest[id];
+		return rest;
+	});
 	return { ok: true };
 }
 
@@ -284,6 +397,12 @@ export async function removePackage(id: string): Promise<PackageOpResult> {
 	if (d) await applyPackage(d, false);
 	enabledPackages.update((ids) => ids.filter((x) => x !== id));
 	trustedCssPackages.update((ids) => ids.filter((x) => x !== id));
+	netConsentPackages.update((m) => {
+		if (m[id] === undefined) return m;
+		const rest = { ...m };
+		delete rest[id];
+		return rest;
+	});
 	try {
 		await removePluginPackage(id);
 	} catch (err) {
@@ -297,9 +416,13 @@ export async function removePackage(id: string): Promise<PackageOpResult> {
 /** TEST-ONLY: drop all module state so each test starts from a clean registry. */
 export function resetPackagesForTest(): void {
 	for (const d of discovered.values()) void applyPackage(d, false);
+	for (const stop of runningSources.values()) stop();
+	runningSources.clear();
 	discovered.clear();
 	publishRows();
 	enabledPackages.set([]);
 	trustedCssPackages.set([]);
+	netConsentPackages.set({});
+	hubRef = null;
 	initialized = false;
 }

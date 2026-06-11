@@ -5,7 +5,8 @@ import {
 	registerSource,
 	sourceCatalogEntries,
 	sourceCatalogIds,
-	startAllSources
+	startAllSources,
+	unregisterSource
 } from './plugin';
 
 describe('sensor sources', () => {
@@ -67,5 +68,18 @@ describe('sensor sources', () => {
 		expect(cpu).toEqual({ id: 'cpu.total' });
 		// Deduped: one entry per id.
 		expect(entries.filter((e) => e.id === 'ha.light.kitchen')).toHaveLength(1);
+	});
+
+	it('unregisterSource drops the source and its catalog entries live (no-op when absent)', () => {
+		registerSource({
+			id: 'pkg:wx',
+			start: async () => () => undefined,
+			catalogEntries: () => [{ id: 'pkg.wx.temp', label: 'Temperature' }]
+		});
+		expect(sourceCatalogEntries().some((e) => e.id === 'pkg.wx.temp')).toBe(true);
+		unregisterSource('pkg:wx');
+		expect(listSources().some((s) => s.id === 'pkg:wx')).toBe(false);
+		expect(sourceCatalogEntries().some((e) => e.id === 'pkg.wx.temp')).toBe(false);
+		unregisterSource('pkg:wx'); // absent → no-op, no throw
 	});
 });

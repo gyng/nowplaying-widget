@@ -545,13 +545,16 @@ fn plugins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("plugins"))
 }
 
-/// A package asset filename is a single path component: `<valid_name stem>.<css|json>`. Splitting
-/// at the LAST dot and running the stem through `valid_name` rejects separators, `..`, extra dots
+/// A package asset filename is a single path component: `<valid_name stem>.<css|json|js>` (`.js`
+/// is a Phase 2 sandboxed source script — it is only ever TEXT to the backend). Splitting at the
+/// LAST dot and running the stem through `valid_name` rejects separators, `..`, extra dots
 /// (so no `x.css.tmp` smuggling), and oversized names by construction.
 fn valid_asset_name(name: &str) -> bool {
     match name.rsplit_once('.') {
         Some((stem, ext)) => {
-            (ext.eq_ignore_ascii_case("css") || ext.eq_ignore_ascii_case("json"))
+            (ext.eq_ignore_ascii_case("css")
+                || ext.eq_ignore_ascii_case("json")
+                || ext.eq_ignore_ascii_case("js"))
                 && valid_name(stem)
         }
         None => false,
@@ -834,15 +837,18 @@ pub async fn install_plugin_package(
     if version.is_empty() {
         return Err("manifest has no \"version\"".to_string());
     }
-    // Declared assets: `theme.file` is the only asset slot in manifestVersion 1. Fetch before
-    // writing anything.
+    // Declared assets: `theme.file` (Phase 1) and `source.file` (Phase 2 sandbox script) are the
+    // only asset slots in manifestVersion 1. Fetch before writing anything.
     let mut assets: Vec<(String, String)> = Vec::new();
-    if let Some(file) = json.pointer("/theme/file").and_then(|v| v.as_str()) {
-        if !valid_asset_name(file) {
-            return Err(format!("declared asset \"{file}\" has an unsafe filename"));
+    for pointer in ["/theme/file", "/source/file"] {
+        if let Some(file) = json.pointer(pointer).and_then(|v| v.as_str()) {
+            if !valid_asset_name(file) {
+                return Err(format!("declared asset \"{file}\" has an unsafe filename"));
+            }
+            let body =
+                fetch_text_capped(&client, &asset_url_for(&resolved.manifest_url, file)).await?;
+            assets.push((file.to_string(), body));
         }
-        let body = fetch_text_capped(&client, &asset_url_for(&resolved.manifest_url, file)).await?;
-        assets.push((file.to_string(), body));
     }
     let dir = plugins_dir(&app)?.join(&id);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -932,6 +938,101 @@ pub fn remove_plugin_package(app: tauri::AppHandle, id: String) -> Result<(), St
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(err.to_string()),
     }
+}
+
+// ---- plugin packages: sandboxed source network proxy (Phase 2) ----------------------------------
+// A package's `source.js` runs in a QuickJS sandbox with ZERO capabilities; the frontend asks this
+// command to perform each fetch between the sandbox's two pure calls. The hosts allowlist is
+// re-read from the manifest ON DISK per request (server-side enforcement — a compromised webview
+// can't widen it), https only, GET only, redirects DISABLED (so the response host can never drift
+// off-allowlist), 10s timeout, 256 KiB body cap.
+
+/// PURE SEAM: is `url` an https URL whose host is a DOMAIN matching one of `hosts` exactly?
+/// Subdomains must be listed explicitly; IP literals, explicit ports, embedded credentials, and
+/// non-https schemes all fail. Comparison is ASCII-case-insensitive (URL hosts parse lowercased,
+/// but the manifest on disk is untrusted text).
+fn host_allowed(url: &str, hosts: &[String]) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if u.scheme() != "https" || u.port().is_some() {
+        return false;
+    }
+    if !u.username().is_empty() || u.password().is_some() {
+        return false;
+    }
+    match u.domain() {
+        Some(d) => hosts.iter().any(|h| h.eq_ignore_ascii_case(d)),
+        None => false, // IP literal (or no host at all)
+    }
+}
+
+#[derive(Serialize)]
+pub struct PackageFetchResponse {
+    pub url: String,
+    pub status: u16,
+    pub body: String,
+}
+
+/// GET `url` on behalf of package `id`'s sandboxed source. Non-2xx responses are returned (with
+/// their status) rather than erroring — the sandbox's `transform` decides what a miss means; only
+/// transport/validation failures are `Err`.
+#[tauri::command]
+pub async fn package_fetch(
+    app: tauri::AppHandle,
+    id: String,
+    url: String,
+) -> Result<PackageFetchResponse, String> {
+    if !valid_name(&id) {
+        return Err("invalid package id".to_string());
+    }
+    let raw = fs::read_to_string(plugins_dir(&app)?.join(&id).join("plugin.json"))
+        .map_err(|_| "package manifest not found".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|_| "package manifest is not valid JSON".to_string())?;
+    let hosts: Vec<String> = json
+        .pointer("/source/hosts")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if hosts.is_empty() {
+        return Err("package declares no source hosts".to_string());
+    }
+    if !host_allowed(&url, &hosts) {
+        return Err(format!("url is not in the package's host allowlist: {url}"));
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GET {url} failed: {e}"))?;
+    let status = resp.status().as_u16();
+    if let Some(len) = resp.content_length()
+        && len > FETCH_CAP as u64
+    {
+        return Err(format!("{url} is too large ({len} bytes; cap {FETCH_CAP})"));
+    }
+    use futures_util::StreamExt;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("GET {url} failed mid-body: {e}"))?;
+        if buf.len() + bytes.len() > FETCH_CAP {
+            return Err(format!("{url} exceeded the {FETCH_CAP}-byte download cap"));
+        }
+        buf.extend_from_slice(&bytes);
+    }
+    let body = String::from_utf8(buf).map_err(|_| format!("{url} body is not valid UTF-8"))?;
+    Ok(PackageFetchResponse { url, status, body })
 }
 
 /// Seed a couple of example themes on first run so the picker has something to show
@@ -1143,10 +1244,12 @@ mod tests {
     }
 
     #[test]
-    fn valid_asset_name_requires_css_or_json_and_no_traversal() {
+    fn valid_asset_name_requires_css_json_or_js_and_no_traversal() {
         assert!(super::valid_asset_name("theme.css"));
         assert!(super::valid_asset_name("extra.JSON")); // case-insensitive ext
         assert!(super::valid_asset_name("My Theme 2.css")); // spaces ok (valid_name stem)
+        assert!(super::valid_asset_name("source.js")); // Phase 2 sandbox script
+        assert!(super::valid_asset_name("Source.JS")); // case-insensitive ext
         assert!(!super::valid_asset_name("theme.css.tmp")); // wrong ext (last dot wins)
         assert!(!super::valid_asset_name("evil.tmp.css")); // stem contains a dot
         assert!(!super::valid_asset_name("../theme.css")); // traversal
@@ -1154,9 +1257,42 @@ mod tests {
         assert!(!super::valid_asset_name("a/b.css")); // separator
         assert!(!super::valid_asset_name("a\\b.css")); // separator
         assert!(!super::valid_asset_name("theme.exe")); // disallowed ext
+        assert!(!super::valid_asset_name("source.mjs")); // js only, not mjs/cjs
         assert!(!super::valid_asset_name("noext")); // no extension
         assert!(!super::valid_asset_name(".css")); // empty stem
         assert!(!super::valid_asset_name("")); // empty
+    }
+
+    #[test]
+    fn host_allowed_matches_exact_https_domains_only() {
+        let hosts = vec!["api.open-meteo.com".to_string(), "example.org".to_string()];
+        assert!(super::host_allowed(
+            "https://api.open-meteo.com/v1/forecast?latitude=1.35",
+            &hosts
+        ));
+        // URL hosts parse case-folded; a SHOUTING url still matches.
+        assert!(super::host_allowed("https://API.OPEN-METEO.COM/v1", &hosts));
+        // An explicit default port is elided by the parser → still allowed.
+        assert!(super::host_allowed("https://example.org:443/", &hosts));
+        // Subdomains are NOT implied — they must be listed.
+        assert!(!super::host_allowed("https://sub.example.org/", &hosts));
+        assert!(!super::host_allowed("https://example.org.evil.com/", &hosts));
+        // https only, no explicit ports, no credentials, no IP literals.
+        assert!(!super::host_allowed("http://api.open-meteo.com/", &hosts));
+        assert!(!super::host_allowed("https://api.open-meteo.com:8443/", &hosts));
+        assert!(!super::host_allowed("https://user@example.org/", &hosts));
+        assert!(!super::host_allowed(
+            "https://93.184.216.34/",
+            &["93.184.216.34".to_string()]
+        ));
+        // Host case-insensitivity also covers an uppercased (hand-edited) manifest entry.
+        assert!(super::host_allowed(
+            "https://example.org/",
+            &["EXAMPLE.ORG".to_string()]
+        ));
+        assert!(!super::host_allowed("https://evil.com/?q=example.org", &hosts));
+        assert!(!super::host_allowed("not a url", &hosts));
+        assert!(!super::host_allowed("https://example.org/", &[]));
     }
 
     #[test]

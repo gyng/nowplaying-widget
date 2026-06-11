@@ -35,8 +35,9 @@ export function installDevMock(opts: { layout?: string } = {}): void {
 				return null;
 			case COMMANDS.installPluginPackage:
 			case COMMANDS.checkPluginPackageUpdate:
+			case COMMANDS.packageFetch:
 				// No network in the mock — throw so the panel surfaces an honest failure (mirrors
-				// llmSynthesize) instead of pretending an install/check succeeded.
+				// llmSynthesize) instead of pretending an install/check/fetch succeeded.
 				throw new Error('no network in dev mock');
 			case COMMANDS.removePluginPackage:
 				return undefined;

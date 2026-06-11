@@ -1,10 +1,10 @@
 # Third-party plugin packages
 
 A **plugin package** is a folder you drop into the app-config `plugins/` directory that adds
-templates (ready-made widget clusters) and optionally a theme — **declarative data only, no
-code**. Packages show up in the studio's **Plugins** section under *Packages*, where each one is
-enabled per-machine (everything starts **disabled** — installing a folder runs nothing until you
-flip its toggle).
+templates (ready-made widget clusters), optionally a theme, and optionally a **sandboxed sensor
+source** — a small `source.js` that polls an HTTP API and feeds custom sensors. Packages show up
+in the studio's **Plugins** section under *Packages*, where each one is enabled per-machine
+(everything starts **disabled** — installing a folder runs nothing until you flip its toggle).
 
 ```
 %APPDATA%\com.widgetsack.app\plugins\
@@ -12,11 +12,13 @@ flip its toggle).
   my-pack\                        ← a package is a DIRECTORY
     plugin.json                   ← the manifest (required)
     sky.css                       ← assets the manifest declares (optional)
+    source.js                     ← sandboxed sensor source (optional, Phase 2)
 ```
 
-> Phase 1 is data-only on purpose: a package cannot run JavaScript or render its own components.
-> A planned Phase 2 adds sandboxed sensor sources (QuickJS, capability-gated network access). The
-> one sharp edge today is **theme CSS** — see Security below.
+> Templates and themes are declarative data; a package cannot render its own components. The
+> only code surface is `source.js`, and it runs in a QuickJS sandbox with **zero capabilities**
+> (no network, no DOM, no Tauri — the host does the fetching against a consented allowlist; see
+> *Sandboxed sensor sources* below). The other sharp edge is **theme CSS** — see Security.
 
 ## plugin.json
 
@@ -75,7 +77,16 @@ flip its toggle).
 			}
 		}
 	],
-	"theme": { "name": "Sky", "file": "sky.css" }
+	"theme": { "name": "Sky", "file": "sky.css" },
+	"source": {
+		"file": "source.js",
+		"pollSeconds": 600,
+		"hosts": ["api.open-meteo.com"]
+	},
+	"sensors": [
+		{ "id": "temp", "label": "Temperature", "unit": "°C" },
+		{ "id": "humidity", "label": "Humidity", "unit": "%" }
+	]
 }
 ```
 
@@ -100,6 +111,70 @@ Field rules:
   subdirectories). The CSS is injected globally while the package is enabled — set `--np-*` /
   `--ui-*` tokens or target the stable widget hooks, exactly like a user theme
   ([theming reference](theming.md)).
+- **`source`** (optional) declares a sandboxed sensor source:
+  - `file` must be a plain `<name>.js` filename inside the package folder.
+  - `pollSeconds` is the tick cadence, clamped to **15–3600** (default 60).
+  - `hosts` is a **non-empty** list of bare lowercase hostnames the source may fetch from —
+    no scheme, port, path, or wildcard, and no IP literals. Exact match only: a subdomain must
+    be listed explicitly (`api.example.com` does not cover `cdn.api.example.com`).
+- **`sensors`** declares the sensor ids the source may emit (`id` uses the same token alphabet
+  as package ids; `label`/`unit` are optional display metadata for the sensor picker). Samples
+  for undeclared ids are dropped.
+- A malformed `source` or `sensors` block is **dropped with a warning** (shown on the package's
+  row) — templates and theme still load; the poll loop just never starts.
+
+## Sandboxed sensor sources (`source.js`)
+
+`source.js` is CommonJS-shaped: assign `module.exports` an object with two **pure, synchronous**
+functions. There is no `fetch`, no `setTimeout`, no host API of any kind inside the sandbox — the
+host performs the network I/O *between* your two calls:
+
+1. each tick the host calls `requests()` → you return the full https URLs to fetch (max **8**);
+2. the host fetches each through the backend proxy (which enforces `hosts`);
+3. the host calls `transform(responses)` → you return samples to ingest (max **64**).
+
+A complete worked weather source against [open-meteo](https://open-meteo.com) (pairs with the
+manifest above):
+
+```js
+// source.js — runs sandboxed: no network/DOM/Tauri access; just compute.
+module.exports = {
+	requests: function () {
+		return [
+			'https://api.open-meteo.com/v1/forecast?latitude=1.35&longitude=103.82' +
+				'&current=temperature_2m,relative_humidity_2m'
+		];
+	},
+	transform: function (responses) {
+		var r = responses[0]; // { url, status, body } — a failed fetch arrives as status 0
+		if (!r || r.status !== 200) return [];
+		var data = JSON.parse(r.body);
+		return [
+			{ sensor: 'temp', value: data.current.temperature_2m },
+			{ sensor: 'humidity', value: data.current.relative_humidity_2m }
+		];
+	}
+};
+```
+
+Contract details:
+
+- `requests(): string[]` — https URLs only, capped at 8 per tick. Anything else is dropped with
+  a console warning. The **host** allowlist is enforced in the Rust proxy, not here.
+- `transform(responses): { sensor, value }[]` — `responses` mirrors the request list in order as
+  `{ url, status, body }` (status `0` = the fetch failed or was refused). Each returned `sensor`
+  must be a declared `sensors[].id`; `value` must be a **finite number** or a **string ≤ 1 KiB**.
+  Undeclared ids, non-finite numbers, and oversized strings are dropped (warned), and the batch
+  is capped at 64 samples.
+- Each call runs under a ~100 ms CPU deadline and a 16 MiB memory cap; `source.js` itself is
+  capped at 64 KiB. A runaway/oversized script degrades to an error status, never a hang.
+- **Sensor namespace:** a declared id `temp` in package `my-pack` surfaces in the sensor picker
+  and formulas as `pkg.my-pack.temp`. The source also implicitly publishes
+  `pkg.<id>.status` — a text sensor set to `ok` or `error: …` every tick, handy for a Text
+  widget or for debugging a package.
+- Sources poll **per window** into that window's telemetry hub, so an overlay-only widget bound
+  to a package sensor works without the studio open. Keep `pollSeconds` honest — 60 s+ for
+  anything rate-limited.
 
 ## How templates surface
 
@@ -118,7 +193,22 @@ keeps your `params` as instance params).
   scanned (remote `url()`/`@import`, viewport overlays — the same scan sack imports get) and a
   flagged theme asks for explicit confirmation on first enable. Don't enable packages from
   sources you don't trust.
-- **No code:** there is no JavaScript surface in a Phase 1 package at all.
+- **The sandbox has zero capabilities.** `source.js` runs in a QuickJS-in-WASM interpreter with
+  no host bindings whatsoever — it cannot fetch, touch the DOM, call Tauri, read files, or keep
+  time beyond `Date`. The worst a hostile script can do is burn its ~100 ms CPU budget per tick.
+- **The host does the fetching, against a Rust-enforced allowlist.** Every URL the source asks
+  for goes through the backend's `package_fetch`, which **re-reads the manifest on disk** and
+  checks the URL's host against `source.hosts` server-side — a compromised webview can't widen
+  the list. https only, GET only, **redirects disabled** (a listed host can't bounce the request
+  somewhere else), 10 s timeout, 256 KiB response cap. IP literals, explicit ports, and embedded
+  credentials are rejected.
+- **Network access is consented per hosts-list.** The first-enable confirm names every host
+  (e.g. *"This package polls the network every 60s: api.open-meteo.com."* — combined with the
+  theme-CSS warning when both apply, one dialog). Consent is stored against the exact hosts
+  fingerprint: if an update changes the list, the source stays stopped until you re-confirm by
+  toggling the package off and on.
+- **Sensors are namespaced.** A package can only ever write `pkg.<its-id>.*` — it cannot spoof
+  `cpu.total`, `ha.*`, or another package's sensors, and only ids it declared up front.
 
 ## Installing from a link
 
@@ -132,8 +222,9 @@ forms:
 | `https://github.com/owner/repo/tree/<ref>`    | the manifest on that branch/tag (the ref is pinned for updates)   |
 | any `https://…/plugin.json` URL               | that exact manifest (self-hosted packages)                        |
 
-The backend downloads the manifest plus every asset it declares (`theme.file` — fetched from the
-same directory), then writes `plugins/<id>/` exactly as if you had dropped the folder by hand.
+The backend downloads the manifest plus every asset it declares (`theme.file` and `source.file`
+— fetched from the same directory), then writes `plugins/<id>/` exactly as if you had dropped the
+folder by hand.
 Provenance is recorded in a sidecar, `plugins/<id>/.install.json`:
 
 ```json
@@ -149,18 +240,21 @@ the manifest from the recorded source and compares version strings — any diffe
 manifest). Nothing is checked or fetched in the background, ever.
 
 *Remove* deletes the package folder (it works for local packages too), unregisters its templates
-and theme live, and clears its enable flag **and** any stored theme-CSS consent — a re-installed
-package starts from zero trust.
+and theme live, stops its source, and clears its enable flag **and** any stored theme-CSS /
+network consent — a re-installed package starts from zero trust. An *Update* that changes the
+`source.hosts` list also drops the stored network consent: the new hosts stay unfetched until
+you toggle the package off and on and confirm them.
 
 Security of remote installs:
 
 - **https only** — `http://` sources are rejected; the GitHub shorthand forms always resolve to
   `raw.githubusercontent.com` over https.
 - **Size caps** — the manifest and each asset are capped at 256 KiB (10 s timeout); only
-  `.css`/`.json` filenames that pass the same allowlist as local packages are fetched/written.
+  `.css`/`.json`/`.js` filenames that pass the same allowlist as local packages are
+  fetched/written.
 - **Installs land disabled** — a fetched package goes through exactly the same opt-in toggle,
-  structural validation, CSS threat scan, and first-enable consent as a hand-dropped folder. The
-  link is a delivery mechanism, not a trust grant.
+  structural validation, CSS threat scan, and first-enable consent (including the network-hosts
+  confirm) as a hand-dropped folder. The link is a delivery mechanism, not a trust grant.
 
 ## Updating / removing
 

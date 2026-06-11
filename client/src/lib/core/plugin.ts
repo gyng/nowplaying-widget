@@ -29,6 +29,13 @@ export function registerSource(source: SensorSource): void {
 	sources.set(source.id, source);
 }
 
+/** Drop a source by id (no-op when absent) — its catalog entries vanish from the next
+ * `sourceCatalogEntries()` read. Used by toggleable sources (third-party packages); built-ins
+ * never unregister. Does NOT stop a started source — the registrant owns that lifecycle. */
+export function unregisterSource(id: string): void {
+	sources.delete(id);
+}
+
 export function listSources(): SensorSource[] {
 	return Array.from(sources.values());
 }

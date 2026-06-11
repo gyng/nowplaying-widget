@@ -27,6 +27,16 @@ export type PackageTemplate = {
  * directory (read via `read_plugin_package_asset`, scanned by core/cssThreats before injection). */
 export type PackageTheme = { name: string; file: string };
 
+/** An optional sandboxed sensor source (Phase 2): `file` names a sibling `.js` asset run inside
+ * the zero-capability QuickJS sandbox; `hosts` is the exact-match https allowlist the Rust
+ * `package_fetch` proxy enforces; `pollSeconds` is the tick cadence (clamped to
+ * [MIN_POLL_SECONDS, MAX_POLL_SECONDS]). */
+export type PackageSourceSpec = { file: string; pollSeconds: number; hosts: string[] };
+
+/** One sensor the package's source declares. `id` becomes `pkg.<pkgId>.<id>` in the hub/catalog
+ * (see `packageSensorId`); samples for undeclared ids are dropped by `validateSourceSamples`. */
+export type PackageSensorDecl = { id: string; label?: string; unit?: string };
+
 export type PluginPackageManifest = {
 	manifestVersion: 1;
 	id: string;
@@ -38,6 +48,10 @@ export type PluginPackageManifest = {
 	/** Already filtered to the structurally valid templates (invalid ones land in `warnings`). */
 	templates: PackageTemplate[];
 	theme?: PackageTheme;
+	/** Sandboxed sensor source (absent when undeclared OR when malformed — see `warnings`). */
+	source?: PackageSourceSpec;
+	/** The source's declared sensors ([] when undeclared or malformed). */
+	sensors: PackageSensorDecl[];
 };
 
 export type ParsedPackage = {
@@ -60,14 +74,14 @@ function isIdToken(v: unknown): v is string {
 	);
 }
 
-// An asset filename the backend will serve: `<id token>.css` / `<id token>.json` (single segment,
+// An asset filename the backend will serve: `<id token>.css` / `.json` / `.js` (single segment,
 // no extra dots). Mirrors the Rust `valid_asset_name`.
 function isAssetName(v: unknown): v is string {
 	if (typeof v !== 'string') return false;
 	const dot = v.lastIndexOf('.');
 	if (dot <= 0) return false;
 	const ext = v.slice(dot + 1).toLowerCase();
-	return (ext === 'css' || ext === 'json') && isIdToken(v.slice(0, dot));
+	return (ext === 'css' || ext === 'json' || ext === 'js') && isIdToken(v.slice(0, dot));
 }
 
 function isOptionalString(v: unknown): v is string | undefined {
@@ -170,6 +184,68 @@ function parsePackageTheme(raw: unknown): PackageTheme | string {
 	return { name: o.name, file: o.file as string };
 }
 
+// ---- sandboxed sensor sources (Phase 2) ----------------------------------------------------------
+
+export const MIN_POLL_SECONDS = 15;
+export const MAX_POLL_SECONDS = 3600;
+const DEFAULT_POLL_SECONDS = 60;
+
+// One allowlist entry: a bare lowercase hostname — labels of [a-z0-9-] joined by dots. No scheme,
+// port, path, userinfo, or wildcard (their characters fall outside the label alphabet), and no
+// IPv4 literal (an all-numeric label sequence). Uppercase is rejected so the manifest string is
+// byte-comparable with a parsed URL host. The Rust `host_allowed` seam is the enforcement point;
+// this keeps malformed allowlists from ever reaching it.
+function isHostname(v: unknown): v is string {
+	if (typeof v !== 'string' || v.length < 1 || v.length > 253) return false;
+	const labels = v.split('.');
+	if (!labels.every((l) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(l))) return false;
+	return !labels.every((l) => /^[0-9]+$/.test(l)); // dotted-digits = an IP literal, not a hostname
+}
+
+function parsePackageSource(raw: unknown): PackageSourceSpec | string {
+	if (typeof raw !== 'object' || raw === null) return 'source dropped: not an object';
+	const o = raw as Record<string, unknown>;
+	if (!isAssetName(o.file) || !(o.file as string).toLowerCase().endsWith('.js')) {
+		return 'source dropped: "file" must be a plain <name>.js filename inside the package';
+	}
+	let pollSeconds = DEFAULT_POLL_SECONDS;
+	if (o.pollSeconds !== undefined) {
+		if (typeof o.pollSeconds !== 'number' || !Number.isFinite(o.pollSeconds)) {
+			return 'source dropped: "pollSeconds" must be a number';
+		}
+		pollSeconds = Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, Math.round(o.pollSeconds)));
+	}
+	if (!Array.isArray(o.hosts) || o.hosts.length === 0 || !o.hosts.every(isHostname)) {
+		return (
+			'source dropped: "hosts" must be a non-empty array of lowercase hostnames ' +
+			'(no scheme/port/path/wildcards)'
+		);
+	}
+	return { file: o.file, pollSeconds, hosts: (o.hosts as string[]).slice() };
+}
+
+function parsePackageSensors(raw: unknown): PackageSensorDecl[] | string {
+	if (!Array.isArray(raw)) return 'sensors dropped: not an array';
+	const out: PackageSensorDecl[] = [];
+	const seen = new Set<string>();
+	for (const s of raw) {
+		if (typeof s !== 'object' || s === null) return 'sensors dropped: entry is not an object';
+		const o = s as Record<string, unknown>;
+		if (!isIdToken(o.id)) return 'sensors dropped: entry has a missing/invalid "id"';
+		if (!isOptionalString(o.label) || !isOptionalString(o.unit)) {
+			return `sensors dropped: "${o.id}" label/unit must be strings`;
+		}
+		if (seen.has(o.id)) return `sensors dropped: duplicate id "${o.id}"`;
+		seen.add(o.id);
+		out.push({
+			id: o.id,
+			...(o.label !== undefined ? { label: o.label as string } : {}),
+			...(o.unit !== undefined ? { unit: o.unit as string } : {})
+		});
+	}
+	return out;
+}
+
 /**
  * Parse + validate one raw `plugin.json` against the directory id the backend listed it under.
  * Fail-closed: a structural problem with the manifest itself rejects the whole package (with a
@@ -226,6 +302,21 @@ export function parsePluginPackage(dirId: string, raw: string): PackageParseResu
 		else theme = parsed;
 	}
 
+	// A malformed source/sensors block is DROPPED with a warning (package still loads) — same
+	// fail-soft contract as templates/theme; the poll loop simply never starts.
+	let source: PackageSourceSpec | undefined;
+	if (o.source !== undefined) {
+		const parsed = parsePackageSource(o.source);
+		if (typeof parsed === 'string') warnings.push(parsed);
+		else source = parsed;
+	}
+	let sensors: PackageSensorDecl[] = [];
+	if (o.sensors !== undefined) {
+		const parsed = parsePackageSensors(o.sensors);
+		if (typeof parsed === 'string') warnings.push(parsed);
+		else sensors = parsed;
+	}
+
 	const manifest: PluginPackageManifest = {
 		manifestVersion: 1,
 		id: o.id,
@@ -235,7 +326,9 @@ export function parsePluginPackage(dirId: string, raw: string): PackageParseResu
 		...(o.author !== undefined ? { author: o.author as string } : {}),
 		...(o.homepage !== undefined ? { homepage: o.homepage as string } : {}),
 		templates,
-		...(theme ? { theme } : {})
+		...(theme ? { theme } : {}),
+		...(source ? { source } : {}),
+		sensors
 	};
 	return { ok: true, pkg: { manifest, warnings } };
 }
@@ -311,4 +404,118 @@ export function packageTemplates(manifest: PluginPackageManifest): Template[] {
 		...(t.params?.length ? { params: t.params } : {}),
 		tree: () => structuredClone(t.tree)
 	}));
+}
+
+// ---- source tick pipeline (Phase 2) — the pure seams of the poll loop ---------------------------
+// The adapter (widgets/plugins/packages-source.ts) runs: sandbox `requests()` → host fetch (Rust
+// `package_fetch`) → sandbox `transform()` → hub. The validation between those hops is the riskiest
+// logic, so it lives HERE, pure and tested: nothing the sandbox returns is trusted.
+
+/** The hub/catalog id of a package sensor — namespaced so two packages can never collide and a
+ * package can never spoof a built-in (`cpu.total`) or another source (`ha.*`). */
+export function packageSensorId(pkgId: string, sensorId: string): string {
+	return `pkg.${pkgId}.${sensorId}`;
+}
+
+/** The consent key for a package's network allowlist: order-insensitive, so a reordered manifest
+ * doesn't re-prompt but ANY host change (add/remove/edit) invalidates the stored consent. */
+export function consentFingerprint(hosts: readonly string[]): string {
+	return [...hosts].sort().join(' ');
+}
+
+/** The first-enable confirmation text: one dialog that states every consent-worthy fact (flagged
+ * theme CSS and/or network polling) — the Plugins panel feeds it straight to window.confirm. */
+export function enableConsentMessage(parts: {
+	cssSummary?: string;
+	hosts?: string[];
+	pollSeconds?: number;
+}): string {
+	const lines: string[] = [];
+	if (parts.cssSummary) {
+		lines.push(
+			`This package's theme contains ${parts.cssSummary}. ` +
+				`Package theme CSS runs with full access to the studio.`
+		);
+	}
+	if (parts.hosts?.length) {
+		lines.push(
+			`This package polls the network every ${parts.pollSeconds ?? DEFAULT_POLL_SECONDS}s: ` +
+				`${parts.hosts.join(', ')}.`
+		);
+	}
+	lines.push(parts.cssSummary ? 'Enable anyway?' : 'Enable?');
+	return lines.join('\n');
+}
+
+/** Cap on URLs one `requests()` call may return — a package polls a couple of endpoints, not a list. */
+export const MAX_SOURCE_REQUESTS = 8;
+/** Cap on samples one `transform()` call may return. */
+export const MAX_SOURCE_SAMPLES = 64;
+/** Cap on one text sample's length (the hub stores these verbatim). */
+export const MAX_SAMPLE_TEXT = 1024;
+
+/** What `requests()` returned, validated: https string URLs only, capped at MAX_SOURCE_REQUESTS.
+ * Everything else lands in `dropped` (human-readable, for a console.warn). The HOST allowlist is
+ * deliberately not checked here — the Rust proxy re-reads the manifest and enforces it server-side. */
+export function validateSourceRequests(raw: unknown): { urls: string[]; dropped: string[] } {
+	if (!Array.isArray(raw)) return { urls: [], dropped: ['requests() did not return an array'] };
+	const urls: string[] = [];
+	const dropped: string[] = [];
+	for (const r of raw) {
+		if (urls.length >= MAX_SOURCE_REQUESTS) {
+			dropped.push(`over the ${MAX_SOURCE_REQUESTS}-request cap (${raw.length} requested)`);
+			break;
+		}
+		if (typeof r !== 'string' || !r.startsWith('https://')) {
+			dropped.push(`not an https URL: ${JSON.stringify(r)?.slice(0, 80)}`);
+			continue;
+		}
+		urls.push(r);
+	}
+	return { urls, dropped };
+}
+
+/** One validated `transform()` output sample (pre-namespacing — the adapter prefixes the id). */
+export type SourceSample = { sensor: string; value: number | string };
+
+/** What `transform()` returned, validated against the manifest's declared sensor ids: undeclared
+ * ids, non-finite numbers, oversized strings, and non-object entries are dropped with a reason;
+ * output is capped at MAX_SOURCE_SAMPLES. */
+export function validateSourceSamples(
+	declared: readonly string[],
+	raw: unknown
+): { samples: SourceSample[]; dropped: string[] } {
+	if (!Array.isArray(raw)) return { samples: [], dropped: ['transform() did not return an array'] };
+	const known = new Set(declared);
+	const samples: SourceSample[] = [];
+	const dropped: string[] = [];
+	for (const item of raw) {
+		if (samples.length >= MAX_SOURCE_SAMPLES) {
+			dropped.push(`over the ${MAX_SOURCE_SAMPLES}-sample cap (${raw.length} returned)`);
+			break;
+		}
+		if (typeof item !== 'object' || item === null) {
+			dropped.push('sample is not an object');
+			continue;
+		}
+		const o = item as Record<string, unknown>;
+		if (typeof o.sensor !== 'string') {
+			dropped.push('sample has no "sensor" string');
+			continue;
+		}
+		if (!known.has(o.sensor)) {
+			dropped.push(`undeclared sensor "${o.sensor}"`);
+			continue;
+		}
+		if (typeof o.value === 'number' && Number.isFinite(o.value)) {
+			samples.push({ sensor: o.sensor, value: o.value });
+		} else if (typeof o.value === 'string' && o.value.length <= MAX_SAMPLE_TEXT) {
+			samples.push({ sensor: o.sensor, value: o.value });
+		} else {
+			dropped.push(
+				`"${o.sensor}": value must be a finite number or a string ≤ ${MAX_SAMPLE_TEXT} chars`
+			);
+		}
+	}
+	return { samples, dropped };
 }
