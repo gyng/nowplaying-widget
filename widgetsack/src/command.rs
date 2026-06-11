@@ -534,6 +534,91 @@ pub fn delete_layout(app: tauri::AppHandle, name: String) -> Result<(), String> 
     }
 }
 
+// ---- plugin packages: declarative third-party bundles (`plugins/<id>/plugin.json`) ----
+// The app-config `plugins/` dir already holds first-party config FILES (ha.json, llm.json, …);
+// a third-party package is a SUBDIRECTORY containing a `plugin.json`, so the two coexist
+// unambiguously — only directories with a manifest are listed. Dumb I/O only: the frontend
+// parses/validates the manifest (core/pluginPackage.ts) and decides what to register.
+
+fn plugins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("plugins"))
+}
+
+/// A package asset filename is a single path component: `<valid_name stem>.<css|json>`. Splitting
+/// at the LAST dot and running the stem through `valid_name` rejects separators, `..`, extra dots
+/// (so no `x.css.tmp` smuggling), and oversized names by construction.
+fn valid_asset_name(name: &str) -> bool {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) => {
+            (ext.eq_ignore_ascii_case("css") || ext.eq_ignore_ascii_case("json"))
+                && valid_name(stem)
+        }
+        None => false,
+    }
+}
+
+#[derive(Serialize)]
+pub struct PluginPackageFile {
+    /// The package directory name (its id; the frontend cross-checks the manifest's `id`).
+    pub id: String,
+    /// Raw `plugin.json` contents, unparsed.
+    pub manifest: String,
+}
+
+/// Every `plugins/<id>/plugin.json`, sorted by id. Directories only (first-party config FILES in
+/// `plugins/` are skipped), ids must pass `valid_name` (they become path segments in
+/// `read_plugin_package_asset`). Missing `plugins/` dir → empty vec.
+#[tauri::command]
+pub fn list_plugin_packages(app: tauri::AppHandle) -> Result<Vec<PluginPackageFile>, String> {
+    let dir = plugins_dir(&app)?;
+    let mut out = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(id) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if !valid_name(id) {
+                continue;
+            }
+            if let Ok(manifest) = fs::read_to_string(path.join("plugin.json")) {
+                out.push(PluginPackageFile {
+                    id: id.to_string(),
+                    manifest,
+                });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+/// Read `plugins/<id>/<name>` — a manifest-declared asset (theme CSS / extra JSON). Both segments
+/// are sanitized (no traversal); only `.css`/`.json` files are readable. `None` if absent.
+#[tauri::command]
+pub fn read_plugin_package_asset(
+    app: tauri::AppHandle,
+    id: String,
+    name: String,
+) -> Result<Option<String>, String> {
+    if !valid_name(&id) {
+        return Err("invalid package id".to_string());
+    }
+    if !valid_asset_name(&name) {
+        return Err("invalid asset name".to_string());
+    }
+    let path = plugins_dir(&app)?.join(&id).join(&name);
+    match fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 /// Seed a couple of example themes on first run so the picker has something to show
 /// (the default look needs no theme). No-op once `themes/` exists.
 pub fn seed_themes(app: &tauri::AppHandle) {
@@ -740,6 +825,23 @@ mod tests {
         assert!(!valid_name(" lead")); // leading space (Windows trims → name collision)
         assert!(!valid_name("trail ")); // trailing space
         assert!(!valid_name("   ")); // all whitespace
+    }
+
+    #[test]
+    fn valid_asset_name_requires_css_or_json_and_no_traversal() {
+        assert!(super::valid_asset_name("theme.css"));
+        assert!(super::valid_asset_name("extra.JSON")); // case-insensitive ext
+        assert!(super::valid_asset_name("My Theme 2.css")); // spaces ok (valid_name stem)
+        assert!(!super::valid_asset_name("theme.css.tmp")); // wrong ext (last dot wins)
+        assert!(!super::valid_asset_name("evil.tmp.css")); // stem contains a dot
+        assert!(!super::valid_asset_name("../theme.css")); // traversal
+        assert!(!super::valid_asset_name("..css")); // empty/.. stem
+        assert!(!super::valid_asset_name("a/b.css")); // separator
+        assert!(!super::valid_asset_name("a\\b.css")); // separator
+        assert!(!super::valid_asset_name("theme.exe")); // disallowed ext
+        assert!(!super::valid_asset_name("noext")); // no extension
+        assert!(!super::valid_asset_name(".css")); // empty stem
+        assert!(!super::valid_asset_name("")); // empty
     }
 
     #[test]

@@ -339,8 +339,65 @@ export const TEMPLATES: Template[] = [
 	}
 ];
 
+// ---- template registry (groups) ---------------------------------------------------------------
+// The Add palette + widget designer used to read the TEMPLATES const directly; third-party plugin
+// packages contribute their own template lists at runtime, so consumers now go through this small
+// registry seam instead. The built-ins are the first (immutable) group — with nothing registered,
+// listTemplateGroups() is exactly [{ group: 'Built-in', templates: TEMPLATES }], so built-in
+// behavior is unchanged. Framework-agnostic: a plain subscribe/list pair (the widgets layer wraps
+// it in useSyncExternalStore via useTemplateGroups).
+
+export type TemplateGroup = { group: string; templates: Template[] };
+
+/** The built-in templates' group name (always present, always first, never unregisterable). */
+export const BUILTIN_TEMPLATE_GROUP = 'Built-in';
+
+const templateGroups = new Map<string, Template[]>([[BUILTIN_TEMPLATE_GROUP, TEMPLATES]]);
+const templateListeners = new Set<() => void>();
+// Cached list identity so useSyncExternalStore sees a stable snapshot between changes.
+let templateSnapshot: TemplateGroup[] | null = null;
+
+function notifyTemplates(): void {
+	templateSnapshot = null;
+	for (const listener of templateListeners) listener();
+}
+
+/** Register (or replace) a named template group. The built-in group cannot be overwritten. */
+export function registerTemplates(group: string, list: Template[]): void {
+	if (group === BUILTIN_TEMPLATE_GROUP) return;
+	templateGroups.set(group, list.slice());
+	notifyTemplates();
+}
+
+/** Remove a registered template group (no-op for the built-ins / an unknown group). */
+export function unregisterTemplates(group: string): void {
+	if (group === BUILTIN_TEMPLATE_GROUP) return;
+	if (templateGroups.delete(group)) notifyTemplates();
+}
+
+/** Every template group, built-ins first then registration order. Stable identity between changes. */
+export function listTemplateGroups(): TemplateGroup[] {
+	if (!templateSnapshot) {
+		templateSnapshot = Array.from(templateGroups, ([group, templates]) => ({ group, templates }));
+	}
+	return templateSnapshot;
+}
+
+/** Subscribe to registry changes (register/unregister); returns the unsubscribe. */
+export function subscribeTemplates(listener: () => void): () => void {
+	templateListeners.add(listener);
+	return () => {
+		templateListeners.delete(listener);
+	};
+}
+
+/** Find a template by id across every registered group (built-ins first). */
 export function getTemplate(id: string): Template | undefined {
-	return TEMPLATES.find((t) => t.id === id);
+	for (const list of templateGroups.values()) {
+		const t = list.find((tpl) => tpl.id === id);
+		if (t) return t;
+	}
+	return undefined;
 }
 
 /** Fill a partial option map with each template param's default, dropping unknown keys and any value

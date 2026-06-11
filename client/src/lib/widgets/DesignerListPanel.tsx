@@ -2,12 +2,13 @@
 // delete), the template list (preview/clone), the AI-handoff "copy widget reference" button, and
 // the empty-state explainer shown when no def is open. The def-edit actions live in Canvas
 // (canvas/useDefEditor) and arrive as one grouped prop. Lazy-loaded like the other studio panels.
-import { TEMPLATES } from '../core/templates';
+import { BUILTIN_TEMPLATE_GROUP } from '../core/templates';
 import type { Library } from '../core/layoutTree';
 import { listMetas } from '../core/widget';
 import { widgetReferenceMarkdown } from '../core/widgetDocs';
 import { copyToClipboard } from '../overlay';
 import type { DefEditor } from './canvas/useDefEditor';
+import { useTemplateGroups } from './useTemplateGroups';
 
 type Props = {
 	library: Library | undefined;
@@ -35,6 +36,8 @@ export default function DesignerListPanel({
 	designing,
 	actions
 }: Props) {
+	// Built-ins + one group per enabled plugin package (re-renders on package toggle).
+	const templateGroups = useTemplateGroups();
 	return (
 		<>
 			<div className="designer-list">
@@ -104,32 +107,39 @@ export default function DesignerListPanel({
 				) : (
 					<div className="rp-stub">No widgets yet — ＋ New, or clone a template.</div>
 				)}
-				<div className="rp-hd">Templates</div>
-				<div className="dl-items">
-					{TEMPLATES.map((t) => (
-						<div
-							key={t.id}
-							className={['dl-item', previewName === t.name && 'cur'].filter(Boolean).join(' ')}
-						>
-							<button
-								type="button"
-								className="dl-label"
-								title={`${t.description} — click to preview (read-only)`}
-								onClick={() => actions.previewTemplate(t.id)}
-							>
-								{t.name}
-							</button>
-							<button
-								type="button"
-								className="dl-icon"
-								title="Clone into a new editable library widget — instances keep the template's options as params (the Layouts Add palette inserts standalone copies instead)"
-								onClick={() => actions.newFromTemplate(t.id)}
-							>
-								⎘
-							</button>
+				{/* One section per registry group: built-ins, then each enabled plugin package. */}
+				{templateGroups.map((g) => (
+					<div key={g.group}>
+						<div className="rp-hd">
+							{g.group === BUILTIN_TEMPLATE_GROUP ? 'Templates' : `Templates · ${g.group}`}
 						</div>
-					))}
-				</div>
+						<div className="dl-items">
+							{g.templates.map((t) => (
+								<div
+									key={t.id}
+									className={['dl-item', previewName === t.name && 'cur'].filter(Boolean).join(' ')}
+								>
+									<button
+										type="button"
+										className="dl-label"
+										title={`${t.description} — click to preview (read-only)`}
+										onClick={() => actions.previewTemplate(t.id)}
+									>
+										{t.name}
+									</button>
+									<button
+										type="button"
+										className="dl-icon"
+										title="Clone into a new editable library widget — instances keep the template's options as params (the Layouts Add palette inserts standalone copies instead)"
+										onClick={() => actions.newFromTemplate(t.id)}
+									>
+										⎘
+									</button>
+								</div>
+							))}
+						</div>
+					</div>
+				))}
 			</div>
 			{!designing && (
 				<div className="designer-empty">

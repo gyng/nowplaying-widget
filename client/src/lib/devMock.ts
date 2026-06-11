@@ -31,9 +31,11 @@ export function installDevMock(opts: { layout?: string } = {}): void {
 			case COMMANDS.loadControls:
 			case COMMANDS.loadTheme:
 			case COMMANDS.readSack:
+			case COMMANDS.readPluginPackageAsset:
 				return null;
 			case COMMANDS.listThemes:
 			case COMMANDS.listSacks:
+			case COMMANDS.listPluginPackages:
 			case COMMANDS.listWallpapers:
 			case COMMANDS.getLogs:
 			case COMMANDS.systemFonts:

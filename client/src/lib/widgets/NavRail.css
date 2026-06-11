@@ -915,6 +915,40 @@
 	cursor: default;
 }
 
+/* Third-party package rows: an enable checkbox + name/version line over a dim contents line.
+   Mirrors .pl-item's inset/rhythm; .pl-failed greys an unparseable package the same way. */
+.canvas .plugins-panel .pkg-item {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0 0 var(--space-1);
+	padding: var(--space-3);
+	color: var(--ui-fg);
+	font-family: monospace;
+	font-size: var(--text-lg);
+}
+
+.canvas .plugins-panel .pkg-item.pl-failed {
+	color: var(--ui-fg-dim);
+}
+
+.canvas .plugins-panel .pkg-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	cursor: pointer;
+}
+
+.canvas .plugins-panel .pkg-toggle input:disabled {
+	cursor: default;
+}
+
+.canvas .plugins-panel .pkg-item .pkg-sub {
+	font-size: var(--text-sm);
+	/* indent under the checkbox so the contents line reads as the row's subtitle */
+	margin-left: calc(13px + var(--space-2));
+}
+
 .canvas .plugins-panel .pl-item.cur {
 	background: rgba(var(--ui-accent-rgb), 0.16);
 	border-left-color: rgb(var(--ui-accent-rgb));

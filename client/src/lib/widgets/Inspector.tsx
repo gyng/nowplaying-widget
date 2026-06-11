@@ -25,7 +25,8 @@ import MacroEditor from './MacroEditor';
 import CssEditor from './CssEditor';
 import BoxField from './BoxField';
 import Select, { type SelectOption } from './Select';
-import { TEMPLATES, resolveTemplateOptions, type Template } from '../core/templates';
+import { BUILTIN_TEMPLATE_GROUP, resolveTemplateOptions, type Template } from '../core/templates';
+import { useTemplateGroups } from './useTemplateGroups';
 import { exprRefs, templateRefs } from '../core/textTemplate';
 import type { LayoutOp } from './ops';
 import { clampSpacing, maxGap, maxPad } from './canvas/spacingGuard';
@@ -304,6 +305,8 @@ export default function Inspector({
 	useEffect(() => {
 		setAddOpen(!hasSelection);
 	}, [hasSelection]);
+	// Built-ins + one group per enabled plugin package (re-renders on package toggle).
+	const templateGroups = useTemplateGroups();
 
 	// Sensor combobox options: friendly "Name (unit)" label, the raw id kept as the value + shown as a
 	// dim hint. A bare id (no metadata) is its own label with no hint. Drives the typeahead sensor field.
@@ -670,31 +673,39 @@ export default function Inspector({
 
 				{/* Inserting from here drops a STANDALONE inline copy (no library def) — the designer
 				    rail's ⎘ is the path that clones a template into an editable library widget. The
-				    titles say which is which; 👁 jumps to the designer's read-only preview. */}
-				<div className="palette">
-					<span className="hd">Templates</span>
-					{TEMPLATES.map((t) =>
-						t.params?.length ? (
-							<TemplateOptionsForm
-								key={t.id}
-								t={t}
-								onInsert={(options) => op({ op: 'insertTemplate', templateId: t.id, options })}
-								onPreview={onPreviewTemplate}
-							/>
-						) : (
-							<span key={t.id} className="libitem">
-								<button
-									type="button"
-									title={`${t.description} — inserts a standalone copy onto the canvas (not linked to the library)`}
-									onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
-								>
-									{t.name}
-								</button>
-								{onPreviewTemplate && <TemplatePreviewButton t={t} onPreview={onPreviewTemplate} />}
-							</span>
-						)
-					)}
-				</div>
+				    titles say which is which; 👁 jumps to the designer's read-only preview. Groups come
+				    from the template registry: built-ins first, then one group per enabled plugin
+				    package (under the package's name). */}
+				{templateGroups.map((g) => (
+					<div key={g.group} className="palette">
+						<span className="hd">
+							{g.group === BUILTIN_TEMPLATE_GROUP ? 'Templates' : `Templates · ${g.group}`}
+						</span>
+						{g.templates.map((t) =>
+							t.params?.length ? (
+								<TemplateOptionsForm
+									key={t.id}
+									t={t}
+									onInsert={(options) => op({ op: 'insertTemplate', templateId: t.id, options })}
+									onPreview={onPreviewTemplate}
+								/>
+							) : (
+								<span key={t.id} className="libitem">
+									<button
+										type="button"
+										title={`${t.description} — inserts a standalone copy onto the canvas (not linked to the library)`}
+										onClick={() => op({ op: 'insertTemplate', templateId: t.id })}
+									>
+										{t.name}
+									</button>
+									{onPreviewTemplate && (
+										<TemplatePreviewButton t={t} onPreview={onPreviewTemplate} />
+									)}
+								</span>
+							)
+						)}
+					</div>
+				))}
 			</details>
 
 			{node && (

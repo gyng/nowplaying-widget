@@ -159,6 +159,8 @@ async fn main() -> Result<(), ()> {
             command::list_sacks,
             command::read_sack,
             command::write_sack,
+            command::list_plugin_packages,
+            command::read_plugin_package_asset,
             command::list_layouts,
             command::read_layout,
             command::save_layout_as,

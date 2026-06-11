@@ -4,9 +4,11 @@
 // behind its ErrorBoundary, the sources/widget-types fallback — renders here. Lazy-loaded like
 // the other studio panels, so the overlay never fetches it.
 import { useMemo } from 'react';
+import { useStore } from '../../stores/createStore';
 import type { TelemetryHub } from '../core/telemetry';
 import { statusDotFrom, type Plugin } from './plugin';
 import { pluginLoadErrors } from './plugins';
+import { enabledPackages, packagesStore, togglePackage, type PackageRow } from './plugins/packages';
 import ErrorBoundary from './ErrorBoundary';
 import SensorList from './SensorList';
 import { useSensor } from './useSensor';
@@ -17,6 +19,49 @@ type Props = {
 	selectedId: string | null;
 	onSelect: (id: string) => void;
 };
+
+// What a package row says under its name: contents when healthy, the failure when not.
+function packageSubtext(row: PackageRow): string {
+	if (row.error) return 'failed to load';
+	const parts: string[] = [];
+	if (row.templates) parts.push(`${row.templates} template${row.templates === 1 ? '' : 's'}`);
+	if (row.themeName) parts.push(`theme “${row.themeName}”`);
+	return parts.length ? parts.join(' · ') : 'empty';
+}
+
+// One third-party package row: opt-in enable toggle + name/version + a contents line; a parse
+// failure shows as an untoggleable warn row (the reason rides the title), dropped-template
+// warnings keep the toggle but carry a warn dot.
+function PackageItem({ row, enabled }: { row: PackageRow; enabled: boolean }) {
+	const warn = row.error ?? (row.warnings.length ? row.warnings.join('\n') : null);
+	return (
+		<div
+			className={['pkg-item', row.error && 'pl-failed'].filter(Boolean).join(' ')}
+			title={warn ?? row.description ?? ''}
+		>
+			<label className="pkg-toggle">
+				<input
+					type="checkbox"
+					checked={enabled}
+					disabled={!!row.error}
+					aria-label={`Enable ${row.name}`}
+					onChange={(e) =>
+						void togglePackage(row.id, e.currentTarget.checked, (summary) =>
+							window.confirm(
+								`This package's theme contains ${summary}. Package theme CSS runs with full ` +
+									`access to the studio. Enable anyway?`
+							)
+						)
+					}
+				/>
+				<span className="pkg-name">{row.name}</span>
+				{row.version && <span className="dim">v{row.version}</span>}
+				{warn && <span className="pl-dot pl-dot--warn" aria-label="Package warning" />}
+			</label>
+			<span className="pkg-sub dim">{packageSubtext(row)}</span>
+		</div>
+	);
+}
 
 // One Plugins-list status dot: subscribes to the plugin's declared status sensor (the same
 // `*.status` text samples the detail panels read) and renders an ok/warn/off dot. A component
@@ -35,6 +80,9 @@ export default function PluginsPanel({ hub, plugins, selectedId, onSelect }: Pro
 		() => plugins.find((p) => p.id === selectedId) ?? null,
 		[plugins, selectedId]
 	);
+	// Third-party plugin packages (plugins/<id>/plugin.json dirs) + the opt-in enabled allowlist.
+	const packageRows = useStore(packagesStore);
+	const enabledIds = useStore(enabledPackages);
 	// Capitalized so it can be used as a JSX element when the plugin ships a settings panel.
 	const SelectedPluginSettings = selectedPlugin?.settings ?? null;
 	return (
@@ -64,6 +112,19 @@ export default function PluginsPanel({ hub, plugins, selectedId, onSelect }: Pro
 						{e.name} <span className="dim">failed to load</span>
 					</div>
 				))}
+				{/* Third-party packages: declarative template/theme bundles dropped into the app-config
+				    plugins/ dir. Opt-in — discovered packages start disabled. */}
+				<div className="rp-hd">Packages</div>
+				{packageRows.length ? (
+					packageRows.map((r) => (
+						<PackageItem key={r.id} row={r} enabled={enabledIds.includes(r.id)} />
+					))
+				) : (
+					<div className="rp-stub">
+						No packages installed — drop a folder at <code>plugins\&lt;id&gt;\plugin.json</code> in
+						the app config dir. See docs/third-party-plugins.md.
+					</div>
+				)}
 			</div>
 			<div className="pl-detail">
 				{!selectedPlugin ? (
