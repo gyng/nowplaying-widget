@@ -67,6 +67,7 @@ export const COMMANDS = {
 	installPluginPackage: 'install_plugin_package',
 	checkPluginPackageUpdate: 'check_plugin_package_update',
 	removePluginPackage: 'remove_plugin_package',
+	packageFetch: 'package_fetch',
 	// foreign windows / monitors / click-through (windowmgr.rs, clickthrough.rs, display.rs)
 	listWindows: 'list_windows',
 	snapWindow: 'snap_window',

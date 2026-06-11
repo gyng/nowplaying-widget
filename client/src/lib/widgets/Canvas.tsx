@@ -902,8 +902,8 @@ export default function Canvas({ studio = false }: Props) {
 	// package's theme CSS for its instantiated widgets too), and re-scan when the Plugins section
 	// opens so a freshly dropped folder shows up without a restart.
 	useEffect(() => {
-		void initPackages();
-	}, []);
+		void initPackages(hub);
+	}, [hub]);
 	useEffect(() => {
 		if (studio && navSection === 'plugins') void refreshPackages();
 	}, [studio, navSection]);

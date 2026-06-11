@@ -164,6 +164,7 @@ async fn main() -> Result<(), ()> {
             command::install_plugin_package,
             command::check_plugin_package_update,
             command::remove_plugin_package,
+            command::package_fetch,
             command::list_layouts,
             command::read_layout,
             command::save_layout_as,

@@ -35,6 +35,7 @@ function packageSubtext(row: PackageRow): string {
 	const parts: string[] = [];
 	if (row.templates) parts.push(`${row.templates} template${row.templates === 1 ? '' : 's'}`);
 	if (row.themeName) parts.push(`theme “${row.themeName}”`);
+	if (row.sensors) parts.push(`${row.sensors} sensor${row.sensors === 1 ? '' : 's'}`);
 	return parts.length ? parts.join(' · ') : 'empty';
 }
 
@@ -88,11 +89,10 @@ function PackageItem({ row, enabled }: { row: PackageRow; enabled: boolean }) {
 					disabled={!!row.error}
 					aria-label={`Enable ${row.name}`}
 					onChange={(e) =>
-						void togglePackage(row.id, e.currentTarget.checked, (summary) =>
-							window.confirm(
-								`This package's theme contains ${summary}. Package theme CSS runs with full ` +
-									`access to the studio. Enable anyway?`
-							)
+						// togglePackage composes the full first-enable consent message (flagged theme
+						// CSS and/or network hosts, one dialog) — the panel just asks it.
+						void togglePackage(row.id, e.currentTarget.checked, (message) =>
+							window.confirm(message)
 						)
 					}
 				/>
@@ -101,6 +101,9 @@ function PackageItem({ row, enabled }: { row: PackageRow; enabled: boolean }) {
 				{warn && <span className="pl-dot pl-dot--warn" aria-label="Package warning" />}
 			</label>
 			<span className="pkg-sub dim">{packageSubtext(row)}</span>
+			{row.hosts.length > 0 && (
+				<span className="pkg-sub pkg-net dim">network: {row.hosts.join(', ')}</span>
+			)}
 			{row.installedFrom && <span className="pkg-sub pkg-src dim">from {row.installedFrom}</span>}
 			<div className="pkg-actions">
 				{row.installedFrom && (
