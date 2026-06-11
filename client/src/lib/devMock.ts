@@ -33,6 +33,13 @@ export function installDevMock(opts: { layout?: string } = {}): void {
 			case COMMANDS.readSack:
 			case COMMANDS.readPluginPackageAsset:
 				return null;
+			case COMMANDS.installPluginPackage:
+			case COMMANDS.checkPluginPackageUpdate:
+				// No network in the mock — throw so the panel surfaces an honest failure (mirrors
+				// llmSynthesize) instead of pretending an install/check succeeded.
+				throw new Error('no network in dev mock');
+			case COMMANDS.removePluginPackage:
+				return undefined;
 			case COMMANDS.listThemes:
 			case COMMANDS.listSacks:
 			case COMMANDS.listPluginPackages:

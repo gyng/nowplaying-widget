@@ -12,11 +12,21 @@ import { createPersistedStore } from '../../../stores/persist';
 import { scanCssThreats, threatSummary } from '../../core/cssThreats';
 import {
 	packageTemplates,
+	parseInstallSidecar,
 	parsePluginPackage,
+	reinstallSource,
+	versionsDiffer,
+	type InstallSidecar,
 	type PluginPackageManifest
 } from '../../core/pluginPackage';
 import { registerTemplates, unregisterTemplates } from '../../core/templates';
-import { listPluginPackages, readPluginPackageAsset } from './packages-commands';
+import {
+	checkPluginPackageUpdate,
+	installPluginPackage,
+	listPluginPackages,
+	readPluginPackageAsset,
+	removePluginPackage
+} from './packages-commands';
 
 // One discovered package directory: either a parsed manifest (+ drop warnings) or a parse error.
 type Discovered = {
@@ -24,6 +34,8 @@ type Discovered = {
 	manifest: PluginPackageManifest | null;
 	error: string | null;
 	warnings: string[];
+	/** Provenance when installed from a URL (the `.install.json` sidecar); null = hand-dropped. */
+	install: InstallSidecar | null;
 };
 
 /** What the Plugins panel renders per package row. */
@@ -38,6 +50,11 @@ export type PackageRow = {
 	warnings: string[];
 	templates: number;
 	themeName: string | null;
+	/** The install source (`owner/repo` or a URL) when installed via `installPackage`; null for a
+	 * hand-dropped folder (no update-check affordance — there's nowhere to check against). */
+	installedFrom: string | null;
+	/** The version recorded at install time (usually equals `version` from the manifest). */
+	installedVersion?: string;
 };
 
 const parseIds = (raw: unknown): string[] =>
@@ -70,7 +87,9 @@ function rowOf(d: Discovered): PackageRow {
 		error: d.error,
 		warnings: d.warnings.slice(),
 		templates: d.manifest?.templates.length ?? 0,
-		themeName: d.manifest?.theme?.name ?? null
+		themeName: d.manifest?.theme?.name ?? null,
+		installedFrom: d.install?.source ?? null,
+		...(d.install ? { installedVersion: d.install.version } : {})
 	};
 }
 
@@ -132,11 +151,18 @@ export async function refreshPackages(): Promise<void> {
 	discovered.clear();
 	for (const f of files) {
 		const result = parsePluginPackage(f.id, f.manifest);
+		const install = parseInstallSidecar(f.install);
 		discovered.set(
 			f.id,
 			result.ok
-				? { id: f.id, manifest: result.pkg.manifest, error: null, warnings: result.pkg.warnings }
-				: { id: f.id, manifest: null, error: result.reason, warnings: [] }
+				? {
+						id: f.id,
+						manifest: result.pkg.manifest,
+						error: null,
+						warnings: result.pkg.warnings,
+						install
+				  }
+				: { id: f.id, manifest: null, error: result.reason, warnings: [], install }
 		);
 	}
 	publishRows();
@@ -183,6 +209,89 @@ export async function togglePackage(
 		return enabled ? [...without, id] : without;
 	});
 	await applyPackage(d, enabled);
+}
+
+// ---- remote install / update / remove (Phase 3) --------------------------------------------------
+// All three return `{ ok, error? }` instead of throwing so the panel can window.alert the reason
+// without try/catch noise. Every mutation ends in refreshPackages() — the single re-scan +
+// re-apply path — so the rows, the palette groups, and the theme tags can never drift from disk.
+
+export type PackageOpResult = { ok: boolean; error?: string };
+
+/**
+ * Install a package from `owner/repo`, a github.com repo URL, or an https plugin.json URL. The
+ * backend fetches + writes the folder; the refresh re-discovers it. Fresh installs land DISABLED
+ * (the opt-in allowlist is untouched) — same trust gate as a hand-dropped folder.
+ */
+export async function installPackage(source: string): Promise<PackageOpResult> {
+	try {
+		await installPluginPackage(source);
+	} catch (err) {
+		return { ok: false, error: String(err) };
+	}
+	await refreshPackages();
+	return { ok: true };
+}
+
+/** What a manual update check tells the row. */
+export type PackageUpdateStatus =
+	| { ok: true; current: string; latest: string; updateAvailable: boolean }
+	| { ok: false; error: string };
+
+/** MANUAL update check: re-fetch just the manifest from the recorded install source and compare
+ * version strings (any difference = update available; downgrades are deliberate re-installs). */
+export async function checkPackageUpdate(id: string): Promise<PackageUpdateStatus> {
+	try {
+		const r = await checkPluginPackageUpdate(id);
+		return {
+			ok: true,
+			current: r.current,
+			latest: r.latest,
+			updateAvailable: versionsDiffer(r.current, r.latest)
+		};
+	} catch (err) {
+		return { ok: false, error: String(err) };
+	}
+}
+
+/**
+ * Re-install from the recorded source (a pinned ref round-trips via `reinstallSource`). The old
+ * registration is dropped FIRST when the package is enabled — a renamed manifest would otherwise
+ * strand its palette group under the stale name — and the closing refresh re-applies the new
+ * version live.
+ */
+export async function updatePackage(id: string): Promise<PackageOpResult> {
+	const d = discovered.get(id);
+	if (!d?.install) return { ok: false, error: 'package was not installed from a URL' };
+	if (enabledPackages.getSnapshot().includes(id)) await applyPackage(d, false);
+	try {
+		await installPluginPackage(reinstallSource(d.install));
+	} catch (err) {
+		await refreshPackages(); // restore the (still enabled) old version's registration
+		return { ok: false, error: String(err) };
+	}
+	await refreshPackages();
+	return { ok: true };
+}
+
+/**
+ * Remove a package (works for installed AND hand-dropped folders — it's a dir delete): live-drop
+ * its templates/theme, clear it from the enable allowlist AND the stored CSS consent (a future
+ * re-install must re-earn trust), then delete and re-scan.
+ */
+export async function removePackage(id: string): Promise<PackageOpResult> {
+	const d = discovered.get(id);
+	if (d) await applyPackage(d, false);
+	enabledPackages.update((ids) => ids.filter((x) => x !== id));
+	trustedCssPackages.update((ids) => ids.filter((x) => x !== id));
+	try {
+		await removePluginPackage(id);
+	} catch (err) {
+		await refreshPackages();
+		return { ok: false, error: String(err) };
+	}
+	await refreshPackages();
+	return { ok: true };
 }
 
 /** TEST-ONLY: drop all module state so each test starts from a clean registry. */

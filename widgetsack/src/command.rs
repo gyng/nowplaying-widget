@@ -564,6 +564,10 @@ pub struct PluginPackageFile {
     pub id: String,
     /// Raw `plugin.json` contents, unparsed.
     pub manifest: String,
+    /// Raw `.install.json` sidecar (written by `install_plugin_package`), unparsed — the frontend
+    /// parses it (core/pluginPackage.ts `parseInstallSidecar`) to show provenance and drive the
+    /// update-check/update affordances. `None` for hand-dropped (local) packages.
+    pub install: Option<String>,
 }
 
 /// Every `plugins/<id>/plugin.json`, sorted by id. Directories only (first-party config FILES in
@@ -589,6 +593,7 @@ pub fn list_plugin_packages(app: tauri::AppHandle) -> Result<Vec<PluginPackageFi
                 out.push(PluginPackageFile {
                     id: id.to_string(),
                     manifest,
+                    install: fs::read_to_string(path.join(INSTALL_SIDECAR)).ok(),
                 });
             }
         }
@@ -615,6 +620,316 @@ pub fn read_plugin_package_asset(
     match fs::read_to_string(&path) {
         Ok(contents) => Ok(Some(contents)),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+// ---- plugin packages: remote install (Phase 3) -------------------------------------------------
+// Install a package straight from a GitHub link (or any https URL to a plugin.json): fetch the
+// manifest + its declared assets over https (10s timeout, 256 KiB per-file cap), write them into
+// `plugins/<id>/` via atomic_write, and record provenance in a `.install.json` sidecar so the
+// frontend can offer MANUAL update checks later. Validation stays split exactly like Phase 1: the
+// backend only enforces the path-safety invariants (`valid_name` id, `valid_asset_name` assets);
+// the frontend does the full structural validation and the enable/consent gate — a freshly
+// installed package lands DISABLED like a hand-dropped folder.
+
+/// Provenance sidecar filename. Starts with a dot so its stem fails `valid_name`, which keeps it
+/// out of `read_plugin_package_asset`'s reachable set and out of any manifest's declarable assets.
+const INSTALL_SIDECAR: &str = ".install.json";
+
+/// Per-file download cap (manifest and each asset) — a plugin.json is a few KiB, a theme CSS tens.
+const FETCH_CAP: usize = 256 * 1024;
+
+/// A resolved install source: where the manifest lives, plus what the sidecar should record.
+#[derive(Debug, PartialEq)]
+struct ResolvedSource {
+    /// Direct https URL of the `plugin.json` to GET.
+    manifest_url: String,
+    /// What the sidecar stores as `source`: `owner/repo` for GitHub forms, the URL itself for
+    /// direct links. Paired with `reff`, it's enough to re-derive `manifest_url` at update time.
+    display_source: String,
+    /// Git ref for GitHub forms (`main` unless a `/tree/<ref>` URL pinned one); `direct` for a
+    /// verbatim plugin.json URL.
+    reff: String,
+}
+
+/// One GitHub owner/repo path segment: ASCII alphanumeric plus `-`/`_`/`.`, no `..`, bounded.
+fn gh_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 100
+        && !s.contains("..")
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// A git ref as it may appear in a `/tree/<ref>` URL: like `gh_token` but slashes are allowed
+/// (branch names such as `feature/x`), `..` still rejected.
+fn valid_ref(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 200
+        && !s.contains("..")
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/')
+}
+
+fn raw_manifest_url(owner: &str, repo: &str, reff: &str) -> String {
+    format!("https://raw.githubusercontent.com/{owner}/{repo}/{reff}/plugin.json")
+}
+
+/// PURE SEAM: turn the user's install input into a manifest URL + sidecar provenance. Accepted
+/// forms (anything else → `None`; plain `http://` is rejected outright — https only):
+///
+/// | input                                        | manifest_url                                              | ref      |
+/// |----------------------------------------------|-----------------------------------------------------------|----------|
+/// | `owner/repo`                                 | `https://raw.githubusercontent.com/owner/repo/main/plugin.json`  | `main`   |
+/// | `https://github.com/owner/repo[/]`           | same as above                                             | `main`   |
+/// | `https://github.com/owner/repo/tree/<ref>`   | `…/owner/repo/<ref>/plugin.json`                          | `<ref>`  |
+/// | any https URL ending in `/plugin.json`       | used verbatim                                             | `direct` |
+fn resolve_package_source(input: &str) -> Option<ResolvedSource> {
+    let input = input.trim().trim_end_matches('/');
+    if let Some(rest) = input.strip_prefix("https://") {
+        if let Some(path) = rest.strip_prefix("github.com/") {
+            // splitn(4): segment 4 keeps any remaining slashes — that's the (slash-friendly) ref.
+            let parts: Vec<&str> = path.splitn(4, '/').collect();
+            return match parts.as_slice() {
+                [owner, repo] if gh_token(owner) && gh_token(repo) => Some(ResolvedSource {
+                    manifest_url: raw_manifest_url(owner, repo, "main"),
+                    display_source: format!("{owner}/{repo}"),
+                    reff: "main".to_string(),
+                }),
+                [owner, repo, "tree", reff]
+                    if gh_token(owner) && gh_token(repo) && valid_ref(reff) =>
+                {
+                    Some(ResolvedSource {
+                        manifest_url: raw_manifest_url(owner, repo, reff),
+                        display_source: format!("{owner}/{repo}"),
+                        reff: reff.to_string(),
+                    })
+                }
+                _ => None,
+            };
+        }
+        if input.ends_with("/plugin.json") {
+            return Some(ResolvedSource {
+                manifest_url: input.to_string(),
+                display_source: input.to_string(),
+                reff: "direct".to_string(),
+            });
+        }
+        return None;
+    }
+    // `owner/repo` shorthand — exactly one slash, both segments GitHub-safe, no scheme at all.
+    if input.contains("://") {
+        return None;
+    }
+    let (owner, repo) = input.split_once('/')?;
+    if gh_token(owner) && gh_token(repo) && !repo.contains('/') {
+        return Some(ResolvedSource {
+            manifest_url: raw_manifest_url(owner, repo, "main"),
+            display_source: format!("{owner}/{repo}"),
+            reff: "main".to_string(),
+        });
+    }
+    None
+}
+
+/// PURE SEAM: a declared asset lives next to its manifest — swap the URL's last segment.
+fn asset_url_for(manifest_url: &str, asset_name: &str) -> String {
+    match manifest_url.rsplit_once('/') {
+        Some((base, _)) => format!("{base}/{asset_name}"),
+        None => asset_name.to_string(),
+    }
+}
+
+/// PURE SEAM: re-derive the manifest URL from sidecar provenance (`source` + `ref`) for update
+/// checks / re-installs. `direct` sources re-run through `resolve_package_source` so a tampered
+/// sidecar can't smuggle a non-https or non-plugin.json URL back in.
+fn manifest_url_from_sidecar(source: &str, reff: &str) -> Option<String> {
+    if reff == "direct" {
+        let resolved = resolve_package_source(source)?;
+        return (resolved.reff == "direct").then_some(resolved.manifest_url);
+    }
+    let (owner, repo) = source.split_once('/')?;
+    if gh_token(owner) && gh_token(repo) && !repo.contains('/') && valid_ref(reff) {
+        Some(raw_manifest_url(owner, repo, reff))
+    } else {
+        None
+    }
+}
+
+/// A 10s-timeout https client for the (small) manifest/asset fetches.
+fn install_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// GET `url` and return its body as text, enforcing `FETCH_CAP` while streaming (a hostile or
+/// misconfigured server can't make us buffer an unbounded body).
+async fn fetch_text_capped(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    use futures_util::StreamExt;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("GET {url} failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("GET {url} failed: HTTP {}", resp.status()));
+    }
+    if let Some(len) = resp.content_length()
+        && len > FETCH_CAP as u64
+    {
+        return Err(format!("{url} is too large ({len} bytes; cap {FETCH_CAP})"));
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("GET {url} failed mid-body: {e}"))?;
+        if buf.len() + bytes.len() > FETCH_CAP {
+            return Err(format!("{url} exceeded the {FETCH_CAP}-byte download cap"));
+        }
+        buf.extend_from_slice(&bytes);
+    }
+    String::from_utf8(buf).map_err(|_| format!("{url} is not valid UTF-8"))
+}
+
+#[derive(Serialize)]
+pub struct InstalledPackage {
+    pub id: String,
+    pub version: String,
+}
+
+/// Install (or re-install — that IS the update path) a package from `source` (see
+/// `resolve_package_source` for the accepted forms). Fetches the manifest, minimally reads
+/// `id`/`version`/`theme.file` (full validation stays in the frontend), fetches every declared
+/// asset, and only THEN writes — a failed download never leaves a half-installed directory.
+#[tauri::command]
+pub async fn install_plugin_package(
+    app: tauri::AppHandle,
+    source: String,
+) -> Result<InstalledPackage, String> {
+    let resolved = resolve_package_source(&source).ok_or_else(|| {
+        "unrecognized source — use owner/repo, a github.com repo URL, or an https URL ending in /plugin.json"
+            .to_string()
+    })?;
+    let client = install_http_client()?;
+    let manifest_text = fetch_text_capped(&client, &resolved.manifest_url).await?;
+    let json: serde_json::Value = serde_json::from_str(&manifest_text)
+        .map_err(|_| "downloaded plugin.json is not valid JSON".to_string())?;
+    let id = json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if !valid_name(&id) {
+        return Err("manifest \"id\" is missing or not a safe folder name".to_string());
+    }
+    let version = json
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if version.is_empty() {
+        return Err("manifest has no \"version\"".to_string());
+    }
+    // Declared assets: `theme.file` is the only asset slot in manifestVersion 1. Fetch before
+    // writing anything.
+    let mut assets: Vec<(String, String)> = Vec::new();
+    if let Some(file) = json.pointer("/theme/file").and_then(|v| v.as_str()) {
+        if !valid_asset_name(file) {
+            return Err(format!("declared asset \"{file}\" has an unsafe filename"));
+        }
+        let body = fetch_text_capped(&client, &asset_url_for(&resolved.manifest_url, file)).await?;
+        assets.push((file.to_string(), body));
+    }
+    let dir = plugins_dir(&app)?.join(&id);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    atomic_write(&dir.join("plugin.json"), &manifest_text)?;
+    for (name, body) in &assets {
+        atomic_write(&dir.join(name), body)?;
+    }
+    let installed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let sidecar = serde_json::json!({
+        "source": resolved.display_source,
+        "ref": resolved.reff,
+        "version": version,
+        "installedAt": installed_at,
+    });
+    atomic_write(&dir.join(INSTALL_SIDECAR), &sidecar.to_string())?;
+    Ok(InstalledPackage { id, version })
+}
+
+#[derive(Serialize)]
+pub struct UpdateCheck {
+    pub current: String,
+    pub latest: String,
+    pub source: String,
+}
+
+/// MANUAL update check for an installed package: re-fetch just the manifest from the sidecar's
+/// recorded source and report both versions (the frontend compares — any difference counts as
+/// "update available"; downgrades are deliberate re-installs). Packages without a sidecar
+/// (hand-dropped folders) have nowhere to check against.
+#[tauri::command]
+pub async fn check_plugin_package_update(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<UpdateCheck, String> {
+    if !valid_name(&id) {
+        return Err("invalid package id".to_string());
+    }
+    let raw = fs::read_to_string(plugins_dir(&app)?.join(&id).join(INSTALL_SIDECAR))
+        .map_err(|_| "package was not installed from a URL".to_string())?;
+    let side: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|_| "install record is corrupt".to_string())?;
+    let source = side
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let reff = side.get("ref").and_then(|v| v.as_str()).unwrap_or("main");
+    let current = side
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let url = manifest_url_from_sidecar(&source, reff)
+        .ok_or_else(|| "install record has an invalid source".to_string())?;
+    let client = install_http_client()?;
+    let manifest_text = fetch_text_capped(&client, &url).await?;
+    let json: serde_json::Value = serde_json::from_str(&manifest_text)
+        .map_err(|_| "remote plugin.json is not valid JSON".to_string())?;
+    let latest = json
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if latest.is_empty() {
+        return Err("remote manifest has no \"version\"".to_string());
+    }
+    Ok(UpdateCheck {
+        current,
+        latest,
+        source,
+    })
+}
+
+/// Delete `plugins/<id>/` (works for installed AND hand-dropped packages — it's just a dir
+/// delete). Ok even if it's already gone (idempotent, like the other deletes here).
+#[tauri::command]
+pub fn remove_plugin_package(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    if !valid_name(&id) {
+        return Err("invalid package id".to_string());
+    }
+    match fs::remove_dir_all(plugins_dir(&app)?.join(&id)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(err.to_string()),
     }
 }
@@ -842,6 +1157,98 @@ mod tests {
         assert!(!super::valid_asset_name("noext")); // no extension
         assert!(!super::valid_asset_name(".css")); // empty stem
         assert!(!super::valid_asset_name("")); // empty
+    }
+
+    #[test]
+    fn resolve_package_source_accepts_the_documented_forms() {
+        // owner/repo shorthand → raw manifest on main.
+        let r = super::resolve_package_source("acme/widget-pack").unwrap();
+        assert_eq!(
+            r.manifest_url,
+            "https://raw.githubusercontent.com/acme/widget-pack/main/plugin.json"
+        );
+        assert_eq!(r.display_source, "acme/widget-pack");
+        assert_eq!(r.reff, "main");
+        // Full repo URL (trailing slash + surrounding whitespace tolerated) → same resolution.
+        let r = super::resolve_package_source(" https://github.com/acme/widget-pack/ ").unwrap();
+        assert_eq!(
+            r.manifest_url,
+            "https://raw.githubusercontent.com/acme/widget-pack/main/plugin.json"
+        );
+        assert_eq!(r.display_source, "acme/widget-pack");
+        // /tree/<ref> pins the ref; slash-y branch names survive the splitn.
+        let r = super::resolve_package_source("https://github.com/acme/widget-pack/tree/feature/x")
+            .unwrap();
+        assert_eq!(
+            r.manifest_url,
+            "https://raw.githubusercontent.com/acme/widget-pack/feature/x/plugin.json"
+        );
+        assert_eq!(r.reff, "feature/x");
+        // Any https URL ending in /plugin.json is used verbatim with ref "direct".
+        let r = super::resolve_package_source("https://example.com/packs/clock/plugin.json")
+            .unwrap();
+        assert_eq!(r.manifest_url, "https://example.com/packs/clock/plugin.json");
+        assert_eq!(r.display_source, "https://example.com/packs/clock/plugin.json");
+        assert_eq!(r.reff, "direct");
+    }
+
+    #[test]
+    fn resolve_package_source_rejects_everything_else() {
+        assert!(super::resolve_package_source("http://github.com/a/b").is_none()); // plain http
+        assert!(super::resolve_package_source("http://example.com/plugin.json").is_none());
+        assert!(super::resolve_package_source("https://example.com/pack").is_none()); // no plugin.json
+        assert!(super::resolve_package_source("https://github.com/onlyowner").is_none());
+        assert!(super::resolve_package_source("https://github.com/a/b/blob/main/x").is_none());
+        assert!(super::resolve_package_source("a/b/c").is_none()); // shorthand has ONE slash
+        assert!(super::resolve_package_source("owner").is_none());
+        assert!(super::resolve_package_source("ftp://a/b").is_none()); // non-https scheme
+        assert!(super::resolve_package_source("a/../b").is_none()); // traversal in a segment
+        assert!(super::resolve_package_source("ow ner/repo").is_none()); // bad owner char
+        assert!(super::resolve_package_source("").is_none());
+    }
+
+    #[test]
+    fn asset_url_for_swaps_the_last_segment() {
+        assert_eq!(
+            super::asset_url_for(
+                "https://raw.githubusercontent.com/a/b/main/plugin.json",
+                "sky.css"
+            ),
+            "https://raw.githubusercontent.com/a/b/main/sky.css"
+        );
+        assert_eq!(
+            super::asset_url_for("https://example.com/packs/clock/plugin.json", "extra.json"),
+            "https://example.com/packs/clock/extra.json"
+        );
+    }
+
+    #[test]
+    fn manifest_url_from_sidecar_rederives_or_fails_closed() {
+        // GitHub provenance: owner/repo + recorded ref.
+        assert_eq!(
+            super::manifest_url_from_sidecar("acme/pack", "v2").as_deref(),
+            Some("https://raw.githubusercontent.com/acme/pack/v2/plugin.json")
+        );
+        // Direct provenance: the URL itself, re-validated through resolve_package_source.
+        assert_eq!(
+            super::manifest_url_from_sidecar("https://example.com/p/plugin.json", "direct")
+                .as_deref(),
+            Some("https://example.com/p/plugin.json")
+        );
+        // Tampered sidecars fail closed.
+        assert!(super::manifest_url_from_sidecar("http://example.com/p/plugin.json", "direct")
+            .is_none());
+        assert!(super::manifest_url_from_sidecar("https://example.com/p", "direct").is_none());
+        assert!(super::manifest_url_from_sidecar("acme/pack", "..").is_none());
+        assert!(super::manifest_url_from_sidecar("acme", "main").is_none());
+        assert!(super::manifest_url_from_sidecar("a/../b", "main").is_none());
+    }
+
+    #[test]
+    fn install_sidecar_is_unreachable_as_an_asset() {
+        // The sidecar must never be readable via read_plugin_package_asset or declarable as a
+        // manifest asset — its dotted stem fails valid_name.
+        assert!(!super::valid_asset_name(super::INSTALL_SIDECAR));
     }
 
     #[test]

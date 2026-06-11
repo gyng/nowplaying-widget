@@ -120,8 +120,51 @@ keeps your `params` as instance params).
   sources you don't trust.
 - **No code:** there is no JavaScript surface in a Phase 1 package at all.
 
+## Installing from a link
+
+**Plugins → Packages → Install from URL…** fetches a package straight from the web. Accepted
+forms:
+
+| You paste                                    | What is fetched                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `owner/repo`                                  | `https://raw.githubusercontent.com/owner/repo/main/plugin.json`  |
+| `https://github.com/owner/repo`               | same — the repo's `main` branch                                   |
+| `https://github.com/owner/repo/tree/<ref>`    | the manifest on that branch/tag (the ref is pinned for updates)   |
+| any `https://…/plugin.json` URL               | that exact manifest (self-hosted packages)                        |
+
+The backend downloads the manifest plus every asset it declares (`theme.file` — fetched from the
+same directory), then writes `plugins/<id>/` exactly as if you had dropped the folder by hand.
+Provenance is recorded in a sidecar, `plugins/<id>/.install.json`:
+
+```json
+{ "source": "owner/repo", "ref": "main", "version": "1.0.0", "installedAt": 1750000000000 }
+```
+
+(`source` is the verbatim URL and `ref` is `"direct"` for plugin.json links.) Hand-dropped
+folders have no sidecar — they are "local" packages with no update affordances.
+
+**Update checking is manual.** A row with a sidecar shows *Check updates*, which re-fetches just
+the manifest from the recorded source and compares version strings — any difference offers
+*Update* (a re-install from the same source; want a downgrade? that's just an update to the older
+manifest). Nothing is checked or fetched in the background, ever.
+
+*Remove* deletes the package folder (it works for local packages too), unregisters its templates
+and theme live, and clears its enable flag **and** any stored theme-CSS consent — a re-installed
+package starts from zero trust.
+
+Security of remote installs:
+
+- **https only** — `http://` sources are rejected; the GitHub shorthand forms always resolve to
+  `raw.githubusercontent.com` over https.
+- **Size caps** — the manifest and each asset are capped at 256 KiB (10 s timeout); only
+  `.css`/`.json` filenames that pass the same allowlist as local packages are fetched/written.
+- **Installs land disabled** — a fetched package goes through exactly the same opt-in toggle,
+  structural validation, CSS threat scan, and first-enable consent as a hand-dropped folder. The
+  link is a delivery mechanism, not a trust grant.
+
 ## Updating / removing
 
-Replace or delete the folder and reopen the Plugins section (it re-scans on open). Disabling a
-package live-removes its palette group and theme; other windows pick the change up on their next
-reload.
+Packages installed from a link update from their row (see above). For a hand-dropped folder,
+replace or delete the folder and reopen the Plugins section (it re-scans on open), or use the
+row's *Remove* button. Disabling a package live-removes its palette group and theme; other
+windows pick the change up on their next reload.

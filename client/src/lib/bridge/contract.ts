@@ -64,6 +64,9 @@ export const COMMANDS = {
 	// third-party plugin packages (command.rs)
 	listPluginPackages: 'list_plugin_packages',
 	readPluginPackageAsset: 'read_plugin_package_asset',
+	installPluginPackage: 'install_plugin_package',
+	checkPluginPackageUpdate: 'check_plugin_package_update',
+	removePluginPackage: 'remove_plugin_package',
 	// foreign windows / monitors / click-through (windowmgr.rs, clickthrough.rs, display.rs)
 	listWindows: 'list_windows',
 	snapWindow: 'snap_window',
