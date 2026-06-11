@@ -94,6 +94,42 @@ show (reachable in edit mode; "All media" lists the current sources).
 
 Toggle autostart in settings, or add `widgetsack.exe` to Startup apps in Task Manager.
 
+## Plugins
+
+widgetsack has two plugin layers, both managed from the studio's **Plugins** section:
+
+- **Built-in integrations** — Home Assistant, MQTT, stock quotes, and the AI provider are
+  first-party plugins configured in the studio. Tokens and API keys stay in the Rust backend;
+  the webview never holds them.
+- **Third-party plugin packages** — drop-in community bundles that add **templates**
+  (ready-made widget clusters with insert-time options), optionally a **theme**, and optionally
+  a **sandboxed sensor source**: a small `source.js` that polls an HTTP API and feeds custom
+  sensors you can bind to any meter or formula as `pkg.<id>.*`.
+
+Install a package by dropping its folder into the app-config `plugins/` directory, or via
+**Plugins → Packages → Install from URL…** — paste `owner/repo`, a GitHub link, or any https
+`plugin.json` URL. Update checks are manual (per-package *Check updates*); nothing is fetched in
+the background.
+
+Packages are opt-in and sandboxed by design:
+
+- **Nothing runs on install.** Every package lands disabled; enabling it is a per-machine
+  allowlist, and re-installing starts from zero trust.
+- **Templates and themes are declarative data** — a package can't ship its own components. The
+  only code surface is `source.js`, which runs in a QuickJS-in-WASM sandbox with zero
+  capabilities: no network, no DOM, no Tauri, a ~100 ms CPU budget per tick.
+- **The host does the fetching** against a Rust-enforced https allowlist of exact hostnames the
+  manifest declares — consented by name on first enable, re-confirmed if an update changes the
+  list.
+- **Theme CSS is the trust boundary:** it's scanned (remote `url()`/`@import`, viewport
+  overlays), and a flagged theme asks for explicit confirmation. Don't enable packages from
+  sources you don't trust.
+
+To write one, see the [authoring guide](docs/third-party-plugins.md) and the reference
+[sample pack](examples/packages/sample-pack) — a parameterized clock template, a weather card
+driven by a sandboxed [open-meteo](https://open-meteo.com) source, and a small theme, CI-tested
+against the real pipeline on every build.
+
 ## TODO
 
 - Desktop-pinned widget layer (behind windows, à la wallpaper engines)
