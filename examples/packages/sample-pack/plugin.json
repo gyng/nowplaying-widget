@@ -1,0 +1,99 @@
+{
+	"manifestVersion": 1,
+	"id": "sample-pack",
+	"name": "Sample pack",
+	"version": "1.0.0",
+	"description": "The reference plugin package: a parameterized clock, a weather card fed by a sandboxed open-meteo source, and a small accent theme.",
+	"author": "widgetsack",
+	"homepage": "https://github.com/gyng/widgetsack",
+	"templates": [
+		{
+			"id": "clock",
+			"name": "Sample clock",
+			"description": "Time over date, with a 12/24-hour insert-time option.",
+			"size": { "w": 200, "h": 64 },
+			"params": [
+				{
+					"key": "time",
+					"label": "Time format",
+					"default": "HH:mm",
+					"targets": ["children.0.unit.config.format"],
+					"choices": [
+						{ "value": "HH:mm", "label": "24-hour" },
+						{ "value": "h:mm A", "label": "12-hour" }
+					]
+				}
+			],
+			"tree": {
+				"id": "sp-clock",
+				"kind": "col",
+				"align": "stretch",
+				"gap": 2,
+				"children": [
+					{
+						"id": "sp-time",
+						"unit": {
+							"id": "sp-time",
+							"type": "clock",
+							"rect": { "x": 0, "y": 0, "w": 200, "h": 36 },
+							"config": { "format": "HH:mm" }
+						}
+					},
+					{
+						"id": "sp-date",
+						"unit": {
+							"id": "sp-date",
+							"type": "clock",
+							"rect": { "x": 0, "y": 0, "w": 200, "h": 20 },
+							"config": { "format": "ddd D MMM" }
+						}
+					}
+				]
+			}
+		},
+		{
+			"id": "weather",
+			"name": "Weather card",
+			"description": "Temperature gauge + wind readout bound to this package's own sandboxed open-meteo source.",
+			"size": { "w": 180, "h": 130 },
+			"tree": {
+				"id": "sp-wx",
+				"kind": "col",
+				"align": "stretch",
+				"gap": 4,
+				"children": [
+					{
+						"id": "sp-wx-temp",
+						"unit": {
+							"id": "sp-wx-temp",
+							"type": "gauge",
+							"sensor": "pkg.sample-pack.temp",
+							"rect": { "x": 0, "y": 0, "w": 96, "h": 96 },
+							"config": { "label": "TEMP", "unit": "°C", "min": -10, "max": 45 }
+						}
+					},
+					{
+						"id": "sp-wx-wind",
+						"unit": {
+							"id": "sp-wx-wind",
+							"type": "text",
+							"sensor": "pkg.sample-pack.wind",
+							"rect": { "x": 0, "y": 0, "w": 180, "h": 18 },
+							"config": { "label": "💨 ", "format": "integer" }
+						}
+					}
+				]
+			}
+		}
+	],
+	"theme": { "name": "Sample amber", "file": "sample.css" },
+	"source": {
+		"file": "source.js",
+		"pollSeconds": 900,
+		"hosts": ["api.open-meteo.com"]
+	},
+	"sensors": [
+		{ "id": "temp", "label": "Temperature", "unit": "°C" },
+		{ "id": "wind", "label": "Wind speed", "unit": "km/h" }
+	]
+}

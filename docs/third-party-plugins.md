@@ -20,6 +20,21 @@ in the studio's **Plugins** section under *Packages*, where each one is enabled 
 > (no network, no DOM, no Tauri — the host does the fetching against a consented allowlist; see
 > *Sandboxed sensor sources* below). The other sharp edge is **theme CSS** — see Security.
 
+## Try the sample
+
+A complete reference package — a parameterized clock template, a weather card driven by a
+sandboxed [open-meteo](https://open-meteo.com) source, and a small theme — lives in this repo at
+[`examples/packages/sample-pack`](../examples/packages/sample-pack). CI parses it, scans its
+theme, and runs its `source.js` in the real sandbox on every build, so it can't drift from the
+schema. Two ways to install it:
+
+- **Copy**: drop the `sample-pack` folder into the app-config `plugins/` directory and reopen
+  the studio's Plugins section.
+- **Remote** (exercises the URL installer): *Plugins → Packages → Install from URL…* with
+  `https://raw.githubusercontent.com/gyng/widgetsack/main/examples/packages/sample-pack/plugin.json`
+
+Either way it lands disabled; enabling asks for consent to poll `api.open-meteo.com`.
+
 ## plugin.json
 
 ```json

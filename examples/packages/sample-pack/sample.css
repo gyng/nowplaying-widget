@@ -1,0 +1,7 @@
+/* Sample package theme: a warm amber accent for widgets, nothing else. Theme CSS is plain token
+   overrides at :root (docs/theming.md) — it is scanned on enable, so keep remote fetches and
+   imports out of package themes (the scanner reads comments too). */
+:root {
+	--np-accent: rgb(255, 176, 92);
+	--np-label: rgb(240, 222, 200);
+}
