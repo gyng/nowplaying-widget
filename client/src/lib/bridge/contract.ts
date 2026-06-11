@@ -61,6 +61,9 @@ export const COMMANDS = {
 	listSacks: 'list_sacks',
 	readSack: 'read_sack',
 	writeSack: 'write_sack',
+	// third-party plugin packages (command.rs)
+	listPluginPackages: 'list_plugin_packages',
+	readPluginPackageAsset: 'read_plugin_package_asset',
 	// foreign windows / monitors / click-through (windowmgr.rs, clickthrough.rs, display.rs)
 	listWindows: 'list_windows',
 	snapWindow: 'snap_window',

@@ -186,6 +186,16 @@ function isNumberArray(v: unknown): v is number[] {
 	return Array.isArray(v) && v.every((n) => typeof n === 'number' && Number.isFinite(n));
 }
 
+/**
+ * Parse ONE layout node (container or leaf) through the same structural whitelist the v2
+ * layout file goes through — for callers validating a node-shaped JSON outside a full layout
+ * (a plugin package's template tree, core/pluginPackage.ts). Malformed children inside a
+ * container are dropped (the v2 convention); a malformed root returns null. Never throws.
+ */
+export function parseLayoutNode(raw: unknown): LayoutNode | null {
+	return parseNode(raw);
+}
+
 function parseNode(raw: unknown): LayoutNode | null {
 	if (typeof raw !== 'object' || raw === null) return null;
 	const o = raw as Record<string, unknown>;

@@ -42,6 +42,8 @@ docs regenerate from the code with `npm run gen:docs`.
 - **Templates:** one-click starter groups (clock, system, network, now-playing) recreated from
   classic Rainmeter skins.
 - **Macros:** bind a button to a sequence of actions (HA service calls, media transport).
+- **Plugin packages:** drop-in template/theme bundles from the community — declarative, opt-in,
+  scanned ([authoring guide](docs/third-party-plugins.md)).
 - **Theming:** per-widget CSS (highlighting/linting editor), design-token themes, system fonts.
 - **Window zones:** define snap regions and drag any app's window into them.
 - **Perfect for secondary and side monitors**: Corsair Xeneon Edge, Lamptron, Turzx, etc.

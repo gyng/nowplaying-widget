@@ -24,6 +24,7 @@ import { actionHandlerFor, listPlugins, pluginSensorNames } from './plugin';
 import type { StudioApi } from './plugin';
 import '../telemetry/source'; // side-effect: registers the built-in `system` source
 import { registerBuiltinPlugins } from './plugins';
+import { initPackages, refreshPackages } from './plugins/packages';
 import { DEFAULT_MONITOR, type Rect, type WidgetInstance } from '../core/layout';
 import {
 	emptyRoot,
@@ -895,6 +896,17 @@ export default function Canvas({ studio = false }: Props) {
 	// myMonitor latest, for reloadLayout/persist reading inside listeners.
 	const myMonitorRef = useRef(myMonitor);
 	myMonitorRef.current = myMonitor;
+
+	// --- third-party plugin packages ---
+	// Discover + apply the enabled ones once per window (both roles — an overlay needs an enabled
+	// package's theme CSS for its instantiated widgets too), and re-scan when the Plugins section
+	// opens so a freshly dropped folder shows up without a restart.
+	useEffect(() => {
+		void initPackages();
+	}, []);
+	useEffect(() => {
+		if (studio && navSection === 'plugins') void refreshPackages();
+	}, [studio, navSection]);
 
 	// --- syncPrimaryOverlays (primary main window only) ---
 	const monitorRef = useRef(monitor);
