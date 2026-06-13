@@ -119,6 +119,10 @@ export type MonitorLayout = {
 	root: Container; // solved against the monitor work area (or root.bounds)
 	floating: Leaf[]; // each placed by its own absolute rect (or group anchor)
 	background?: BackgroundSpec; // the wallpaper layer (behind all widgets); undefined = transparent
+	// Per-monitor theme override (a theme selection string, same vocabulary as the top-level `theme`:
+	// '' = default tokens, `builtin:<id>`, or a user-theme filename). undefined = inherit the layout's
+	// top-level `theme`. Lets each monitor carry its own look; the overlay resolves it on load.
+	theme?: string;
 };
 
 export type LayoutV2 = {

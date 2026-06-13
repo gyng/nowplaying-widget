@@ -135,6 +135,7 @@ function setBaselinePatch(s: EditorState): Patch {
 			monitor: s.monitor,
 			library: s.library,
 			theme: s.selectedTheme,
+			themeLock: s.themeLock,
 			tokens: s.tokenOverrides
 		},
 		// While editing a def, re-anchor the def-edit baseline too, so a mid-def-edit Save clears the
@@ -478,6 +479,7 @@ function reduceLoad(state: EditorState, action: LoadAction): EditorState {
 				monitor: b.monitor,
 				library: b.library,
 				selectedTheme: b.theme,
+				themeLock: b.themeLock,
 				tokenOverrides: b.tokens,
 				pendingExtras: []
 			};
@@ -562,6 +564,7 @@ const initial = (studio: boolean, seedMonitor: MonitorLayout): EditorState => ({
 	selectedIds: [],
 	lastPrimary: null,
 	selectedTheme: '',
+	themeLock: true, // default: one theme across all monitors (Settings unlocks per-monitor themes)
 	tokenOverrides: {},
 	editingDefId: null,
 	savedMonitor: null,

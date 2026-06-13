@@ -48,10 +48,26 @@ describe('planArrangement', () => {
 		expect(planArrangement([zone('a', r(0, 0, 10, 10))], [win(1, 'a.exe')])).toEqual([]);
 	});
 
-	it('plans both windows of the same app to the same zone (caller decides policy)', () => {
+	it('assigns one window per zone — an extra window of the same app is left unplaced', () => {
+		// Only one zone matches spotify.exe, so a second Spotify window has no free zone to take and is
+		// left where it is (rather than stacking on top of the first in the same zone).
 		const wins = [win(1, 'spotify.exe'), win(2, 'spotify.exe')];
-		const plans = planArrangement(zones, wins);
-		expect(plans.map((p) => p.hwnd)).toEqual([1, 2]);
-		expect(plans.every((p) => p.zoneId === 'music')).toBe(true);
+		expect(planArrangement(zones, wins)).toEqual([
+			{ hwnd: 1, zoneId: 'music', rect: r(0, 0, 960, 1080) }
+		]);
+	});
+
+	it('spreads multiple windows of one app across every zone that matches it (one each)', () => {
+		const twoMusic = [
+			zone('musicA', r(0, 0, 960, 1080), { exe: 'spotify.exe' }),
+			zone('musicB', r(960, 0, 960, 1080), { exe: 'spotify.exe' })
+		];
+		const wins = [win(1, 'spotify.exe'), win(2, 'spotify.exe'), win(3, 'spotify.exe')];
+		// Two matching zones → the first two windows fill one each (earliest zone first); the third has
+		// no free zone left and is skipped.
+		expect(planArrangement(twoMusic, wins)).toEqual([
+			{ hwnd: 1, zoneId: 'musicA', rect: r(0, 0, 960, 1080) },
+			{ hwnd: 2, zoneId: 'musicB', rect: r(960, 0, 960, 1080) }
+		]);
 	});
 });

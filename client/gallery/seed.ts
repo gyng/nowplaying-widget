@@ -24,8 +24,12 @@ export function freezeClock(): void {
 	const fixed = FROZEN.getTime();
 	const Real = Date;
 	class FrozenDate extends Real {
-		constructor(value?: number | string | Date) {
-			super(value === undefined ? fixed : value);
+		// Only the zero-arg form (`new Date()`, the live "now" a clock re-reads) is pinned to the frozen
+		// instant. ANY explicit argument(s) construct a real date — the Calendar widget does month-grid
+		// date math (`new Date(y, m, d)`) that must NOT collapse onto the frozen instant.
+		constructor(...args: unknown[]) {
+			if (args.length === 0) super(fixed);
+			else super(...(args as ConstructorParameters<typeof Date>));
 		}
 		static now(): number {
 			return fixed;

@@ -52,6 +52,7 @@ describe('meta registry', () => {
 			'sparkline',
 			'text',
 			'clock',
+			'calendar',
 			'analogclock',
 			'button',
 			'cpu',
@@ -64,6 +65,7 @@ describe('meta registry', () => {
 		expect(getMeta('gauge')).toMatchObject({ label: 'Gauge', binds: 'scalar' });
 		expect(getMeta('sparkline')?.binds).toBe('series');
 		expect(getMeta('clock')?.binds).toBe('none');
+		expect(getMeta('calendar')).toMatchObject({ label: 'Calendar', binds: 'none' });
 		expect(getMeta('analogclock')).toMatchObject({ label: 'Analog Clock', binds: 'none' });
 		expect(getMeta('cpu')?.binds).toBe('none');
 		expect(getMeta('spectrum')).toMatchObject({ label: 'Spectrum', binds: 'none' });

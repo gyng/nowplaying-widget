@@ -73,6 +73,15 @@ fn open_or_focus_studio(app: &tauri::AppHandle) {
     }
 }
 
+/// The window-state the app persists across runs: size / position / maximized / fullscreen, but NOT
+/// decorations or visibility (config + the frontend own those — see the plugin registration). Shared
+/// by the plugin (what it saves + restores) AND the studio-close flush below, so both agree.
+fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    tauri_plugin_window_state::StateFlags::all()
+        & !tauri_plugin_window_state::StateFlags::DECORATIONS
+        & !tauri_plugin_window_state::StateFlags::VISIBLE
+}
+
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     // Route panics through the logging pipeline (stderr + rotating file + webview) so a panic on
@@ -113,20 +122,30 @@ async fn main() -> Result<(), ()> {
         // Excluding both flags makes config + JS the single source of truth for them.
         .plugin(
             tauri_plugin_window_state::Builder::new()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::all()
-                        & !tauri_plugin_window_state::StateFlags::DECORATIONS
-                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
-                )
+                .with_state_flags(window_state_flags())
                 // Don't persist/restore the "main" window's geometry: it is ALWAYS re-filled to
                 // the primary monitor at startup (overlay.ts `fillPrimaryMonitor`), so restoring
                 // stale saved geometry is pointless and risks a startup flash at the wrong spot.
                 // A denylisted window is skipped entirely (no restore AND no save). "studio" still
                 // persists (remembering a normal window's size/pos is the point), and dynamic
-                // "overlay-N" windows re-assert exact geometry in their created handler.
+                // "overlay-N" windows re-assert exact geometry in their created handler. On restore
+                // the plugin only re-applies a saved POSITION if it still intersects a CONNECTED
+                // monitor (else it lets the OS place the window), so the studio never reopens
+                // off-screen on a since-disconnected display.
                 .with_denylist(&["main"])
                 .build(),
         )
+        // The window-state plugin only flushes geometry to disk on a clean RunEvent::Exit. An app
+        // UPGRADE that force-kills the process (installer / taskkill) would otherwise lose the studio's
+        // latest size + position, so flush to disk the moment the studio window closes — its live
+        // moves/resizes are already in the plugin's cache. Studio only: overlays + main re-assert exact
+        // geometry on launch, so eagerly persisting theirs isn't worth the disk churn.
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "studio" {
+                use tauri_plugin_window_state::AppHandleExt;
+                let _ = window.app_handle().save_window_state(window_state_flags());
+            }
+        })
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
             sessions: Default::default(),

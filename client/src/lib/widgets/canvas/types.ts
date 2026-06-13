@@ -16,6 +16,7 @@ export type Baseline = {
 	monitor: MonitorLayout;
 	library: Library | undefined;
 	theme: string;
+	themeLock: boolean;
 	tokens: Record<string, string>;
 };
 
@@ -37,6 +38,10 @@ export type EditorState = {
 	// the new primary — UNLESS the op set selectedIds itself (marquee / template / group move).
 	lastPrimary: string | null;
 	selectedTheme: string;
+	// Lock the theme to ALL monitors (default true). When true the picker sets the layout's global
+	// `theme` and every monitor uses it; when false the picker sets the CURRENT monitor's own theme
+	// (MonitorLayout.theme), so each display can differ. Toggled from studio Settings.
+	themeLock: boolean;
 	tokenOverrides: Record<string, string>;
 	// Def editor (6b): while editing a def, `monitor` is the scoped tree and the real monitor is
 	// stashed in `savedMonitor`. `defEditBaseline` is the scoped tree as of def-edit START, so the

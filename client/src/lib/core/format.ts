@@ -220,6 +220,14 @@ const LOCALES: Record<string, LocaleNames> = {
 	}
 };
 
+/** The 7 weekday names for `locale`, Sunday-first (index = Date.getDay()): `style:'short'` is the
+ * compact form (Sun / 日 …), 'long' the full form. Unknown locale falls back to English. Returns a
+ * copy. The Calendar widget rotates these by its configured first day-of-week. */
+export function localeDayNames(locale = 'en', style: 'short' | 'long' = 'short'): string[] {
+	const names = LOCALES[locale] ?? LOCALES.en;
+	return [...(style === 'long' ? names.days : names.daysShort)];
+}
+
 const pad2 = (n: number): string => n.toString().padStart(2, '0');
 
 const CLOCK_TOKEN = /\[([^\]]*)\]|YYYY|MMMM|MMM|MM|M|dddd|ddd|DD|D|HH|H|hh|h|mm|m|ss|s|A|a/g;

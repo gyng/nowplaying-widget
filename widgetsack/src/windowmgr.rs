@@ -116,6 +116,94 @@ pub fn restore_top_left(
     (cursor.0 - rel_x * restore_w, cursor.1 - rel_y * restore_h)
 }
 
+// ---- pure drag-detection state machine (the custom-titlebar fallback) ----
+
+/// Which kind of foreign-window drag is in flight. `Real` = the standard OS modal move/size loop
+/// (EVENT_SYSTEM_MOVESIZESTART…END). Custom-titlebar apps — Electron (`-webkit-app-region: drag`),
+/// WinUI/UWP (the Windows 11 Notepad), Java — never enter that loop, so we INFER a `Synthetic` drag for
+/// them from the window MOVING while the left mouse button is held (EVENT_OBJECT_LOCATIONCHANGE + button
+/// state). The two paths converge on the same `win_drag_start`/`win_drag_end` the overlay already rides.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DragKind {
+    #[default]
+    None,
+    Real,
+    Synthetic,
+}
+
+/// What the Win32 edge should do after feeding the detector one input.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DragAction {
+    None,
+    Start(i64),
+    End(i64),
+}
+
+/// Pure state machine turning the raw Win32 drag signals into clean start/end actions, unifying the
+/// standard move/size loop (classic windows) with the move-while-pressed fallback (custom titlebars).
+/// Driven only from the watcher's single message-pump thread, so it needs no locking; unit-tested
+/// without a window. The Win32 edge supplies `lmb_down` (GetAsyncKeyState) and `arrangeable`
+/// (is_arrangeable) — keeping every OS call out of the logic.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DragDetector {
+    kind: DragKind,
+    hwnd: i64,
+}
+
+impl DragDetector {
+    /// The standard modal move/size loop began (a classic titlebar grab): always a real drag start.
+    pub fn move_size_start(&mut self, hwnd: i64) -> DragAction {
+        self.kind = DragKind::Real;
+        self.hwnd = hwnd;
+        DragAction::Start(hwnd)
+    }
+
+    /// The standard modal move/size loop ended — ends a real drag (a synthetic one ends via `tick`).
+    pub fn move_size_end(&mut self, hwnd: i64) -> DragAction {
+        if self.kind == DragKind::Real {
+            self.kind = DragKind::None;
+            DragAction::End(hwnd)
+        } else {
+            DragAction::None
+        }
+    }
+
+    /// A top-level window moved. With NOTHING dragging yet, the left button held, and the window
+    /// arrangeable, infer a synthetic drag start (a custom-titlebar app being dragged). A move during an
+    /// existing drag — including the real loop's own LOCATIONCHANGE noise — is ignored (no double start).
+    pub fn window_moved(&mut self, hwnd: i64, lmb_down: bool, arrangeable: bool) -> DragAction {
+        if self.kind == DragKind::None && lmb_down && arrangeable {
+            self.kind = DragKind::Synthetic;
+            self.hwnd = hwnd;
+            DragAction::Start(hwnd)
+        } else {
+            DragAction::None
+        }
+    }
+
+    /// Poll while a synthetic drag is in flight: when the button is released, end it (custom drags have
+    /// no MOVESIZEEND to ride). No-op for a real / no drag.
+    pub fn tick(&mut self, lmb_down: bool) -> DragAction {
+        if self.kind == DragKind::Synthetic && !lmb_down {
+            let hwnd = self.hwnd;
+            self.kind = DragKind::None;
+            DragAction::End(hwnd)
+        } else {
+            DragAction::None
+        }
+    }
+
+    /// Nothing is being dragged (the edge skips the per-LOCATIONCHANGE arrangeable probe unless idle).
+    pub fn is_idle(&self) -> bool {
+        self.kind == DragKind::None
+    }
+
+    /// A synthetic drag is in flight (the edge runs its release-polling timer only then).
+    pub fn in_synthetic_drag(&self) -> bool {
+        self.kind == DragKind::Synthetic
+    }
+}
+
 // ---- Tauri command surface (cross-platform; delegates to the cfg-split helpers below) ----
 
 /// Foreign-window manipulation is powerful and has NO Tauri capability/sandbox gate (the moves are
@@ -197,25 +285,34 @@ fn shift_held() -> bool {
     false
 }
 
-/// Spawn the live-drag watcher: a dedicated thread that installs a `SetWinEventHook` for the window
-/// move/size modal loop and runs a Windows MESSAGE PUMP (required for WINEVENT_OUTOFCONTEXT delivery
-/// — the clickthrough watcher is a sleep loop with no pump, so this MUST be its own thread). Emits
-/// `win_drag_start` / `win_drag_end` (with the dragged HWND); the overlay polls `pointer_probe`
-/// between them to highlight the hovered zone and snap on release. No-op off Windows. NOTE: only the
-/// standard OS move/size loop fires these — custom-titlebar/Java/Electron apps need an
-/// EVENT_OBJECT_LOCATIONCHANGE fallback (deferred).
+/// Spawn the live-drag watcher: a dedicated thread that installs `SetWinEventHook`s and runs a Windows
+/// MESSAGE PUMP (required for WINEVENT_OUTOFCONTEXT delivery — the clickthrough watcher is a sleep loop
+/// with no pump, so this MUST be its own thread). TWO hooks feed one `DragDetector`: the standard modal
+/// move/size loop (classic titlebars), AND `EVENT_OBJECT_LOCATIONCHANGE` — the fallback for
+/// custom-titlebar apps (Electron / WinUI-UWP like the Windows 11 Notepad / Java) that never enter that
+/// loop, whose drag we infer from the window moving while the left button is held (a ~30 Hz WM_TIMER
+/// catches the release). Emits `win_drag_start` / `win_drag_end` (with the dragged HWND); the overlay
+/// polls `pointer_probe` between them to highlight the hovered zone and snap on release. No-op off Windows.
 #[cfg(target_os = "windows")]
 pub fn run_drag_watcher(app: tauri::AppHandle) {
     if DRAG_APP.set(app).is_err() {
         return; // already running
     }
+    spawn_drag_pump();
+}
+
+/// Spawn the hook-install + message-pump thread. Split out of `run_drag_watcher` so the live pipeline
+/// can be smoke-tested via `DRAG_SINK` without a Tauri app handle (see `synthetic_drag_*` below).
+#[cfg(target_os = "windows")]
+fn spawn_drag_pump() {
     std::thread::spawn(|| unsafe {
         use windows::Win32::UI::Accessibility::SetWinEventHook;
         use windows::Win32::UI::WindowsAndMessaging::{
-            DispatchMessageW, GetMessageW, EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZESTART, MSG,
-            WINEVENT_OUTOFCONTEXT,
+            DispatchMessageW, GetMessageW, EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_MOVESIZEEND,
+            EVENT_SYSTEM_MOVESIZESTART, MSG, WINEVENT_OUTOFCONTEXT, WM_TIMER,
         };
-        let hook = SetWinEventHook(
+        // Hook 1: the standard modal move/size loop (classic titlebars) → real drags.
+        let move_hook = SetWinEventHook(
             EVENT_SYSTEM_MOVESIZESTART,
             EVENT_SYSTEM_MOVESIZEEND,
             None,
@@ -224,12 +321,27 @@ pub fn run_drag_watcher(app: tauri::AppHandle) {
             0,
             WINEVENT_OUTOFCONTEXT,
         );
-        if hook.is_invalid() {
-            return;
+        // Hook 2: window location changes → the fallback for custom-titlebar apps. Filtered to
+        // OBJID_WINDOW + gated on the left button inside the proc so this (frequent) event stays cheap.
+        let loc_hook = SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            EVENT_OBJECT_LOCATIONCHANGE,
+            None,
+            Some(win_event_proc),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
+        if move_hook.is_invalid() && loc_hook.is_invalid() {
+            return; // nothing to listen on
         }
-        // OUTOFCONTEXT callbacks are delivered while this thread retrieves messages.
+        // OUTOFCONTEXT callbacks (and our synthetic-drag WM_TIMER) are delivered while this thread
+        // retrieves messages.
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            if msg.message == WM_TIMER {
+                on_synth_tick();
+            }
             let _ = DispatchMessageW(&msg);
         }
     });
@@ -241,6 +353,127 @@ pub fn run_drag_watcher(_app: tauri::AppHandle) {}
 #[cfg(target_os = "windows")]
 static DRAG_APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 
+// The drag detector + its release-polling timer id live on the watcher's pump thread (the ONLY thread
+// that touches them — both `win_event_proc` and the WM_TIMER handler run there), so a thread-local
+// needs no locking.
+#[cfg(target_os = "windows")]
+thread_local! {
+    static DETECTOR: std::cell::RefCell<DragDetector> = std::cell::RefCell::new(DragDetector::default());
+    static SYNTH_TIMER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Poll cadence (ms) for the button release that ends a synthetic (custom-titlebar) drag.
+#[cfg(target_os = "windows")]
+const SYNTH_POLL_MS: u32 = 30;
+
+/// Is the left mouse button physically down right now? The arming signal for inferring a custom drag.
+#[cfg(target_os = "windows")]
+fn lbutton_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0
+}
+
+/// Is `hwnd` a window we'd snap — the same predicate `list_arrangeable` applies, for ONE window? Used
+/// to qualify a LOCATIONCHANGE as a real app-window drag (not our own overlay, a tooltip, a child …).
+#[cfg(target_os = "windows")]
+fn arrangeable_hwnd(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use std::ffi::c_void;
+    use std::mem::size_of;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
+        IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, WS_CHILD, WS_EX_TOOLWINDOW,
+    };
+    unsafe {
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        let mut cloaked: u32 = 0;
+        let _ = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut _ as *mut c_void,
+            size_of::<u32>() as u32,
+        );
+        let mut rc = RECT::default();
+        if GetWindowRect(hwnd, &mut rc).is_err() {
+            return false;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let has_owner = !GetWindow(hwnd, GW_OWNER).unwrap_or_default().0.is_null();
+        let is_child = GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_CHILD.0 != 0;
+        is_arrangeable(
+            IsWindowVisible(hwnd).as_bool(),
+            ex_style & WS_EX_TOOLWINDOW.0 != 0,
+            cloaked != 0,
+            GetWindowTextLengthW(hwnd) > 0,
+            rc.right - rc.left,
+            rc.bottom - rc.top,
+            pid == std::process::id(),
+            has_owner || is_child,
+        )
+    }
+}
+
+// Drag signals normally fan out on the Tauri bridge; a test can install a capturing sink (set once) to
+// smoke-test the live SetWinEventHook pipeline without a Tauri app handle.
+#[cfg(target_os = "windows")]
+#[allow(clippy::type_complexity)]
+static DRAG_SINK: std::sync::OnceLock<Box<dyn Fn(DragAction) + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Emit the bridge event for a detector action. A `Start` first pops a previously-snapped window back to
+/// its pre-snap size (so dragging it out of a zone restores it) — for BOTH real and synthetic drags.
+#[cfg(target_os = "windows")]
+fn apply_drag_action(action: DragAction) {
+    if let DragAction::Start(id) = action {
+        let hwnd = windows::Win32::Foundation::HWND(id as isize as *mut std::ffi::c_void);
+        unsafe { restore_on_drag_out(hwnd) };
+    }
+    // A test sink intercepts the signal so the pipeline is observable without a Tauri app.
+    if let Some(sink) = DRAG_SINK.get() {
+        sink(action);
+        return;
+    }
+    use tauri::Emitter;
+    let Some(app) = DRAG_APP.get() else { return };
+    match action {
+        DragAction::Start(id) => {
+            let _ = app.emit(crate::bridge::WIN_DRAG_START_EVENT, DragEvent { hwnd: id });
+        }
+        DragAction::End(id) => {
+            let _ = app.emit(crate::bridge::WIN_DRAG_END_EVENT, DragEvent { hwnd: id });
+        }
+        DragAction::None => {}
+    }
+}
+
+/// Start the release-polling timer while (and only while) a synthetic drag is in flight; stop it
+/// otherwise. Idempotent — safe to call after every detector input.
+#[cfg(target_os = "windows")]
+fn sync_synth_timer() {
+    use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
+    let want = DETECTOR.with(|d| d.borrow().in_synthetic_drag());
+    SYNTH_TIMER.with(|t| {
+        let cur = t.get();
+        if want && cur == 0 {
+            // Thread timer (no window) → WM_TIMER lands in our message pump.
+            t.set(unsafe { SetTimer(None, 0, SYNTH_POLL_MS, None) });
+        } else if !want && cur != 0 {
+            let _ = unsafe { KillTimer(None, cur) };
+            t.set(0);
+        }
+    });
+}
+
+/// WM_TIMER tick: poll the button to see if a synthetic drag has been released, then resync the timer.
+#[cfg(target_os = "windows")]
+fn on_synth_tick() {
+    let action = DETECTOR.with(|d| d.borrow_mut().tick(lbutton_down()));
+    apply_drag_action(action);
+    sync_synth_timer();
+}
+
 /// hwnd → pre-snap outer size (w, h). Populated by `snap` (first snap only) and consumed by
 /// `restore_on_drag_out` so dragging a snapped window out of its zone pops it back to its prior size.
 #[cfg(target_os = "windows")]
@@ -248,9 +481,9 @@ static SNAPPED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i
     std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// If `hwnd` was previously snapped by us, resize it back to its remembered pre-snap size — keeping
-/// the grabbed title bar under the cursor — and forget it. Called on MOVESIZESTART, so dragging a
-/// snapped window out of its zone restores its prior dimensions (Windows-Snap behavior). No-op for a
-/// window we never snapped.
+/// the grabbed title bar under the cursor — and forget it. Called on a drag START (real or synthetic),
+/// so dragging a snapped window out of its zone restores its prior dimensions (Windows-Snap behavior).
+/// No-op for a window we never snapped.
 #[cfg(target_os = "windows")]
 unsafe fn restore_on_drag_out(hwnd: windows::Win32::Foundation::HWND) {
     use windows::Win32::Foundation::{POINT, RECT};
@@ -294,28 +527,31 @@ unsafe extern "system" fn win_event_proc(
     _thread: u32,
     _time: u32,
 ) {
-    use tauri::Emitter;
-    use windows::Win32::UI::WindowsAndMessaging::OBJID_WINDOW;
-    use windows::Win32::UI::WindowsAndMessaging::{EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZESTART};
-    // Only the window itself (OBJID_WINDOW), not its caret/child accessible objects.
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZESTART, OBJID_WINDOW,
+    };
+    // Only the window itself (OBJID_WINDOW), not its caret/cursor/child accessible objects — the
+    // LOCATIONCHANGE stream is otherwise very noisy.
     if id_object != OBJID_WINDOW.0 {
         return;
     }
-    let Some(app) = DRAG_APP.get() else {
-        return;
-    };
-    let payload = DragEvent { hwnd: hwnd.0 as isize as i64 };
-    match event {
-        EVENT_SYSTEM_MOVESIZESTART => {
-            // Dragging a snapped window out of its zone pops it back to its pre-snap size first.
-            unsafe { restore_on_drag_out(hwnd) };
-            let _ = app.emit(crate::bridge::WIN_DRAG_START_EVENT, payload);
+    let id = hwnd.0 as isize as i64;
+    let action = DETECTOR.with(|d| {
+        let mut d = d.borrow_mut();
+        match event {
+            EVENT_SYSTEM_MOVESIZESTART => d.move_size_start(id),
+            EVENT_SYSTEM_MOVESIZEEND => d.move_size_end(id),
+            // Custom-titlebar fallback: a top-level arrangeable window moving while the left button is
+            // held is an inferred drag. The cheap idle + button gates run BEFORE the heavier arrangeable
+            // probe, so an idle desktop's ordinary window moves cost almost nothing.
+            EVENT_OBJECT_LOCATIONCHANGE if d.is_idle() && lbutton_down() => {
+                d.window_moved(id, true, arrangeable_hwnd(hwnd))
+            }
+            _ => DragAction::None,
         }
-        EVENT_SYSTEM_MOVESIZEEND => {
-            let _ = app.emit(crate::bridge::WIN_DRAG_END_EVENT, payload);
-        }
-        _ => {}
-    }
+    });
+    apply_drag_action(action);
+    sync_synth_timer();
 }
 
 // ---- Windows implementation ----
@@ -625,6 +861,83 @@ mod tests {
         let (x, y) = restore_top_left(rect(5.0, 5.0, 0.0, 0.0), (5.0, 5.0), 800.0, 600.0);
         assert_eq!((x, y), (5.0, 5.0));
     }
+
+    #[test]
+    fn classic_drag_starts_and_ends_via_the_move_size_loop() {
+        let mut d = DragDetector::default();
+        assert_eq!(d.move_size_start(7), DragAction::Start(7));
+        // A window-move during the real drag is suppressed (no synthetic double-start).
+        assert_eq!(d.window_moved(7, true, true), DragAction::None);
+        assert!(!d.in_synthetic_drag());
+        assert_eq!(d.move_size_end(7), DragAction::End(7));
+        // A stray end afterwards does nothing.
+        assert_eq!(d.move_size_end(7), DragAction::None);
+    }
+
+    #[test]
+    fn custom_titlebar_drag_is_inferred_from_move_while_pressed() {
+        let mut d = DragDetector::default();
+        // The window moves while the button is held → synthetic start.
+        assert_eq!(d.window_moved(9, true, true), DragAction::Start(9));
+        assert!(d.in_synthetic_drag());
+        // Subsequent moves don't re-start it.
+        assert_eq!(d.window_moved(9, true, true), DragAction::None);
+        // Still held → no end yet; released → synthetic end.
+        assert_eq!(d.tick(true), DragAction::None);
+        assert_eq!(d.tick(false), DragAction::End(9));
+        assert!(d.is_idle());
+    }
+
+    #[test]
+    fn a_move_without_the_button_or_on_an_unarrangeable_window_is_not_a_drag() {
+        let mut d = DragDetector::default();
+        assert_eq!(d.window_moved(9, false, true), DragAction::None); // button up
+        assert_eq!(d.window_moved(9, true, false), DragAction::None); // not arrangeable
+        assert!(d.is_idle());
+        assert_eq!(d.tick(false), DragAction::None); // tick with no synthetic drag ends nothing
+    }
+
+    #[test]
+    fn an_active_real_drag_suppresses_synthetic_inference() {
+        let mut d = DragDetector::default();
+        d.move_size_start(1);
+        assert!(!d.is_idle());
+        // A move-while-pressed on any window is ignored mid real-drag, and tick never ends a real drag.
+        assert_eq!(d.window_moved(2, true, true), DragAction::None);
+        assert_eq!(d.tick(false), DragAction::None);
+        assert_eq!(d.move_size_end(1), DragAction::End(1));
+    }
+
+    #[test]
+    fn window_descriptor_serializes_to_the_ts_bridge_shape() {
+        // Pins the wire contract for the TS mirror `WindowDescriptor` (core/windowMatch.ts). The
+        // `className` camelCase rename is LOAD-BEARING — without it appOpen/zone class matching reads
+        // `win.className` as undefined; this test fails loudly if the rename is ever dropped.
+        let d = WindowDescriptor {
+            hwnd: 123,
+            exe: "C:\\X\\app.exe".to_string(),
+            class_name: "Chrome_WidgetWin_1".to_string(),
+            title: "Title".to_string(),
+            rect: ScreenRect { x: 1.0, y: 2.0, w: 3.0, h: 4.0 },
+        };
+        let json = serde_json::to_value(&d).unwrap();
+        assert_eq!(json["hwnd"], 123);
+        assert_eq!(json["exe"], "C:\\X\\app.exe");
+        assert_eq!(json["className"], "Chrome_WidgetWin_1"); // camelCase, NOT class_name
+        assert!(json.get("class_name").is_none(), "snake_case class_name must not leak to the bridge");
+        assert_eq!(json["title"], "Title");
+        assert_eq!(json["rect"]["x"], 1.0);
+        assert_eq!(json["rect"]["w"], 3.0);
+    }
+
+    #[test]
+    fn pointer_state_serializes_to_the_ts_bridge_shape() {
+        // Mirrors `Pointer` in core/dragSnap.ts ({ x, y, shift }) — the overlay's drag poll reads these.
+        let json = serde_json::to_value(PointerState { x: 10.0, y: 20.0, shift: true }).unwrap();
+        assert_eq!(json["x"], 10.0);
+        assert_eq!(json["y"], 20.0);
+        assert_eq!(json["shift"], true);
+    }
 }
 
 /// Opt-in LIVE smoke test of the real `SetWindowPos` path (the one thing the pure seams can't cover):
@@ -707,5 +1020,116 @@ mod manual_smoke {
         assert!((end.x - target.x).abs() < 16.0, "x off target: {} vs {}", end.x, target.x);
         assert!((end.y - target.y).abs() < 16.0, "y off target: {} vs {}", end.y, target.y);
         assert!((end.w - target.w).abs() < 32.0, "w off target: {} vs {}", end.w, target.w);
+    }
+
+    /// Synthesize the left mouse button down/up (so `GetAsyncKeyState(VK_LBUTTON)` — the synthetic-drag
+    /// arming gate — reads it). Injected at the current cursor position.
+    fn send_lmb(down: bool) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+            MOUSEINPUT,
+        };
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: if down { MOUSEEVENTF_LEFTDOWN } else { MOUSEEVENTF_LEFTUP },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+    }
+
+    /// LIVE smoke test of the custom-titlebar drag FALLBACK (the new, previously-unverified Win32 wiring:
+    /// the EVENT_OBJECT_LOCATIONCHANGE hook + synthetic `DragDetector` + release-polling WM_TIMER). It
+    /// installs the real watcher pipeline (routing drag signals into a capturing `DRAG_SINK` instead of
+    /// Tauri), spawns a throwaway window, then SYNTHESIZES a custom drag: hold the left button + move the
+    /// window with `SetWindowPos` (which fires LOCATIONCHANGE the same way an Electron/UWP titlebar drag
+    /// does — WITHOUT entering the OS modal move loop), then release. Asserts a synthetic `Start` fired on
+    /// the move and an `End` on release. `#[ignore]`: it spawns a GUI window and injects mouse input, so
+    /// run it explicitly:
+    ///   `cargo test -p widgetsack -- --ignored --nocapture synthetic_drag_emits_start_then_end`
+    #[test]
+    #[ignore = "spawns a real window + injects synthetic mouse input; run explicitly with --ignored"]
+    fn synthetic_drag_emits_start_then_end() {
+        use std::ffi::c_void;
+        use std::sync::mpsc;
+        use windows::Win32::Foundation::{HWND, RECT};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowRect, SetCursorPos, SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+        };
+
+        // Capture drag signals (no Tauri), then start the REAL hook pipeline.
+        let (tx, rx) = mpsc::channel::<DragAction>();
+        let _ = DRAG_SINK.set(Box::new(move |a| {
+            let _ = tx.send(a);
+        }));
+        spawn_drag_pump();
+        sleep(Duration::from_millis(250)); // let the hooks install + the pump start
+
+        // Spawn a throwaway window; identify it by diffing the arrangeable set across the spawn.
+        let before: HashSet<i64> = arrangeable().into_iter().map(|w| w.hwnd).collect();
+        let mut child = Command::new("notepad.exe").spawn().expect("failed to spawn notepad.exe");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut hwnd_id = None;
+        while Instant::now() < deadline && hwnd_id.is_none() {
+            sleep(Duration::from_millis(150));
+            hwnd_id = arrangeable().into_iter().find(|w| !before.contains(&w.hwnd)).map(|w| w.hwnd);
+        }
+        let Some(hwnd_id) = hwnd_id else {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("no new window appeared within 5s — did Notepad open?");
+        };
+        let hwnd = HWND(hwnd_id as isize as *mut c_void);
+
+        // Press the button over the window's CLIENT area (NOT the caption — pressing a titlebar would
+        // start the OS modal move loop = the REAL path; we want the synthetic one), then move the window
+        // via SetWindowPos to fire LOCATIONCHANGE, then release.
+        let mut rc = RECT::default();
+        let _ = unsafe { GetWindowRect(hwnd, &mut rc) };
+        let cx = (rc.left + rc.right) / 2;
+        let cy = rc.top + (rc.bottom - rc.top) * 3 / 4; // lower portion → client area
+        let _ = unsafe { SetCursorPos(cx, cy) };
+        send_lmb(true);
+        sleep(Duration::from_millis(40));
+        for i in 1..=4 {
+            let _ = unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    rc.left + i * 8,
+                    rc.top + i * 8,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+            sleep(Duration::from_millis(40));
+        }
+        send_lmb(false);
+        sleep(Duration::from_millis(200)); // let the ~30Hz release timer tick
+
+        // Clean up BEFORE asserting so a failure never leaves the window (or a held button) behind.
+        send_lmb(false); // belt-and-suspenders: ensure the injected button is released
+        close_window(hwnd_id);
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let signals: Vec<DragAction> = rx.try_iter().collect();
+        println!("captured drag signals: {signals:?}");
+        assert!(
+            signals.iter().any(|a| matches!(a, DragAction::Start(h) if *h == hwnd_id)),
+            "expected a synthetic Start for the dragged window; got {signals:?}"
+        );
+        assert!(
+            signals.iter().any(|a| matches!(a, DragAction::End(h) if *h == hwnd_id)),
+            "expected an End after the button release; got {signals:?}"
+        );
     }
 }

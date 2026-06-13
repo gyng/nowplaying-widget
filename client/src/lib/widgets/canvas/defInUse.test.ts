@@ -16,6 +16,7 @@ function stub(over: Partial<EditorState>): EditorState {
 		selectedIds: [],
 		lastPrimary: null,
 		selectedTheme: '',
+		themeLock: true,
 		tokenOverrides: {},
 		editingDefId: null,
 		savedMonitor: null,

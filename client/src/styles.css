@@ -99,6 +99,21 @@ body {
 	}
 }
 
+/* Overlay startup fade-in: the content eases up from transparent the moment an overlay window is
+   revealed (the reveal path adds `.ov-fade-in` on <html> right after the window is shown, so the fade
+   begins exactly when it appears — not at React mount, which is much earlier). Content is fully visible
+   by DEFAULT, so a window that never runs the reveal path (a plain-browser/dev preview) is never stuck
+   hidden. The studio is a normal window and never gets the class. prefers-reduced-motion zeroes the
+   duration via the global reset above, so it's instant for users who asked for stillness. */
+html.ov-fade-in #root {
+	animation: ov-fade-in 260ms ease-out;
+}
+@keyframes ov-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
 /* The studio is an opaque window; give it a dark full-window backdrop so any area not covered by a
    panel (e.g. the margins exposed when the Inspector/Outline are hidden during a template preview)
    reads as studio chrome, not the webview's default white. The overlay (no `.studio`) stays

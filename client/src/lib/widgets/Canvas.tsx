@@ -241,6 +241,7 @@ export default function Canvas({ studio = false }: Props) {
 		selectedId,
 		selectedIds,
 		selectedTheme,
+		themeLock,
 		tokenOverrides,
 		editingDefId,
 		defEditBaseline,
@@ -307,6 +308,26 @@ export default function Canvas({ studio = false }: Props) {
 		duplicateTheme,
 		deleteTheme
 	} = useThemes({ studio, selectedTheme, dispatch, commitOp });
+
+	// Theme lock (studio Settings): true = one theme across all monitors (default), false = per-monitor.
+	// Theme-only change → commit (a history no-op that triggers the disk write), mirroring setTheme.
+	const setThemeLock = useCallback(
+		(lock: boolean) => {
+			dispatch({ type: 'patch', patch: { themeLock: lock } });
+			commitOp(() => ({}));
+		},
+		[dispatch, commitOp]
+	);
+	// Flat theme option list for the Settings picker: (default) + every built-in + the user themes,
+	// plus the current selection if it isn't otherwise listed (a removed/unknown name still shows).
+	const themeOptions = useMemo(() => {
+		const opts: { value: string; label: string }[] = [{ value: '', label: '(default)' }];
+		for (const t of BUILTIN_THEMES) opts.push({ value: builtinName(t.id), label: t.name });
+		for (const n of themeList) opts.push({ value: n, label: n });
+		if (selectedTheme && !opts.some((o) => o.value === selectedTheme))
+			opts.push({ value: selectedTheme, label: themeLabel(selectedTheme) });
+		return opts;
+	}, [themeList, selectedTheme, themeLabel]);
 
 	// Edit mode (tray "Edit layout" / Ctrl+E). Entering disables click-through.
 	const [editMode, setEditMode] = useState(false);
@@ -765,6 +786,7 @@ export default function Canvas({ studio = false }: Props) {
 			(editingDefId != null && defEditBaseline != null && monitor !== defEditBaseline) ||
 			library !== savedBaseline.library ||
 			selectedTheme !== savedBaseline.theme ||
+			themeLock !== savedBaseline.themeLock ||
 			tokenOverrides !== savedBaseline.tokens ||
 			pendingExtras.length > 0);
 
@@ -869,7 +891,12 @@ export default function Canvas({ studio = false }: Props) {
 			if (lib && typeof lib === 'object' && Array.isArray((lib as { defs?: unknown }).defs)) {
 				patch.library = lib as Library;
 			}
-			const t = obj?.theme;
+			// Theme: LOCKED (default) → the layout's global `theme` on every monitor; UNLOCKED → this
+			// monitor's own `theme`, falling back to the global. `themeLock` absent ⇒ locked (back-compat).
+			// An explicit '' (default tokens) on the monitor is honored — it's a string, so the ?? keeps it.
+			const lock = obj?.themeLock !== false;
+			patch.themeLock = lock;
+			const t = lock ? obj?.theme : mon?.theme ?? obj?.theme;
 			if (typeof t === 'string' && t !== stateThemeRef.current) {
 				patch.selectedTheme = t;
 				nextTheme = t;
@@ -2899,6 +2926,13 @@ export default function Canvas({ studio = false }: Props) {
 											multiMonitor: monitorOptions.length > 1,
 											zoom,
 											fit
+										}}
+										theme={{
+											options: themeOptions,
+											selected: selectedTheme,
+											setTheme,
+											lock: themeLock,
+											setLock: setThemeLock
 										}}
 										overlay={{ prefs: overlayPrefs, setPrefs: setOverlayPrefs, layerStatus }}
 										startup={{ autostart, toggleAutostart }}

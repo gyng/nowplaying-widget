@@ -106,6 +106,20 @@ async function populatedMonitorKeys(legacyMapping?: Record<string, string>): Pro
 	return keys;
 }
 
+/** Overlay startup fade-in: ease this window's content up from transparent the first time it's
+ *  revealed — called right after `win.show()` in the reveal paths so the fade begins exactly when the
+ *  window appears (not at React mount, which is far earlier). The content is visible by default, so a
+ *  window that never reveals (a plain-browser preview) is never stuck hidden; re-adding the class won't
+ *  re-run a finished animation, and a fresh webview (main re-created / secondary spawned) fades again
+ *  because the class starts absent. No-op without a DOM (tests). */
+function fadeInOverlayContent(): void {
+	try {
+		document.documentElement.classList.add('ov-fade-in');
+	} catch {
+		/* no document (non-DOM test env) */
+	}
+}
+
 /** Show or hide the primary MAIN window. Used to drop the primary overlay when its layout
  * (`default`) is empty — an empty transparent overlay still occupies the monitor. */
 export async function setMainWindowVisible(visible: boolean): Promise<void> {
@@ -113,6 +127,7 @@ export async function setMainWindowVisible(visible: boolean): Promise<void> {
 		const win = getCurrentWindow();
 		if (visible) {
 			await win.show();
+			fadeInOverlayContent();
 			// show() raises the window to the top of its z-order, so re-assert the chosen layer AFTER
 			// it — otherwise 'bottom'/'wallpaper' don't stick on startup (the overlay sits on top until
 			// some other window gets activated). Tauri's always-on-bottom is a one-shot HWND_BOTTOM.
@@ -268,6 +283,7 @@ export async function fillOwnMonitor(key: string): Promise<void> {
 		await win.setShadow(false);
 		await win.setIgnoreCursorEvents(true);
 		await win.show();
+		fadeInOverlayContent();
 		// show() raises the window; re-assert the chosen z-order layer AFTER it (see
 		// setMainWindowVisible). Safe to apply the full layer here, incl. the wallpaper SetParent,
 		// which must run from this overlay's own webview anyway.

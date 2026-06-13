@@ -27,9 +27,10 @@ docs regenerate from the code with `npm run gen:docs`.
 
 ## Features
 
-- **Widgets:** gauges, bars, sparklines, text, digital + analog clocks, a per-core CPU grid, an
-  audio spectrum, a now-playing card, a stock ticker, an application fence or zone, a web iframe, action buttons, and Home
-  Assistant tiles — sensor- or [formula-driven](docs/templating.md) and fully restylable ([reference](docs/widgets.md)).
+- **Widgets:** gauges, bars, sparklines, text, digital + analog clocks, a month calendar, a per-core
+  CPU grid, an audio spectrum, a now-playing card, a stock ticker, an application fence or zone, a web
+  iframe, action buttons, and Home Assistant tiles — sensor- or [formula-driven](docs/templating.md)
+  and fully restylable ([reference](docs/widgets.md)).
 - **Sensors:** CPU (total/per-core/freq), memory + swap, network, disks, uptime, battery, and
   NVIDIA GPU (NVML) — demand-gated, so only what's on screen is sampled.
 - **Now playing:** Windows media via GSMTC — Spotify, foobar2000, browsers, and more
@@ -44,8 +45,10 @@ docs regenerate from the code with `npm run gen:docs`.
 - **Macros:** bind a button to a sequence of actions (HA service calls, media transport).
 - **Plugin packages:** drop-in template/theme bundles from the community — declarative, opt-in,
   scanned ([authoring guide](docs/third-party-plugins.md)).
-- **Theming:** per-widget CSS (highlighting/linting editor), design-token themes, system fonts.
-- **Window zones:** define snap regions and drag any app's window into them.
+- **Theming:** per-widget CSS (highlighting/linting editor), design-token themes (one for every
+  monitor, or a different theme per monitor), system fonts.
+- **Window zones:** define snap regions and drag any app's window — including custom-titlebar apps
+  like Electron/UWP — into them, or auto-arrange open windows by rule.
 - **Perfect for secondary and side monitors**: Corsair Xeneon Edge, Lamptron, Turzx, etc.
 - Built with Tauri + React.
 

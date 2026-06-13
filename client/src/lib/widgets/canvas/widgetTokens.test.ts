@@ -28,6 +28,7 @@ function stub(root: Container, floating: MonitorLayout['floating'] = []): Editor
 		selectedIds: [],
 		lastPrimary: null,
 		selectedTheme: '',
+		themeLock: true,
 		tokenOverrides: {},
 		editingDefId: null,
 		savedMonitor: null,

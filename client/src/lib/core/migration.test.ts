@@ -145,6 +145,22 @@ describe('parseLayoutAny', () => {
 		expect(r?.monitors.b.background).toBeUndefined();
 	});
 
+	it('keeps a per-monitor theme string (incl. explicit "") and drops a non-string', () => {
+		const r = parseLayoutAny({
+			version: 2,
+			monitors: {
+				a: { floating: [], theme: 'builtin:nord' }, // a real override
+				b: { floating: [], theme: '' }, // explicit default (distinct from absent)
+				c: { floating: [] }, // no override → undefined (inherits the global)
+				d: { floating: [], theme: 42 } // malformed → dropped to undefined
+			}
+		});
+		expect(r?.monitors.a.theme).toBe('builtin:nord');
+		expect(r?.monitors.b.theme).toBe('');
+		expect(r?.monitors.c.theme).toBeUndefined();
+		expect(r?.monitors.d.theme).toBeUndefined();
+	});
+
 	it('round-trips a container condition (appOpen + sensor) and drops a malformed one', () => {
 		const r = parseLayoutAny({
 			version: 2,

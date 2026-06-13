@@ -11,6 +11,7 @@ function stub(root: Container, selectedId: string | null = null): EditorState {
 		selectedIds: [],
 		lastPrimary: null,
 		selectedTheme: '',
+		themeLock: true,
 		tokenOverrides: {},
 		editingDefId: null,
 		savedMonitor: null,

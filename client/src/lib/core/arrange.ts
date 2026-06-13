@@ -20,19 +20,31 @@ export function zoneRules(zones: Zone[]): ZoneRule[] {
 export type SnapPlan = { hwnd: number; zoneId: string; rect: Rect };
 
 /**
- * The windows to snap and where: each running window is matched against the zones' rules; matched
- * windows yield a `{ hwnd, zoneId, rect }` plan. Pure — returns the plan; the caller snaps. Returns
- * [] when no zone has a rule (so an un-ruled zone set never moves anything).
+ * The windows to snap and where: each running window is matched against the zones' rules and assigned
+ * to its best matching zone, **one window per zone**. A zone, once claimed by a window, is removed from
+ * the candidate set — so several windows of the same app (e.g. three File Explorer windows) spread
+ * across that app's matching zones, one each, instead of stacking on top of each other in a single
+ * zone. A window whose every matching zone is already taken is left unplaced (we never pile windows up
+ * or move one blindly). Windows are processed in the given order (the enumeration's top-of-z-order
+ * first), so the front window claims the highest-ranked zone. Pure — returns the plan; the caller
+ * snaps. Returns [] when no zone has a rule (so an un-ruled zone set never moves anything).
  */
 export function planArrangement(zones: Zone[], windows: WindowDescriptor[]): SnapPlan[] {
 	const rules = zoneRules(zones);
 	if (rules.length === 0) return [];
+	const filled = new Set<string>();
 	const plans: SnapPlan[] = [];
 	for (const w of windows) {
-		const m = matchWindowToZone(w, rules);
+		// Only zones not yet claimed by an earlier window are candidates for this one.
+		const m = matchWindowToZone(
+			w,
+			rules.filter((rule) => !filled.has(rule.zoneId))
+		);
 		if (!m) continue;
 		const zone = zones.find((z) => z.id === m.zoneId);
-		if (zone) plans.push({ hwnd: w.hwnd, zoneId: zone.id, rect: zone.rect });
+		if (!zone) continue;
+		plans.push({ hwnd: w.hwnd, zoneId: zone.id, rect: zone.rect });
+		filled.add(zone.id);
 	}
 	return plans;
 }
