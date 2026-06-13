@@ -133,6 +133,25 @@ Date / time clock using a date-fns format pattern (self-sourcing).
 | `label` | text |  |  |  |
 | `color` | color |  |  |  |
 
+### Calendar — `calendar`
+
+![Calendar widget](img/widgets/calendar.png)
+
+A month calendar grid: configurable first day of week, optional weekday header, highlights today, and an optional continuous view that spills dimmed into next month (self-sourcing).
+
+- **Sensor:** none (self-sourcing)
+- **Default size:** 220×200
+
+| key | type | default | options / range | description |
+| --- | --- | --- | --- | --- |
+| `firstDay` | select | "Sunday" | `Sunday`, `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday` |  |
+| `weekdayHeader` | toggle | true |  |  |
+| `continuous` | toggle | false |  | spill dimmed days through the end of next month |
+| `highlightToday` | toggle | true |  |  |
+| `showTitle` | toggle | true |  |  |
+| `locale` | select | "en" | `en`, `ja`, `zh` | weekday / month names |
+| `color` | color |  |  |  |
+
 ### Analog Clock — `analogclock`
 
 ![Analog Clock widget](img/widgets/analogclock.png)

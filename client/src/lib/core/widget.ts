@@ -350,6 +350,51 @@ export const BUILTIN_METAS: WidgetMeta[] = [
 		]
 	},
 	{
+		// Self-sourcing month calendar grid. binds:none; re-reads the date on a slow tick so "today"
+		// stays current. The grid (first-day-of-week, continuous spill into next month) is pure
+		// (core/calendar.ts); the meter just renders it.
+		type: 'calendar',
+		description:
+			'A month calendar grid: configurable first day of week, optional weekday header, highlights today, and an optional continuous view that spills dimmed into next month (self-sourcing).',
+		binds: 'none',
+		label: 'Calendar',
+		category: 'Clocks',
+		defaultSize: { w: 220, h: 200 },
+		defaultConfig: {
+			firstDay: 'Sunday',
+			weekdayHeader: true,
+			continuous: false,
+			highlightToday: true,
+			showTitle: true,
+			locale: 'en'
+		},
+		configFields: [
+			{
+				key: 'firstDay',
+				label: 'first day of week',
+				kind: 'select',
+				options: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+			},
+			{ key: 'weekdayHeader', label: 'weekday header', kind: 'toggle' },
+			{
+				key: 'continuous',
+				label: 'continuous',
+				kind: 'toggle',
+				help: 'spill dimmed days through the end of next month'
+			},
+			{ key: 'highlightToday', label: 'highlight today', kind: 'toggle' },
+			{ key: 'showTitle', label: 'month title', kind: 'toggle' },
+			{
+				key: 'locale',
+				label: 'locale',
+				kind: 'select',
+				options: ['en', 'ja', 'zh'],
+				help: 'weekday / month names'
+			},
+			color('color', 'accent')
+		]
+	},
+	{
 		// Self-sourcing analog clock (classic face + hands). binds:none; ticks internally.
 		type: 'analogclock',
 		description: 'Analog clock face with hour / minute / second hands (self-sourcing).',
