@@ -38,6 +38,15 @@ type Props = {
 		zoom: number;
 		fit: () => void;
 	};
+	// Theme: the all-monitors lock + the picker for the locked GLOBAL theme (or, when unlocked, this
+	// monitor's own theme). `options` are pre-built {value,label} entries (default + built-ins + user).
+	theme: {
+		options: { value: string; label: string }[];
+		selected: string;
+		setTheme: (name: string) => void;
+		lock: boolean;
+		setLock: (lock: boolean) => void;
+	};
 	// Overlay: z-order/taskbar prefs + the overlays' last layer-apply status line.
 	overlay: {
 		prefs: OverlayPrefs;
@@ -60,6 +69,7 @@ export default function StudioSettingsPanel({
 	tab,
 	onTab,
 	display,
+	theme,
 	overlay,
 	startup,
 	controls,
@@ -108,6 +118,36 @@ export default function StudioSettingsPanel({
 								Move a widget to another monitor by right-clicking it → “Move to”.
 							</div>
 						)}
+						<div className="rp-hd">Theme</div>
+						<label className="rp-row" style={{ cursor: 'pointer' }}>
+							<span>apply theme to all monitors</span>
+							<input
+								type="checkbox"
+								checked={theme.lock}
+								onChange={(e) => theme.setLock(e.currentTarget.checked)}
+							/>
+						</label>
+						<label style={{ display: 'block', marginTop: 8 }}>
+							<span>
+								{theme.lock ? 'theme (all monitors)' : `theme · ${monName || 'this monitor'}`}
+							</span>
+							<select
+								value={theme.selected}
+								onChange={(e) => theme.setTheme(e.currentTarget.value)}
+								aria-label={theme.lock ? 'Theme for all monitors' : 'Theme for this monitor'}
+							>
+								{theme.options.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+							</select>
+						</label>
+						<div className="pl-desc">
+							{theme.lock
+								? 'One theme styles every monitor. Uncheck to give each monitor its own theme.'
+								: 'Each monitor keeps its own theme — the picker above sets this monitor’s. Re-check to use one theme everywhere. Build/edit themes in the Themes section.'}
+						</div>
 						<div className="rp-hd">View</div>
 						<button type="button" onClick={fit}>
 							⤢ Fit to screen ({Math.round(zoom * 100)}%)

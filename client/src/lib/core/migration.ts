@@ -141,7 +141,16 @@ function parseMonitor(raw: unknown): MonitorLayout | null {
 	// never fatal to the monitor.
 	const background = parseBackgroundSpec(o.background);
 
-	return { root, floating, ...(background ? { background } : {}) };
+	// Per-monitor theme override (optional). A bare string is kept verbatim ('' = explicit default,
+	// distinct from absent = inherit the top-level theme); any non-string is dropped to undefined.
+	const theme = typeof o.theme === 'string' ? (o.theme as string) : undefined;
+
+	return {
+		root,
+		floating,
+		...(background ? { background } : {}),
+		...(theme !== undefined ? { theme } : {})
+	};
 }
 
 // Tolerate a missing/non-object root by substituting an empty root; reject a present

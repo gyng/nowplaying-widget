@@ -19,6 +19,7 @@ type PersistView = {
 	monitor: MonitorLayout;
 	library: Library | undefined;
 	selectedTheme: string;
+	themeLock: boolean;
 	tokenOverrides: Record<string, string>;
 	editingDefId: string | null;
 	savedMonitor: MonitorLayout | null;
@@ -45,6 +46,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		monitor: state.monitor,
 		library: state.library,
 		selectedTheme: state.selectedTheme,
+		themeLock: state.themeLock,
 		tokenOverrides: state.tokenOverrides,
 		editingDefId: state.editingDefId,
 		savedMonitor: state.savedMonitor,
@@ -55,6 +57,7 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		monitor: state.monitor,
 		library: state.library,
 		selectedTheme: state.selectedTheme,
+		themeLock: state.themeLock,
 		tokenOverrides: state.tokenOverrides,
 		editingDefId: state.editingDefId,
 		savedMonitor: state.savedMonitor,
@@ -90,7 +93,15 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 				defs: library.defs.map((d) => (d.id === defId ? { ...d, child } : d))
 			};
 		}
-		monitors[v.myMonitor] = v.editingDefId && v.savedMonitor ? v.savedMonitor : v.monitor;
+		// Theme placement depends on the lock. LOCKED: the selection is the GLOBAL theme (out.theme,
+		// below) and this monitor carries no override. UNLOCKED: pin the selection on THIS monitor's
+		// record so each display can differ; other monitors keep whatever override they already had.
+		const monitorOut = v.editingDefId && v.savedMonitor ? v.savedMonitor : v.monitor;
+		const monitorNoTheme: MonitorLayout = { ...monitorOut };
+		delete monitorNoTheme.theme; // strip any stale per-monitor theme; re-add only when unlocked
+		monitors[v.myMonitor] = v.themeLock
+			? monitorNoTheme
+			: { ...monitorNoTheme, theme: v.selectedTheme };
 		for (const extra of extras) {
 			if (extra.key === v.myMonitor) continue;
 			const t = monitors[extra.key] ?? { root: emptyRoot(), floating: [] };
@@ -99,11 +110,14 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 			monitors[extra.key] = { ...t, floating: [...(t.floating ?? []), extra.leaf] };
 		}
 		const lib = library ?? fileLib;
-		const theme = v.selectedTheme || fileTheme;
 		const tokens = v.tokenOverrides;
 		const out: Record<string, unknown> = { version: 2, monitors };
 		if (lib) out.library = lib;
-		if (theme) out.theme = theme;
+		// LOCKED → the selection IS the global theme (every monitor uses it). UNLOCKED → preserve the
+		// existing global as the inherit-default (the per-monitor override rides on the record above).
+		const globalTheme = v.themeLock ? v.selectedTheme || fileTheme : fileTheme;
+		if (globalTheme) out.theme = globalTheme;
+		if (!v.themeLock) out.themeLock = false; // absent ⇒ locked (the default), so only write when off
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
 			await invoke(COMMANDS.saveLayout, { contents: JSON.stringify(out, null, 2) });
@@ -130,13 +144,16 @@ export function usePersistence(state: EditorState, myMonitor: string): Persisten
 		} catch {
 			monitors = {};
 		}
-		monitors[myMonitor] = b.monitor;
+		const baseNoTheme: MonitorLayout = { ...b.monitor };
+		delete baseNoTheme.theme;
+		monitors[myMonitor] = b.themeLock ? baseNoTheme : { ...baseNoTheme, theme: b.theme };
 		const lib = b.library ?? fileLib;
-		const theme = b.theme || fileTheme;
+		const globalTheme = b.themeLock ? b.theme || fileTheme : fileTheme;
 		const tokens = b.tokens;
 		const out: Record<string, unknown> = { version: 2, monitors };
 		if (lib) out.library = lib;
-		if (theme) out.theme = theme;
+		if (globalTheme) out.theme = globalTheme;
+		if (!b.themeLock) out.themeLock = false; // absent ⇒ locked (the default)
 		if (tokens && Object.keys(tokens).length) out.tokens = tokens;
 		try {
 			await invoke(COMMANDS.saveLayout, { contents: JSON.stringify(out, null, 2) });

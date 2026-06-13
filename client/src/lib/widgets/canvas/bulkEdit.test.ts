@@ -20,6 +20,7 @@ function stub(root: Container, selectedIds: string[]): EditorState {
 		selectedIds,
 		lastPrimary: null,
 		selectedTheme: '',
+		themeLock: true,
 		tokenOverrides: {},
 		editingDefId: null,
 		savedMonitor: null,
